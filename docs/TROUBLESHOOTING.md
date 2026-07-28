@@ -1,5 +1,13 @@
 # Troubleshooting
 
+## DMR/P25 decoding problems
+
+DMR/P25 support is experimental and requires a compatible, separately installed
+DSD-FME executable. Confirm that its configured path in **Settings** points to
+an executable file and inspect the DSD-FME status and stderr messages in the
+**Console**. Decoding reliability may vary, and FEC errors or audio underruns
+may occur. Encrypted traffic is not decoded.
+
 ## GNU Radio circular-buffer and `shmat` messages
 
 GNU Radio uses a double-mapped circular buffer between streaming blocks. Its

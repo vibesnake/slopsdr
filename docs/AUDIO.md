@@ -63,14 +63,17 @@ reduced integer ratio between the intermediate channel rate and 48 kHz.
   AGC, then select the positive or negative sideband with a second FIR at the
   reduced channel rate. Real-component detection, rational resampling, and a
   300 Hz to selected sideband-width audio FIR filter capped at 4 kHz follow.
-* DMR/P25 uses its own 12.5 kHz-default flat quadrature-discriminator branch
-  directly after the channel filter, bypassing analog squelch and deemphasis.
-  Bounded, DC-removed discriminator samples are rationally resampled to 48 kHz
-  mono and queued as signed 16-bit little-endian PCM for DSD-FME. DSD-FME
-  stdout is reconstructed as fragmented eight-byte 8 kHz interleaved stereo
-  native IEEE-754 float32 frames. Non-finite values become silence, finite
-  values are clamped to unity, and the distinct left/right timeslot channels
-  are resampled once to 48 kHz stereo.
+* Experimental DMR/P25 support uses its own 12.5 kHz-default
+  flat quadrature-discriminator branch directly after the channel filter,
+  bypassing analog squelch and deemphasis. It requires a separately installed
+  DSD-FME executable. Bounded, DC-removed discriminator samples are rationally
+  resampled to 48 kHz mono and queued as signed 16-bit little-endian PCM for
+  DSD-FME. DSD-FME stdout is reconstructed as fragmented eight-byte 8 kHz
+  interleaved stereo native IEEE-754 float32 frames. Non-finite values become
+  silence, finite values are clamped to unity, and the distinct left/right
+  timeslot channels are resampled once to 48 kHz stereo. Decoding reliability
+  may vary, and FEC errors or audio underruns may occur. Encrypted traffic is
+  not decoded.
 
 A mode change updates the selector and filters, then flushes both the DSP queue
 and platform playback queue. Samples produced by the previous mode are never
@@ -151,9 +154,10 @@ wideband spectrum/waterfall path. A failed decoder mutes decoded output and
 stays failed until the mode or configured path is changed, while reception and
 wideband display processing continue.
 
-DSD-FME is an optional separately installed executable, not a linked runtime
-dependency. Its configured path may be outside APT, including under
-`/usr/local/bin`; slopSDR does not install or update it.
+DSD-FME is a separately installed executable required for the experimental
+DMR/P25 mode, not a linked runtime dependency. Its configured path may be
+outside APT, including under `/usr/local/bin`; slopSDR does not install or
+update it.
 
 ## Test coverage
 

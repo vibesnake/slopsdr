@@ -16,10 +16,11 @@ The application discovers and selects SDR hardware through SoapySDR, receives
 with GNU Radio, renders spectrum and waterfall displays, provides 48 kHz audio,
 stores settings and bookmarks, and includes PPM calibration and a session
 console. Its five built-in analog demodulation modes are AM, NFM, WFM, USB, and
-LSB. **DMR/P25** is a separate digital-decoder mode that sends discriminator
-audio to an optional configured DSD-FME executable. Bookmark scanner-inclusion
-checkboxes are persisted metadata; the application has no scan-execution
-operation.
+LSB. **DMR/P25** is experimental: it is a separate digital-decoder mode that
+sends discriminator audio to a separately installed DSD-FME executable.
+Decoding reliability may vary, and FEC errors or audio underruns may occur.
+Encrypted traffic is not decoded. Bookmark scanner-inclusion checkboxes are
+persisted metadata; the application has no scan-execution operation.
 
 RTL-SDR Blog V4 handling is documented in [device access](docs/DEVICE_ACCESS.md).
 Hardware is never opened and reception never starts until you explicitly press
@@ -53,11 +54,13 @@ Ubuntu release may expose the module as `soapysdr-module-rtlsdr`.
 
 ### Optional DSD-FME
 
-DMR/P25 decoding requires a compatible separately installed DSD-FME executable;
-analog reception does not. DSD-FME may be installed outside APT, including under
-`/usr/local/bin`. In slopSDR, open **Settings**, set **DSD-FME binary** to the
-executable path, and select **DMR/P25** while receiving. slopSDR does not
-install, discover, or update DSD-FME.
+DMR/P25 support is experimental and requires a compatible, separately installed
+DSD-FME executable; analog reception does not. DSD-FME may be installed outside
+APT, including under `/usr/local/bin`. In slopSDR, open **Settings**, set
+**DSD-FME binary** to the executable path, and select **DMR/P25** while
+receiving. Decoding reliability may vary, and FEC errors or audio underruns may
+occur. Encrypted traffic is not decoded. slopSDR does not install, discover, or
+update DSD-FME.
 
 ## Build, test, and run
 

@@ -307,17 +307,19 @@ mono filtering and correction and are duplicated into both output channels;
 WFM output is mono and does not decode stereo broadcasts or RDS. A mode change
 discards queued audio from the previous mode.
 
-Choose **DMR/P25** to start the configured, separately installed DSD-FME
-executable while reception is running. This conventional single-frequency
-decoder mode uses a 12.5 kHz default filter and sends flat, unsquelched
-discriminator audio to DSD-FME for its default DMR and P25 detection. Decoded
-8 kHz interleaved stereo native IEEE-754 float32 output is resampled to 48 kHz
-stereo while preserving its two timeslot channels. Retuning keeps the decoder
-process running but discards stale decoded audio. The status below the normal
-audio status reports not configured, starting, running, stopped, failure, or
-bounded input/output overflow. Decoder failure does not stop the receiver,
-spectrum, or waterfall. Configure the executable path in **Settings**; slopSDR
-does not install or update DSD-FME.
+**DMR/P25 support is experimental.** Choose **DMR/P25** to start the configured,
+separately installed DSD-FME executable while reception is running. This
+conventional single-frequency decoder mode uses a 12.5 kHz default filter and
+sends flat, unsquelched discriminator audio to DSD-FME for its default DMR and
+P25 detection. Decoded 8 kHz interleaved stereo native IEEE-754 float32 output
+is resampled to 48 kHz stereo while preserving its two timeslot channels.
+Retuning keeps the decoder process running but discards stale decoded audio.
+The status below the normal audio status reports not configured, starting,
+running, stopped, failure, or bounded input/output overflow. Decoding
+reliability may vary, and FEC errors or audio underruns may occur. Encrypted
+traffic is not decoded. Decoder failure does not stop the receiver, spectrum,
+or waterfall. Configure the executable path in **Settings**; slopSDR does not
+install or update DSD-FME.
 
 The audio status line reports the active format or a no-device, unsupported
 format, open, disappearance, underrun, overflow, or write failure. Reception
