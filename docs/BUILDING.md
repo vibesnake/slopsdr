@@ -63,9 +63,13 @@ ctest --preset desktop-app-debug
 
 ```sh
 cmake --preset desktop-app-release
-cmake --build --preset app-release
+cmake --build build/desktop-app-release -j2
 ./build/desktop-app-release/slopsdr --verbose
 ```
+
+`desktop-app-release` is the normal user build. It uses the release hardware
+configuration, builds slopSDR and its required application targets, and does
+not compile the test suite.
 
 `--verbose` prints opened-device overall, RF, CORR, and selected practical RF
 capability ranges with the RTL-SDR Blog V4 HF decision, plus once-per-second
@@ -99,7 +103,21 @@ mock mode:
 ./build/desktop-app-debug/slopsdr --mock
 ```
 
-## Tests
+## Development and testing build
+
+Use the separate release-oriented test build for maintainer validation:
+
+```sh
+cmake --preset desktop-tests
+cmake --build build/desktop-tests -j2
+ctest --preset desktop-tests
+./tools/test-gui-headless.sh
+```
+
+The headless GUI script uses `build/desktop-tests` by default and accepts an
+explicit build-directory override.
+
+## Other tests
 
 Run the dependency-disabled and complete desktop suites with:
 
@@ -153,7 +171,7 @@ current user's local prefix:
 
 ```sh
 cmake --preset desktop-app-release
-cmake --build --preset app-release
+cmake --build build/desktop-app-release -j2
 cmake --install build/desktop-app-release --prefix ~/.local
 ```
 

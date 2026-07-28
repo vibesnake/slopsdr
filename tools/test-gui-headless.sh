@@ -14,7 +14,7 @@ if [ "$#" -ge 1 ]; then
         *)  BUILD_DIR="$REPO_ROOT/$1" ;;
     esac
 else
-    BUILD_DIR="$REPO_ROOT/build/desktop-app-release"
+    BUILD_DIR="$REPO_ROOT/build/desktop-tests"
 fi
 
 if [ ! -d "$BUILD_DIR" ]; then

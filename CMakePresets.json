@@ -57,10 +57,20 @@
       "inherits": "base",
       "cacheVariables": {
         "BUILD_DESKTOP_APP": "ON",
-        "BUILD_TESTING": "ON",
+        "BUILD_TESTING": "OFF",
         "CMAKE_BUILD_TYPE": "Release",
         "ENABLE_GNURADIO": "ON",
         "ENABLE_SOAPYSDR": "ON"
+      }
+    },
+    {
+      "name": "desktop-tests",
+      "displayName": "Desktop Hardware Release Tests",
+      "description": "Release tests with GNU Radio and SoapySDR.",
+      "inherits": "desktop-app-release",
+      "binaryDir": "${sourceDir}/build/desktop-tests",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
       }
     }
   ],
@@ -86,6 +96,10 @@
       "targets": [
         "slopsdr"
       ]
+    },
+    {
+      "name": "desktop-tests",
+      "configurePreset": "desktop-tests"
     }
   ],
   "testPresets": [
@@ -111,8 +125,8 @@
       }
     },
     {
-      "name": "desktop-app-release",
-      "configurePreset": "desktop-app-release",
+      "name": "desktop-tests",
+      "configurePreset": "desktop-tests",
       "output": {
         "outputOnFailure": true
       }

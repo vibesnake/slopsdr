@@ -62,7 +62,7 @@ receiving. Decoding reliability may vary, and FEC errors or audio underruns may
 occur. Encrypted traffic is not decoded. slopSDR does not install, discover, or
 update DSD-FME.
 
-## Build, test, and run
+## Build and run
 
 Configure and build the normal desktop hardware application from the repository
 root:
@@ -72,12 +72,8 @@ cmake --preset desktop-app-release
 cmake --build build/desktop-app-release -j2
 ```
 
-Run the automated release suite and headless Qt GUI tests with:
-
-```sh
-ctest --preset desktop-app-release
-./tools/test-gui-headless.sh
-```
+`desktop-app-release` is the normal user build. It uses the release hardware
+configuration and does not compile the test suite.
 
 Run the application directly from the build tree; installation or packaging is
 not required for normal use:
@@ -91,6 +87,21 @@ press **Start** to open it and begin reception. Choose an analog mode and tune
 normally. Configure DSD-FME only when using DMR/P25. Use `--mock` for deliberate
 hardware-free runs. [Building](docs/BUILDING.md) documents debug, mock,
 hardware-test, diagnostic, and install commands.
+
+## Development and testing
+
+Use the separate release-oriented maintainer build when compiling and running
+the test suite:
+
+```sh
+cmake --preset desktop-tests
+cmake --build build/desktop-tests -j2
+ctest --preset desktop-tests
+./tools/test-gui-headless.sh
+```
+
+The headless GUI script uses `build/desktop-tests` by default and accepts an
+explicit build directory override when needed.
 
 ## GUI quick controls
 
