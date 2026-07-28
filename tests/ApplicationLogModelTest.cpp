@@ -61,6 +61,7 @@ void ApplicationLogModelTest::preservesStructuredEntriesAndFilters()
 void ApplicationLogModelTest::boundsAndClearsHistory()
 {
     sdr::app::ApplicationLogModel model;
+    QSignalSpy modelResets(&model, &QAbstractItemModel::modelReset);
     for (qsizetype index = 0;
          index < sdr::app::ApplicationLogModel::maximumEntries + 50;
          ++index) {
@@ -79,7 +80,19 @@ void ApplicationLogModelTest::boundsAndClearsHistory()
     QVERIFY(
         model.data(model.index(0), sdr::app::ApplicationLogModel::SequenceRole)
             .toULongLong() > 1);
+    QCOMPARE(
+        model.data(model.index(0), sdr::app::ApplicationLogModel::MessageRole)
+            .toString(),
+        QStringLiteral("50"));
+    QCOMPARE(
+        model.data(
+                 model.index(model.rowCount() - 1),
+                 sdr::app::ApplicationLogModel::MessageRole)
+            .toString(),
+        QStringLiteral("5049"));
+    QCOMPARE(modelResets.count(), 0);
     model.clear();
+    QCOMPARE(modelResets.count(), 1);
     QCOMPARE(model.entryCount(), 0);
     QCOMPARE(model.rowCount(), 0);
     QVERIFY(model.formattedText().isEmpty());

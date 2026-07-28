@@ -116,8 +116,12 @@ public:
     {
         return bytes.size();
     }
-    [[nodiscard]] QByteArray readStandardOutput() override { return {}; }
-    [[nodiscard]] QByteArray readStandardError() override { return {}; }
+    [[nodiscard]] qint64 standardOutputBytesAvailable() noexcept override
+    {
+        return 0;
+    }
+    [[nodiscard]] QByteArray readStandardOutput(qint64) override { return {}; }
+    [[nodiscard]] QByteArray readStandardError(qint64) override { return {}; }
     [[nodiscard]] QString errorString() const override
     {
         return m_trace->dsdFailOnStart

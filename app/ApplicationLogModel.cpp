@@ -13,6 +13,7 @@ namespace sdr::app {
 namespace {
 
 constexpr qsizetype maximumPendingEntries = ApplicationLogModel::maximumEntries;
+constexpr qsizetype maximumEntriesPerDrain = 128;
 
 }  // namespace
 
@@ -126,6 +127,7 @@ void ApplicationLogModel::clear()
     const bool hadEntries = !m_entries.isEmpty();
     m_entries.clear();
     m_visibleEntries.clear();
+    m_visibleFormattedEntries.clear();
     m_formattedText.clear();
     endResetModel();
     if (hadEntries) {
@@ -156,23 +158,95 @@ void ApplicationLogModel::drainPending()
     std::deque<Entry> pending;
     {
         QMutexLocker lock(&m_pendingMutex);
-        pending.swap(m_pending);
+        const qsizetype entryCount = std::min(
+            static_cast<qsizetype>(m_pending.size()), maximumEntriesPerDrain);
+        for (qsizetype index = 0; index < entryCount; ++index) {
+            pending.push_back(std::move(m_pending.front()));
+            m_pending.pop_front();
+        }
     }
     m_drainQueued.store(false, std::memory_order_release);
 
     if (!pending.empty()) {
         const qsizetype oldCount = m_entries.size();
         m_entries.reserve(maximumEntries);
+        const qsizetype removeCount = std::max<qsizetype>(
+            oldCount + static_cast<qsizetype>(pending.size()) - maximumEntries,
+            0);
+        bool formattedTextWasChanged = false;
+        if (removeCount > 0) {
+            qsizetype visibleRemoveCount = 0;
+            while (visibleRemoveCount < m_visibleEntries.size() &&
+                   m_visibleEntries.at(visibleRemoveCount) < removeCount) {
+                ++visibleRemoveCount;
+            }
+            if (visibleRemoveCount > 0) {
+                beginRemoveRows(
+                    QModelIndex(), 0, static_cast<int>(visibleRemoveCount - 1));
+                if (visibleRemoveCount == m_visibleFormattedEntries.size()) {
+                    m_formattedText.clear();
+                } else {
+                    qsizetype removeCharacters = 0;
+                    for (qsizetype index = 0;
+                         index < visibleRemoveCount;
+                         ++index) {
+                        removeCharacters +=
+                            m_visibleFormattedEntries.at(index).size() + 1;
+                    }
+                    m_formattedText.remove(0, removeCharacters);
+                }
+                m_visibleEntries.remove(0, visibleRemoveCount);
+                m_visibleFormattedEntries.remove(0, visibleRemoveCount);
+                formattedTextWasChanged = true;
+            }
+            m_entries.remove(0, removeCount);
+            for (int& visibleEntry : m_visibleEntries) {
+                visibleEntry -= static_cast<int>(removeCount);
+            }
+            if (visibleRemoveCount > 0) {
+                endRemoveRows();
+            }
+        }
+
+        const qsizetype firstNewEntry = m_entries.size();
+        const qsizetype visibleAddCount = static_cast<qsizetype>(
+            std::ranges::count_if(pending, [this](const Entry& entry) {
+                return static_cast<int>(entry.severity) >= m_minimumSeverity;
+            }));
+        const qsizetype firstNewVisibleEntry = m_visibleEntries.size();
+        if (visibleAddCount > 0) {
+            beginInsertRows(
+                QModelIndex(),
+                static_cast<int>(firstNewVisibleEntry),
+                static_cast<int>(firstNewVisibleEntry + visibleAddCount - 1));
+        }
         for (Entry& entry : pending) {
             m_entries.push_back(std::move(entry));
         }
-        if (m_entries.size() > maximumEntries) {
-            m_entries.remove(
-                0, m_entries.size() - maximumEntries);
+        for (qsizetype index = firstNewEntry;
+             index < m_entries.size();
+             ++index) {
+            const Entry& entry = m_entries.at(index);
+            if (static_cast<int>(entry.severity) < m_minimumSeverity) {
+                continue;
+            }
+            const QString formatted = format(entry);
+            m_visibleEntries.push_back(static_cast<int>(index));
+            m_visibleFormattedEntries.push_back(formatted);
+            if (!m_formattedText.isEmpty()) {
+                m_formattedText.append(QLatin1Char('\n'));
+            }
+            m_formattedText.append(formatted);
         }
-        rebuildVisibleEntries();
+        if (visibleAddCount > 0) {
+            endInsertRows();
+            formattedTextWasChanged = true;
+        }
         if (m_entries.size() != oldCount) {
             emit entryCountChanged();
+        }
+        if (formattedTextWasChanged) {
+            emit formattedTextChanged();
         }
     }
 
@@ -238,16 +312,19 @@ void ApplicationLogModel::rebuildVisibleEntries()
 {
     beginResetModel();
     m_visibleEntries.clear();
-    QStringList lines;
+    m_visibleFormattedEntries.clear();
     for (qsizetype index = 0; index < m_entries.size(); ++index) {
         const Entry& entry = m_entries.at(index);
         if (static_cast<int>(entry.severity) < m_minimumSeverity) {
             continue;
         }
         m_visibleEntries.push_back(static_cast<int>(index));
-        lines.push_back(format(entry));
+        m_visibleFormattedEntries.push_back(format(entry));
     }
-    m_formattedText = lines.join(QLatin1Char('\n'));
+    m_formattedText = QStringList(
+                          m_visibleFormattedEntries.cbegin(),
+                          m_visibleFormattedEntries.cend())
+                          .join(QLatin1Char('\n'));
     endResetModel();
     emit formattedTextChanged();
 }

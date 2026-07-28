@@ -148,11 +148,13 @@ samples are discarded, and no different output is silently substituted.
 
 DSD-FME is launched directly with the configured executable and arguments
 `-i - -o -`; no shell is involved. Process input, decoded output, and recent
-stderr diagnostics are independently bounded. A slow decoder drops stale
-discriminator input instead of blocking GNU Radio, the runtime worker, or the
-wideband spectrum/waterfall path. A failed decoder mutes decoded output and
-stays failed until the mode or configured path is changed, while reception and
-wideband display processing continue.
+stderr diagnostics are independently bounded. Each service pass writes pending
+discriminator input before reading fixed-size stdout and stderr chunks, and
+batches completed stderr lines into bounded Console updates. A slow decoder
+drops stale discriminator input instead of blocking GNU Radio, the runtime
+worker, or the wideband spectrum/waterfall path. A failed decoder mutes decoded
+output and stays failed until the mode or configured path is changed, while
+reception and wideband display processing continue.
 
 DSD-FME is a separately installed executable required for the experimental
 DMR/P25 mode, not a linked runtime dependency. Its configured path may be

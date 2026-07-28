@@ -41,6 +41,7 @@ public:
 
     [[nodiscard]] qint64 write(const QByteArray& bytes) override
     {
+        operationOrder.append(QStringLiteral("write"));
         if (failWrites) {
             return -1;
         }
@@ -49,14 +50,23 @@ public:
         return accepted;
     }
 
-    [[nodiscard]] QByteArray readStandardOutput() override
+    [[nodiscard]] qint64 standardOutputBytesAvailable() noexcept override
     {
-        return std::exchange(standardOutput, {});
+        return standardOutput.size();
     }
 
-    [[nodiscard]] QByteArray readStandardError() override
+    [[nodiscard]] QByteArray readStandardOutput(qint64 maximumBytes) override
     {
-        return std::exchange(standardError, {});
+        operationOrder.append(QStringLiteral("stdout"));
+        return takeBytes(standardOutput, maximumBytes);
+    }
+
+    [[nodiscard]] QByteArray readStandardError(qint64 maximumBytes) override
+    {
+        operationOrder.append(QStringLiteral("stderr"));
+        maximumStandardErrorReadRequest = std::max(
+            maximumStandardErrorReadRequest, maximumBytes);
+        return takeBytes(standardError, maximumBytes);
     }
 
     [[nodiscard]] QString errorString() const override
@@ -93,14 +103,26 @@ public:
     QByteArray written;
     QByteArray standardOutput;
     QByteArray standardError;
+    QStringList operationOrder;
     QString error;
     qint64 pendingWriteBytes = 0;
+    qint64 maximumStandardErrorReadRequest = 0;
     qsizetype maximumWriteSize = std::numeric_limits<qsizetype>::max();
     int startCount = 0;
     bool failWrites = false;
     bool writeChannelClosed = false;
     bool terminated = false;
     bool killed = false;
+
+private:
+    static QByteArray takeBytes(QByteArray& bytes, qint64 maximumBytes)
+    {
+        const qsizetype byteCount = static_cast<qsizetype>(std::min<qint64>(
+            bytes.size(), std::max<qint64>(maximumBytes, 0)));
+        QByteArray result = bytes.first(byteCount);
+        bytes.remove(0, byteCount);
+        return result;
+    }
 };
 
 void appendNativeFloat(QByteArray& bytes, float value)
@@ -136,6 +158,7 @@ private slots:
     void processFailureDoesNotRestart();
     void flushesDecodedOutputWithoutRestarting();
     void reconstructsFragmentedStderrWithoutLoggingStdout();
+    void boundsStderrWorkPreservesOrderAndKeepsInputMoving();
 };
 
 void DsdFmeProcessServiceTest::launchesExactCommandAndFramesInput()
@@ -230,6 +253,10 @@ void DsdFmeProcessServiceTest::preservesStereoChannelsAndProducesExactSixToOneFr
         appendNativeStereoFrame(fake->standardOutput, left, right);
     }
     service.process();
+    QVERIFY(!fake->standardOutput.isEmpty());
+    while (!fake->standardOutput.isEmpty()) {
+        service.process();
+    }
 
     QCOMPARE(service.decodedFrameCount(), std::size_t{48'000});
     QCOMPARE(service.state().standardOutputBytesReceived, quint64{64'000});
@@ -260,6 +287,10 @@ void DsdFmeProcessServiceTest::preservesOneKilohertzStereoToneFrequency()
         appendNativeStereoFrame(fake->standardOutput, tone, -0.5F * tone);
     }
     service.process();
+    QVERIFY(!fake->standardOutput.isEmpty());
+    while (!fake->standardOutput.isEmpty()) {
+        service.process();
+    }
     const auto stereo = service.takeDecodedStereo(48'000);
     QCOMPARE(stereo.size(), std::size_t{96'000});
 
@@ -395,13 +426,73 @@ void DsdFmeProcessServiceTest::reconstructsFragmentedStderrWithoutLoggingStdout(
     QVERIFY(messages.contains(QStringLiteral("first fragment")));
     QVERIFY(!messages.contains(QStringLiteral("second")));
     fake->standardError = QByteArrayLiteral("\nrepeat\nrepeat\n");
+    const qsizetype updatesBeforeRepeat = messages.size();
     service.process();
-    QCOMPARE(messages.count(QStringLiteral("repeat")), 1);
+    QCOMPARE(messages.size(), updatesBeforeRepeat + 1);
+    QVERIFY(messages.join(QLatin1Char('\n')).contains(
+        QStringLiteral("repeat (repeated 2 times)")));
     fake->childState = sdr::platform::DsdFmeChildState::NotRunning;
     service.process();
-    QVERIFY(messages.contains(QStringLiteral("second")));
+    QVERIFY(messages.join(QLatin1Char('\n')).contains(QStringLiteral("second")));
     QVERIFY(!messages.join(QLatin1Char('\n')).contains(
         QStringLiteral("binary stdout text")));
+}
+
+void DsdFmeProcessServiceTest::
+    boundsStderrWorkPreservesOrderAndKeepsInputMoving()
+{
+    auto child = std::make_unique<FakeChildProcess>();
+    auto* fake = child.get();
+    QStringList messages;
+    sdr::platform::DsdFmeProcessService service(std::move(child));
+    service.setLogHandler(
+        [&messages](
+            sdr::platform::DsdFmeLogSeverity,
+            const QString& message) { messages.append(message); });
+    service.setBinaryPath(QStringLiteral("/opt/dsd-fme"));
+    service.start();
+    fake->childState = sdr::platform::DsdFmeChildState::Running;
+    service.process();
+    messages.clear();
+    fake->operationOrder.clear();
+
+    constexpr int lineCount = 2'000;
+    QStringList expectedLines;
+    for (int index = 0; index < lineCount; ++index) {
+        const QString line = QStringLiteral("decoder message %1").arg(index);
+        expectedLines.append(line);
+        fake->standardError.append(line.toUtf8());
+        fake->standardError.append('\n');
+    }
+    const qsizetype initialStandardErrorBytes = fake->standardError.size();
+    const std::vector<float> discriminator(4'096, 0.25F);
+    service.enqueueDiscriminator(discriminator);
+
+    service.process();
+
+    QCOMPARE(fake->written.size(), qsizetype{8 * 1024});
+    QVERIFY(!fake->standardError.isEmpty());
+    QVERIFY(initialStandardErrorBytes - fake->standardError.size() <=
+            qsizetype{8 * 1024});
+    QCOMPARE(fake->maximumStandardErrorReadRequest, qint64{8 * 1024});
+    QVERIFY(fake->operationOrder.indexOf(QStringLiteral("write")) <
+            fake->operationOrder.indexOf(QStringLiteral("stderr")));
+    QCOMPARE(messages.size(), qsizetype{1});
+
+    for (int pass = 0;
+         pass < 1'000 &&
+         (fake->standardError.size() > 0 ||
+          !messages.join(QLatin1Char('\n')).contains(expectedLines.back()));
+         ++pass) {
+        const qsizetype updatesBefore = messages.size();
+        service.process();
+        QVERIFY(messages.size() <= updatesBefore + 1);
+    }
+
+    const QStringList retainedLines =
+        messages.join(QLatin1Char('\n')).split(
+            QLatin1Char('\n'), Qt::SkipEmptyParts);
+    QCOMPARE(retainedLines, expectedLines);
 }
 
 void DsdFmeProcessServiceTest::boundsInputDuringBackpressure()
@@ -438,7 +529,9 @@ void DsdFmeProcessServiceTest::boundsDecodedOutput()
         appendNativeStereoFrame(fake->standardOutput, 0.25F, -0.25F);
     }
 
-    service.process();
+    do {
+        service.process();
+    } while (!fake->standardOutput.isEmpty());
 
     QCOMPARE(service.decodedFrameCount(), std::size_t{48'000});
     QVERIFY(service.state().outputOverflowEvents > 0);
@@ -484,11 +577,21 @@ void DsdFmeProcessServiceTest::flushesDecodedOutputWithoutRestarting()
     service.process();
     QCOMPARE(service.decodedFrameCount(), std::size_t{6});
 
+    appendNativeStereoFrame(fake->standardOutput, -0.75F, 0.75F);
     service.flushDecodedOutput();
 
     QCOMPARE(service.decodedFrameCount(), std::size_t{0});
     QCOMPARE(fake->startCount, 1);
     QCOMPARE(fake->childState, sdr::platform::DsdFmeChildState::Running);
+
+    appendNativeStereoFrame(fake->standardOutput, 0.5F, -0.25F);
+    service.process();
+    const auto stereo = service.takeDecodedStereo(6);
+    QCOMPARE(stereo.size(), std::size_t{12});
+    for (std::size_t frame = 0; frame < 6; ++frame) {
+        QCOMPARE(stereo[frame * 2U], 0.5F);
+        QCOMPARE(stereo[frame * 2U + 1U], -0.25F);
+    }
 }
 
 QTEST_APPLESS_MAIN(DsdFmeProcessServiceTest)

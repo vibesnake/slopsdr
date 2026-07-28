@@ -41,8 +41,9 @@ public:
     [[nodiscard]] virtual DsdFmeChildState state() const noexcept = 0;
     [[nodiscard]] virtual qint64 bytesToWrite() const noexcept = 0;
     [[nodiscard]] virtual qint64 write(const QByteArray& bytes) = 0;
-    [[nodiscard]] virtual QByteArray readStandardOutput() = 0;
-    [[nodiscard]] virtual QByteArray readStandardError() = 0;
+    [[nodiscard]] virtual qint64 standardOutputBytesAvailable() noexcept = 0;
+    [[nodiscard]] virtual QByteArray readStandardOutput(qint64 maximumBytes) = 0;
+    [[nodiscard]] virtual QByteArray readStandardError(qint64 maximumBytes) = 0;
     [[nodiscard]] virtual QString errorString() const = 0;
     [[nodiscard]] virtual int exitCode() const noexcept { return 0; }
     [[nodiscard]] virtual bool crashed() const noexcept { return false; }
@@ -129,6 +130,7 @@ private:
     QByteArray m_inputBytes;
     QByteArray m_stdoutBytes;
     QByteArray m_stderrLineBytes;
+    qint64 m_stdoutBytesToDiscard = 0;
     radio::AudioSampleBuffer m_decodedSamples;
     bool m_active = false;
     bool m_startAttempted = false;

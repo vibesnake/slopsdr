@@ -88,6 +88,7 @@ private:
     std::deque<Entry> m_pending;
     QVector<Entry> m_entries;
     QVector<int> m_visibleEntries;
+    QVector<QString> m_visibleFormattedEntries;
     QString m_formattedText;
     int m_minimumSeverity = Debug;
 };

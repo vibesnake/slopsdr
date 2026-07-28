@@ -23,7 +23,12 @@ constexpr std::size_t maximumQueuedInputBytes =
     radio::receiverAudioSampleRate * inputBytesPerSample;
 constexpr qint64 maximumChildPendingBytes = 16 * 1024;
 constexpr qsizetype maximumWriteBytes = 8 * 1024;
+constexpr qint64 maximumReadBytesPerProcess = 8 * 1024;
 constexpr qsizetype maximumRecentStandardErrorBytes = 16 * 1024;
+constexpr qsizetype maximumBufferedStandardErrorBytes = 32 * 1024;
+constexpr qsizetype maximumStandardErrorLogBytesPerProcess = 8 * 1024;
+constexpr qsizetype maximumStandardErrorLineBytes = 4 * 1024;
+constexpr int maximumStandardErrorLinesPerProcess = 64;
 constexpr std::size_t decodedOutputCapacitySamples =
     radio::receiverAudioSampleRate * 2;
 constexpr int gracefulShutdownMilliseconds = 250;
@@ -78,18 +83,31 @@ public:
         return m_process.write(bytes);
     }
 
-    [[nodiscard]] QByteArray readStandardOutput() override
+    [[nodiscard]] qint64 standardOutputBytesAvailable() noexcept override
     {
-        return m_process.isOpen()
-                   ? m_process.readAllStandardOutput()
-                   : QByteArray{};
+        if (!m_process.isOpen()) {
+            return 0;
+        }
+        m_process.setReadChannel(QProcess::StandardOutput);
+        return m_process.bytesAvailable();
     }
 
-    [[nodiscard]] QByteArray readStandardError() override
+    [[nodiscard]] QByteArray readStandardOutput(qint64 maximumBytes) override
     {
-        return m_process.isOpen()
-                   ? m_process.readAllStandardError()
-                   : QByteArray{};
+        if (!m_process.isOpen() || maximumBytes <= 0) {
+            return {};
+        }
+        m_process.setReadChannel(QProcess::StandardOutput);
+        return m_process.read(maximumBytes);
+    }
+
+    [[nodiscard]] QByteArray readStandardError(qint64 maximumBytes) override
+    {
+        if (!m_process.isOpen() || maximumBytes <= 0) {
+            return {};
+        }
+        m_process.setReadChannel(QProcess::StandardError);
+        return m_process.read(maximumBytes);
     }
 
     [[nodiscard]] QString errorString() const override
@@ -263,12 +281,12 @@ void DsdFmeProcessService::stop()
 
 void DsdFmeProcessService::process()
 {
-    drainStandardError();
-    drainStandardOutput();
-    updateChildState();
     if (m_child->state() == DsdFmeChildState::Running) {
         writePendingInput();
     }
+    drainStandardOutput();
+    drainStandardError();
+    updateChildState();
 }
 
 void DsdFmeProcessService::enqueueDiscriminator(
@@ -338,7 +356,7 @@ std::vector<float> DsdFmeProcessService::takeDecodedStereo(
 
 void DsdFmeProcessService::flushDecodedOutput()
 {
-    static_cast<void>(m_child->readStandardOutput());
+    m_stdoutBytesToDiscard = m_child->standardOutputBytesAvailable();
     m_stdoutBytes.clear();
     m_decodedSamples.clear();
     m_havePreviousDecodedFrame = false;
@@ -389,29 +407,95 @@ void DsdFmeProcessService::updateChildState()
 
 void DsdFmeProcessService::drainStandardError()
 {
-    const QByteArray chunk = m_child->readStandardError();
-    if (chunk.isEmpty()) {
-        return;
-    }
-    QByteArray retained = m_state.recentStandardError.toUtf8();
-    retained.append(chunk);
-    if (retained.size() > maximumRecentStandardErrorBytes) {
-        retained = retained.last(maximumRecentStandardErrorBytes);
-    }
-    m_state.recentStandardError = QString::fromUtf8(retained);
+    QStringList lines;
+    QString repeatedLine;
+    int repeatedLineCount = 0;
+    int processedLineCount = 0;
+    qsizetype loggedBytes = 0;
+    const auto appendLine = [&lines, &repeatedLine, &repeatedLineCount](
+                                QString line) {
+        if (line.isEmpty()) {
+            return;
+        }
+        if (line == repeatedLine) {
+            ++repeatedLineCount;
+            return;
+        }
+        if (!repeatedLine.isEmpty()) {
+            lines.append(
+                repeatedLineCount == 1
+                    ? repeatedLine
+                    : QStringLiteral("%1 (repeated %2 times)")
+                          .arg(
+                              repeatedLine,
+                              QString::number(repeatedLineCount)));
+        }
+        repeatedLine = std::move(line);
+        repeatedLineCount = 1;
+    };
+    const auto collectLines = [this,
+                               &appendLine,
+                               &loggedBytes,
+                               &processedLineCount] {
+        while (processedLineCount < maximumStandardErrorLinesPerProcess &&
+               loggedBytes < maximumStandardErrorLogBytesPerProcess) {
+            const qsizetype newline = m_stderrLineBytes.indexOf('\n');
+            const bool completeLine = newline >= 0;
+            if (!completeLine &&
+                m_stderrLineBytes.size() <= maximumStandardErrorLineBytes) {
+                break;
+            }
 
-    m_stderrLineBytes.append(chunk);
-    while (true) {
-        const qsizetype newline = m_stderrLineBytes.indexOf('\n');
-        if (newline < 0) {
-            break;
+            qsizetype lineBytes = maximumStandardErrorLineBytes;
+            qsizetype removeBytes = maximumStandardErrorLineBytes;
+            if (completeLine && newline <= maximumStandardErrorLineBytes) {
+                lineBytes = newline;
+                removeBytes = newline + 1;
+            }
+            if (loggedBytes + removeBytes >
+                maximumStandardErrorLogBytesPerProcess) {
+                break;
+            }
+            QByteArray line = m_stderrLineBytes.first(lineBytes);
+            m_stderrLineBytes.remove(0, removeBytes);
+            loggedBytes += removeBytes;
+            ++processedLineCount;
+            if (line.endsWith('\r')) {
+                line.chop(1);
+            }
+            appendLine(QString::fromUtf8(line).trimmed());
         }
-        QByteArray line = m_stderrLineBytes.first(newline);
-        m_stderrLineBytes.remove(0, newline + 1);
-        if (line.endsWith('\r')) {
-            line.chop(1);
+    };
+
+    collectLines();
+    const qsizetype availableBufferBytes =
+        maximumBufferedStandardErrorBytes - m_stderrLineBytes.size();
+    if (availableBufferBytes > 0) {
+        const QByteArray chunk = m_child->readStandardError(
+            std::min<qint64>(maximumReadBytesPerProcess, availableBufferBytes));
+        if (!chunk.isEmpty()) {
+            QByteArray retained = m_state.recentStandardError.toUtf8();
+            retained.append(chunk);
+            if (retained.size() > maximumRecentStandardErrorBytes) {
+                retained = retained.last(maximumRecentStandardErrorBytes);
+            }
+            m_state.recentStandardError = QString::fromUtf8(retained);
+            m_stderrLineBytes.append(chunk);
+            collectLines();
         }
-        log(DsdFmeLogSeverity::Info, QString::fromUtf8(line));
+    }
+
+    if (!repeatedLine.isEmpty()) {
+        lines.append(
+            repeatedLineCount == 1
+                ? repeatedLine
+                : QStringLiteral("%1 (repeated %2 times)")
+                      .arg(
+                          repeatedLine,
+                          QString::number(repeatedLineCount)));
+    }
+    if (!lines.isEmpty()) {
+        log(DsdFmeLogSeverity::Info, lines.join(QLatin1Char('\n')));
     }
 }
 
@@ -430,7 +514,13 @@ void DsdFmeProcessService::flushStandardErrorLine()
 
 void DsdFmeProcessService::drainStandardOutput()
 {
-    const QByteArray chunk = m_child->readStandardOutput();
+    QByteArray chunk = m_child->readStandardOutput(maximumReadBytesPerProcess);
+    if (m_stdoutBytesToDiscard > 0 && !chunk.isEmpty()) {
+        const qsizetype discardBytes = static_cast<qsizetype>(std::min<qint64>(
+            m_stdoutBytesToDiscard, chunk.size()));
+        chunk.remove(0, discardBytes);
+        m_stdoutBytesToDiscard -= discardBytes;
+    }
     m_state.standardOutputBytesReceived += static_cast<quint64>(chunk.size());
     m_stdoutBytes.append(chunk);
     const qsizetype completeBytes =
