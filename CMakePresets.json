@@ -1,0 +1,121 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "ENABLE_GNURADIO": "OFF",
+        "ENABLE_SOAPYSDR": "OFF"
+      }
+    },
+    {
+      "name": "desktop-debug",
+      "displayName": "Desktop Debug",
+      "description": "Debug build for a Linux desktop host.",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "desktop-release",
+      "displayName": "Desktop Release",
+      "description": "Release build for a Linux desktop host.",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "desktop-app-debug",
+      "displayName": "Desktop Hardware App Debug",
+      "description": "Debug desktop application with GNU Radio and SoapySDR.",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_DESKTOP_APP": "ON",
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ENABLE_GNURADIO": "ON",
+        "ENABLE_SOAPYSDR": "ON"
+      }
+    },
+    {
+      "name": "desktop-app-release",
+      "displayName": "Desktop Hardware App Release",
+      "description": "Release desktop application with GNU Radio and SoapySDR.",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_DESKTOP_APP": "ON",
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_GNURADIO": "ON",
+        "ENABLE_SOAPYSDR": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "desktop-debug",
+      "configurePreset": "desktop-debug"
+    },
+    {
+      "name": "desktop-release",
+      "configurePreset": "desktop-release"
+    },
+    {
+      "name": "app",
+      "configurePreset": "desktop-app-debug",
+      "targets": [
+        "slopsdr"
+      ]
+    },
+    {
+      "name": "app-release",
+      "configurePreset": "desktop-app-release",
+      "targets": [
+        "slopsdr"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "desktop-debug",
+      "configurePreset": "desktop-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-release",
+      "configurePreset": "desktop-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-app-debug",
+      "configurePreset": "desktop-app-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-app-release",
+      "configurePreset": "desktop-app-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,168 @@
+# slopSDR
+
+slopSDR is a desktop software-defined-radio receiver for exploring, tuning,
+demodulating, and visualizing signals. Its Qt Quick interface, radio domain,
+GNU Radio DSP, SoapySDR device access, and platform services remain separate.
+
+## Platform and capabilities
+
+slopSDR targets Debian-family desktop Linux. It is developed and hardware-tested
+on Devuan; Debian and Ubuntu package names below are installation references,
+not a claim that every Debian-family distribution is tested.
+
+The application discovers and selects SDR hardware through SoapySDR, receives
+with GNU Radio, renders spectrum and waterfall displays, provides 48 kHz audio,
+stores settings and bookmarks, and includes PPM calibration and a session
+console. Its five built-in analog demodulation modes are AM, NFM, WFM, USB, and
+LSB. **DMR/P25** is a separate digital-decoder mode that sends discriminator
+audio to an optional configured DSD-FME executable. Bookmark scanner-inclusion
+checkboxes are persisted metadata; the application has no scan-execution
+operation.
+
+RTL-SDR Blog V4 handling is documented in [device access](docs/DEVICE_ACCESS.md).
+Hardware is never opened and reception never starts until you explicitly press
+**Start**.
+
+## Requirements
+
+Build and linked runtime dependencies are supplied by the distribution package
+manager, normally APT on the documented Debian-family systems. slopSDR does not
+download, build, vendor, install, or update them.
+
+The desktop hardware build requires CMake 3.22 or later, a C++20 compiler,
+Ninja, Qt 6.2 or later (Core, Gui, Multimedia, QML, Quick, Quick Controls 2,
+Quick Dialogs 2, and Test), GNU Radio (analog, blocks, FFT, filter, and runtime
+components), and SoapySDR. On Debian-family systems with the package names used
+by Debian and Ubuntu, install:
+
+```sh
+sudo apt update
+sudo apt install build-essential cmake ninja-build \
+    qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
+    qml6-module-qtqml-workerscript qml6-module-qtquick \
+    qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
+    qml6-module-qtquick-layouts qml6-module-qtquick-window \
+    gnuradio-dev libsoapysdr-dev soapysdr-tools
+```
+
+Install the appropriate SoapySDR module and driver for your receiver. For
+RTL-SDR, Debian currently uses `soapysdr0.8-module-rtlsdr` and `rtl-sdr`; an
+Ubuntu release may expose the module as `soapysdr-module-rtlsdr`.
+
+### Optional DSD-FME
+
+DMR/P25 decoding requires a compatible separately installed DSD-FME executable;
+analog reception does not. DSD-FME may be installed outside APT, including under
+`/usr/local/bin`. In slopSDR, open **Settings**, set **DSD-FME binary** to the
+executable path, and select **DMR/P25** while receiving. slopSDR does not
+install, discover, or update DSD-FME.
+
+## Build, test, and run
+
+Configure and build the normal desktop hardware application from the repository
+root:
+
+```sh
+cmake --preset desktop-app-release
+cmake --build build/desktop-app-release -j2
+```
+
+Run the automated release suite and headless Qt GUI tests with:
+
+```sh
+ctest --preset desktop-app-release
+./tools/test-gui-headless.sh
+```
+
+Run the application directly from the build tree; installation or packaging is
+not required for normal use:
+
+```sh
+./build/desktop-app-release/slopsdr
+```
+
+At startup, let the application discover devices, select the intended SDR, and
+press **Start** to open it and begin reception. Choose an analog mode and tune
+normally. Configure DSD-FME only when using DMR/P25. Use `--mock` for deliberate
+hardware-free runs. [Building](docs/BUILDING.md) documents debug, mock,
+hardware-test, diagnostic, and install commands.
+
+## GUI quick controls
+
+The spectrum and waterfall share one frequency viewport. Wheel events over
+either display are consumed by slopSDR; they do not scroll the waterfall's
+history.
+
+| Input | Result |
+| --- | --- |
+| Wheel over spectrum (no modifier) | Tunes the center and listening frequencies together by the configured spectrum tuning step; the shared viewport keeps its zoom/span and recenters around the new center. Rapid consecutive events use application-level scroll acceleration for this operation; after scrolling pauses, the rate returns to fine control. This is separate from operating-system mouse acceleration. |
+| Wheel over waterfall (no modifier) | Zooms the shared frequency viewport in or out, anchored on the listening/tuned frequency rather than the pointer; center frequency, listening frequency, and filter width do not change. |
+| `Ctrl`+wheel over either display | Widens (`up`) or narrows (`down`) the active demodulation filter by its mode-specific step, within its limits; frequencies and viewport are unchanged. |
+| `Shift`+wheel over either display | Moves only the listening frequency by the configured spectrum tuning step (`up` higher, `down` lower). The center and filter width stay unchanged; when zoomed, the shared viewport recenters on the new listening frequency (clamped to capture coverage). |
+| `Ctrl`+`Shift`+wheel (with or without `Alt`) | `Ctrl` takes priority: adjusts filter width; `Shift` does not also tune. `Alt` alone does not change the selected action. |
+
+The waterfall's primary click selects the listening frequency represented by
+that horizontal position. No drag or double-click is needed for normal tuning.
+For the complete interaction rules, see [GUI requirements](docs/GUI_REQUIREMENTS.md),
+the [frequency-control guide](docs/FREQUENCY_CONTROL.md), and the
+[user guide](docs/USER_GUIDE.md).
+
+## Configuration
+
+`XDG_CONFIG_HOME` sets the configuration base; when it is unset, Qt uses
+`$HOME/.config`. slopSDR stores its persistent files at:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/slopSDR.conf
+${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/bookmarks.json
+```
+
+`slopSDR.conf` contains QSettings-managed application settings under the
+`slopSDR` organization and application name, including the DSD-FME executable
+path. `bookmarks.json` contains bookmark groups and bookmark data. Use the GUI
+to change these settings rather than editing either file while slopSDR is
+running. Renaming or removing either file resets or isolates that part of the
+configuration; retain a copy first if you need to preserve it.
+
+## Documentation
+
+* [User guide](docs/USER_GUIDE.md)
+* [Device access and SDR behavior](docs/DEVICE_ACCESS.md)
+* [Audio and DSD-FME transport](docs/AUDIO.md)
+* [Troubleshooting](docs/TROUBLESHOOTING.md)
+* [Historical validation observations](docs/VALIDATION.md)
+
+## Project status, licensing, and forks
+
+slopSDR is a completely vibecoded personal project, developed through
+AI-assisted coding tools under the maintainer's direction. It is published as-is
+without a support, maintenance, compatibility, or development-roadmap promise.
+
+slopSDR and its original repository contents are licensed under the
+[GNU Affero General Public License version 3 only](LICENSE) (`AGPL-3.0-only`).
+
+This upstream repository does not accept contributions. Forks may be maintained,
+modified, and redistributed independently under the AGPL; see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Repository layout
+
+```text
+.
+|-- CMakeLists.txt       Top-level build definition
+|-- CMakePresets.json    Desktop build presets
+|-- CONTRIBUTING.md      Upstream contribution policy
+|-- LICENSE              Project license
+|-- README.md            Project overview
+|-- app/                 Application entry point and application model
+|-- cmake/               Shared CMake modules and generated-header inputs
+|-- devices/             SDR device adapters
+|-- docs/                Project documentation
+|-- dsp/                 DSP backend implementation
+|-- gui/                 Qt GUI implementation
+|-- platform/            Platform and persistence services
+|-- qml/                 QML presentation files
+|-- radio/               Radio-domain implementation
+|-- tests/               Automated tests
+`-- tools/               Development and test helpers
+```

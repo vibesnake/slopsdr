@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 vibesnake
+
+# CMake build directories and generated build metadata
+/build/
+/build-*/
+/cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+install_manifest.txt
+Testing/
+_deps/
+
+# Ninja output
+build.ninja
+*.ninja
+.ninja_deps
+.ninja_log
+
+# C++ binaries, libraries, and objects
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# Qt and Qt Creator generated or local files
+*.user
+*.user.*
+*.qtc
+.qtc_clangd/
+*.moc
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+qmlcache/
+.qmlls.ini
+
+# VS Code workspace-local state
+.vscode/
+*.code-workspace
+
+# Linux editor, desktop, crash, and temporary files
+*~
+*.swp
+*.swo
+.#*
+.directory
+.Trash-*
+core
+core.*
+
+# Generated files
+/generated/
+/Generated/
+
+# Recorded IQ data and large SDR captures
+/recordings/
+/captures/
+*.iq
+*.cfile
+*.cf32
+*.cs16
+*.cu8
+*.complex
+*.raw
+*.sigmf-data
+*.sigmf-meta
+
+# Logs
+/logs/
+*.log
