@@ -8,6 +8,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QSignalSpy>
 #include <QSettings>
 #include <QThread>
@@ -718,6 +719,7 @@ class ReceiverRuntimeTest final : public QObject
 
 private slots:
     void initTestCase();
+    void cleanupTestCase();
     void init();
     void cleanup();
     void refreshesAtStartupSelectsFirstWithoutOpeningOrStarting();
@@ -762,11 +764,16 @@ private slots:
 
 private:
     QTemporaryDir m_settingsDirectory;
+    QByteArray m_originalXdgConfigHome;
+    bool m_hadXdgConfigHome = false;
 };
 
 void ReceiverRuntimeTest::initTestCase()
 {
     QVERIFY(m_settingsDirectory.isValid());
+    m_hadXdgConfigHome = qEnvironmentVariableIsSet("XDG_CONFIG_HOME");
+    m_originalXdgConfigHome = qgetenv("XDG_CONFIG_HOME");
+    qputenv("XDG_CONFIG_HOME", m_settingsDirectory.path().toUtf8());
     QCoreApplication::setOrganizationName(QStringLiteral("sdrapp-tests"));
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(
@@ -775,6 +782,15 @@ void ReceiverRuntimeTest::initTestCase()
         m_settingsDirectory.path());
     QVERIFY(QDir().mkpath(
         m_settingsDirectory.path() + QStringLiteral("/sdrapp-tests")));
+}
+
+void ReceiverRuntimeTest::cleanupTestCase()
+{
+    if (m_hadXdgConfigHome) {
+        qputenv("XDG_CONFIG_HOME", m_originalXdgConfigHome);
+    } else {
+        qunsetenv("XDG_CONFIG_HOME");
+    }
 }
 
 void ReceiverRuntimeTest::init()
@@ -1634,6 +1650,14 @@ void ReceiverRuntimeTest::appliesBookmarkAsOneAsynchronousLiveOperation()
     data.squelchThresholdDb = -58.0;
     data.squelchEnabled = false;
     const QString uuid = bookmarks->addBookmark(-1, data);
+    const QString expectedBookmarkPath = QDir(m_settingsDirectory.path()).filePath(
+        QCoreApplication::applicationName() + QStringLiteral("/bookmarks.json"));
+    QCOMPARE(
+        QDir::cleanPath(bookmarks->filePath()),
+        QDir::cleanPath(expectedBookmarkPath));
+    QVERIFY(QTest::qWaitFor(
+        [bookmarks] { return !bookmarks->persistencePending(); }));
+    QVERIFY(QFile::exists(expectedBookmarkPath));
     const int backendCreations = trace->backendCreations;
     const int backendStops = trace->backendStops;
     const int audioFlushes = trace->audioFlushes;
