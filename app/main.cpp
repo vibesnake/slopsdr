@@ -2,7 +2,6 @@
 // Copyright (C) 2026 vibesnake
 
 #include "ApplicationModel.hpp"
-#include "ConfigurationMigration.hpp"
 #include "ReceiverRuntime.hpp"
 #include "SpectrumFramePacing.hpp"
 #include "project_config.hpp"
@@ -163,7 +162,6 @@ int main(int argc, char* argv[])
     const auto startupMode = commandLine.isSet(mockOption)
                                  ? sdr::app::ReceiverRuntime::StartupMode::Mock
                                  : sdr::app::ReceiverRuntime::StartupMode::Hardware;
-    const auto migrationMessages = sdr::platform::migrateLegacyConfiguration();
     sdr::app::ReceiverRuntime::Factories factories{};
     factories.createAudioOutputService = [] {
         return sdr::platform::makeQtAudioOutputService();
@@ -206,14 +204,6 @@ int main(int argc, char* argv[])
         commandLine.isSet(verboseOption));
     ApplicationModel applicationModel(
         runtime, nullptr, commandLine.isSet(verboseOption));
-    for (const auto& message : migrationMessages) {
-        applicationModel.applicationLog()->post(
-            message.severity == sdr::platform::ConfigurationMigrationSeverity::Info
-                ? sdr::app::ApplicationLogModel::Info
-                : sdr::app::ApplicationLogModel::Warning,
-            QStringLiteral("Configuration"),
-            message.text);
-    }
     QQmlApplicationEngine engine;
 
     engine.setInitialProperties({

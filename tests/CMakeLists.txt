@@ -12,17 +12,6 @@ sdr_enable_warnings(application_model_tests)
 
 add_test(NAME application_model_tests COMMAND application_model_tests)
 
-add_executable(configuration_migration_tests ConfigurationMigrationTest.cpp)
-target_link_libraries(
-    configuration_migration_tests
-    PRIVATE
-        sdr_platform_persistence
-        Qt6::Test
-)
-sdr_enable_warnings(configuration_migration_tests)
-
-add_test(NAME configuration_migration_tests COMMAND configuration_migration_tests)
-
 add_executable(application_log_model_tests ApplicationLogModelTest.cpp)
 target_link_libraries(
     application_log_model_tests

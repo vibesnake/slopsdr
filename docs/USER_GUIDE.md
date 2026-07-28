@@ -23,9 +23,7 @@ application version.
 
 slopSDR stores scalar settings at
 `${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/slopSDR.conf` and bookmarks at
-`${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/bookmarks.json`. On first startup it
-copies matching `vibeSDR` settings or bookmarks only when the corresponding new
-file is absent; the old files remain as a rollback copy.
+`${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/bookmarks.json`.
 
 For read-only GNU Radio, SoapySDR, kernel, and circular-buffer diagnostics, run
 the hardware build with `--diagnose-gnuradio`. See `docs/TROUBLESHOOTING.md` for

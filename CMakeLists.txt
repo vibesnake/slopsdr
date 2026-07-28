@@ -157,8 +157,6 @@ add_library(
     sdr_platform_persistence STATIC
     platform/BookmarkJsonStore.cpp
     platform/BookmarkJsonStore.hpp
-    platform/ConfigurationMigration.cpp
-    platform/ConfigurationMigration.hpp
 )
 target_include_directories(sdr_platform_persistence PUBLIC platform)
 target_link_libraries(sdr_platform_persistence PUBLIC Qt6::Core)
