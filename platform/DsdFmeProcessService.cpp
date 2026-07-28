@@ -35,6 +35,15 @@ constexpr int gracefulShutdownMilliseconds = 250;
 constexpr int forcedShutdownMilliseconds = 100;
 constexpr int decoderUpsamplingFactor = 6;
 constexpr auto repeatedMessageInterval = std::chrono::seconds(1);
+constexpr std::uint64_t diagnosticsReportIntervalNanoseconds = 1'000'000'000ULL;
+
+std::uint64_t steadyMonotonicNanoseconds()
+{
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+}
 
 float sanitizedDecodedSample(const char* bytes) noexcept
 {
@@ -155,6 +164,7 @@ DsdFmeProcessService::DsdFmeProcessService(
     std::unique_ptr<DsdFmeChildProcess> child)
     : m_child(std::move(child))
     , m_decodedSamples(decodedOutputCapacitySamples)
+    , m_diagnosticsClock(steadyMonotonicNanoseconds)
 {
     if (!m_child) {
         throw std::invalid_argument(
@@ -204,6 +214,21 @@ void DsdFmeProcessService::setLogHandler(
     m_logHandler = std::move(handler);
 }
 
+void DsdFmeProcessService::setDiagnosticsClock(MonotonicClock clock)
+{
+    m_diagnosticsClock = clock ? std::move(clock) : steadyMonotonicNanoseconds;
+    m_diagnosticsReportClockStarted = false;
+}
+
+void DsdFmeProcessService::setDiagnosticsEnabled(bool enabled)
+{
+    if (m_diagnosticsEnabled == enabled) {
+        return;
+    }
+    m_diagnosticsEnabled = enabled;
+    resetDiagnostics();
+}
+
 const QString& DsdFmeProcessService::binaryPath() const noexcept
 {
     return m_binaryPath;
@@ -224,6 +249,7 @@ void DsdFmeProcessService::start()
     m_state.generatedStereoFrames = 0;
     m_lastRateCheckDecodedFrames = 0;
     m_lastRateCheckGeneratedFrames = 0;
+    resetDiagnostics();
     flushDecodedOutput();
     if (m_binaryPath.isEmpty()) {
         setStatus(
@@ -287,6 +313,7 @@ void DsdFmeProcessService::process()
     drainStandardOutput();
     drainStandardError();
     updateChildState();
+    reportDiagnosticsIfDue();
 }
 
 void DsdFmeProcessService::enqueueDiscriminator(
@@ -299,8 +326,15 @@ void DsdFmeProcessService::enqueueDiscriminator(
         return;
     }
 
+    const std::size_t originalSampleCount = samples.size();
     const std::size_t incomingBytes = samples.size() * inputBytesPerSample;
+    std::size_t queueDroppedSamples = 0;
     if (incomingBytes >= maximumQueuedInputBytes) {
+        queueDroppedSamples =
+            static_cast<std::size_t>(m_inputBytes.size()) /
+                inputBytesPerSample +
+            originalSampleCount -
+                maximumQueuedInputBytes / inputBytesPerSample;
         m_inputBytes.clear();
         samples = samples.last(maximumQueuedInputBytes / inputBytesPerSample);
         ++m_state.inputOverflowEvents;
@@ -319,6 +353,8 @@ void DsdFmeProcessService::enqueueDiscriminator(
         const qsizetype alignedExcess = static_cast<qsizetype>(
             ((excess + inputBytesPerSample - 1) / inputBytesPerSample) *
             inputBytesPerSample);
+        queueDroppedSamples =
+            static_cast<std::size_t>(alignedExcess) / inputBytesPerSample;
         m_inputBytes.remove(0, alignedExcess);
         ++m_state.inputOverflowEvents;
         log(
@@ -329,15 +365,63 @@ void DsdFmeProcessService::enqueueDiscriminator(
             QStringLiteral("DSD-FME input overflow"));
     }
 
+    if (m_diagnosticsEnabled) {
+        ++m_diagnostics.discriminatorBlocks;
+        m_diagnostics.discriminatorSamples += samples.size();
+        if (queueDroppedSamples > 0) {
+            ++m_diagnostics.inputDiscontinuities;
+            m_diagnostics.droppedInputSamples += queueDroppedSamples;
+        }
+    }
+
     m_inputBytes.reserve(static_cast<qsizetype>(maximumQueuedInputBytes));
     for (const float sample : samples) {
-        const float bounded = std::isfinite(sample)
+        const bool finite = std::isfinite(sample);
+        const float bounded = finite
                                   ? std::clamp(sample, -1.0F, 1.0F)
                                   : 0.0F;
+        if (m_diagnosticsEnabled) {
+            const double magnitude = std::abs(static_cast<double>(bounded));
+            m_discriminatorSumSquares +=
+                static_cast<double>(bounded) * bounded;
+            m_diagnostics.discriminatorPeak = std::max(
+                m_diagnostics.discriminatorPeak, magnitude);
+            if (!finite) {
+                ++m_diagnostics.nonFiniteSamples;
+            } else if (std::abs(sample) > 1.0F) {
+                ++m_diagnostics.clippedSamples;
+            }
+        }
         const auto pcm = static_cast<std::int16_t>(std::lrint(
             bounded * std::numeric_limits<std::int16_t>::max()));
         appendInt16LittleEndian(m_inputBytes, pcm);
     }
+    if (m_diagnosticsEnabled && m_diagnostics.discriminatorSamples > 0) {
+        m_diagnostics.discriminatorRms = std::sqrt(
+            m_discriminatorSumSquares /
+            static_cast<double>(m_diagnostics.discriminatorSamples));
+        updateQueuedInputDiagnostics();
+    }
+}
+
+void DsdFmeProcessService::reportInputDiscontinuity(quint64 droppedSamples)
+{
+    if (!m_diagnosticsEnabled || droppedSamples == 0) {
+        return;
+    }
+    ++m_diagnostics.inputDiscontinuities;
+    m_diagnostics.droppedInputSamples += droppedSamples;
+}
+
+void DsdFmeProcessService::reportDecoderAudioUnderruns(
+    quint64 softwareUnderruns,
+    quint64 platformUnderruns)
+{
+    if (!m_diagnosticsEnabled) {
+        return;
+    }
+    m_diagnostics.decoderAudioUnderruns += softwareUnderruns;
+    m_diagnostics.decoderPlatformAudioUnderruns += platformUnderruns;
 }
 
 std::vector<float> DsdFmeProcessService::takeDecodedStereo(
@@ -369,6 +453,11 @@ void DsdFmeProcessService::flushDecodedOutput()
 const DsdFmeProcessState& DsdFmeProcessService::state() const noexcept
 {
     return m_state;
+}
+
+const DsdFmeDiagnostics& DsdFmeProcessService::diagnostics() const noexcept
+{
+    return m_diagnostics;
 }
 
 std::size_t DsdFmeProcessService::queuedInputBytes() const noexcept
@@ -514,6 +603,7 @@ void DsdFmeProcessService::flushStandardErrorLine()
 
 void DsdFmeProcessService::drainStandardOutput()
 {
+    updateStdoutBacklogDiagnostics();
     QByteArray chunk = m_child->readStandardOutput(maximumReadBytesPerProcess);
     if (m_stdoutBytesToDiscard > 0 && !chunk.isEmpty()) {
         const qsizetype discardBytes = static_cast<qsizetype>(std::min<qint64>(
@@ -539,6 +629,7 @@ void DsdFmeProcessService::drainStandardOutput()
         m_stdoutBytes.remove(0, completeBytes);
     }
     checkDecodedOutputRate();
+    updateStdoutBacklogDiagnostics();
 }
 
 void DsdFmeProcessService::writePendingInput()
@@ -556,7 +647,13 @@ void DsdFmeProcessService::writePendingInput()
         return;
     }
     const qint64 written = m_child->write(m_inputBytes.first(byteCount));
+    if (m_diagnosticsEnabled) {
+        ++m_diagnostics.writeAttempts;
+    }
     if (written < 0 || written > byteCount) {
+        if (m_diagnosticsEnabled) {
+            ++m_diagnostics.failedWriteEvents;
+        }
         log(
             DsdFmeLogSeverity::Error,
             QStringLiteral("Decoder stdin pipe error: %1")
@@ -564,9 +661,103 @@ void DsdFmeProcessService::writePendingInput()
         setProcessFailure();
         return;
     }
+    if (m_diagnosticsEnabled && written < byteCount) {
+        ++m_diagnostics.partialWriteEvents;
+    }
     if (written > 0) {
+        if (m_diagnosticsEnabled) {
+            m_diagnostics.writtenInputBytes += static_cast<quint64>(written);
+        }
         m_inputBytes.remove(0, static_cast<qsizetype>(written));
     }
+    updateQueuedInputDiagnostics();
+}
+
+void DsdFmeProcessService::resetDiagnostics()
+{
+    m_diagnostics = {};
+    m_discriminatorSumSquares = 0.0;
+    m_diagnosticsReportClockStarted = false;
+    if (m_diagnosticsEnabled) {
+        m_lastDiagnosticsReportNanoseconds = m_diagnosticsClock();
+        m_diagnosticsReportClockStarted = true;
+    }
+}
+
+void DsdFmeProcessService::updateQueuedInputDiagnostics()
+{
+    if (!m_diagnosticsEnabled) {
+        return;
+    }
+    const qint64 pendingChildBytes =
+        std::max<qint64>(m_child->bytesToWrite(), 0);
+    m_diagnostics.queuedInputBytes =
+        static_cast<quint64>(m_inputBytes.size()) +
+        static_cast<quint64>(pendingChildBytes);
+    m_diagnostics.peakQueuedInputBytes = std::max(
+        m_diagnostics.peakQueuedInputBytes,
+        m_diagnostics.queuedInputBytes);
+}
+
+void DsdFmeProcessService::updateStdoutBacklogDiagnostics()
+{
+    if (!m_diagnosticsEnabled) {
+        return;
+    }
+    const qint64 childBytes =
+        std::max<qint64>(m_child->standardOutputBytesAvailable(), 0);
+    m_diagnostics.stdoutBacklogBytes =
+        static_cast<quint64>(childBytes) +
+        static_cast<quint64>(m_stdoutBytes.size());
+    m_diagnostics.peakStdoutBacklogBytes = std::max(
+        m_diagnostics.peakStdoutBacklogBytes,
+        m_diagnostics.stdoutBacklogBytes);
+}
+
+void DsdFmeProcessService::reportDiagnosticsIfDue()
+{
+    if (!m_diagnosticsEnabled || !m_active) {
+        return;
+    }
+    const std::uint64_t now = m_diagnosticsClock();
+    if (!m_diagnosticsReportClockStarted) {
+        m_lastDiagnosticsReportNanoseconds = now;
+        m_diagnosticsReportClockStarted = true;
+        return;
+    }
+    if (now < m_lastDiagnosticsReportNanoseconds ||
+        now - m_lastDiagnosticsReportNanoseconds <
+            diagnosticsReportIntervalNanoseconds) {
+        return;
+    }
+    updateQueuedInputDiagnostics();
+    updateStdoutBacklogDiagnostics();
+    log(
+        DsdFmeLogSeverity::Debug,
+        QStringLiteral(
+            "App-measured decoder diagnostics: input-rms=%1 input-peak=%2 "
+            "samples=%3 blocks=%4 clipped=%5 non-finite=%6 "
+            "discontinuities=%7 dropped-samples=%8 queued-input-bytes=%9 "
+            "queued-input-peak=%10 partial-writes=%11 failed-writes=%12 "
+            "stdout-backlog-bytes=%13 stdout-backlog-peak=%14 "
+            "audio-underruns=%15 platform-audio-underruns=%16")
+            .arg(m_diagnostics.discriminatorRms, 0, 'f', 4)
+            .arg(m_diagnostics.discriminatorPeak, 0, 'f', 4)
+            .arg(m_diagnostics.discriminatorSamples)
+            .arg(m_diagnostics.discriminatorBlocks)
+            .arg(m_diagnostics.clippedSamples)
+            .arg(m_diagnostics.nonFiniteSamples)
+            .arg(m_diagnostics.inputDiscontinuities)
+            .arg(m_diagnostics.droppedInputSamples)
+            .arg(m_diagnostics.queuedInputBytes)
+            .arg(m_diagnostics.peakQueuedInputBytes)
+            .arg(m_diagnostics.partialWriteEvents)
+            .arg(m_diagnostics.failedWriteEvents)
+            .arg(m_diagnostics.stdoutBacklogBytes)
+            .arg(m_diagnostics.peakStdoutBacklogBytes)
+            .arg(m_diagnostics.decoderAudioUnderruns)
+            .arg(m_diagnostics.decoderPlatformAudioUnderruns));
+    m_lastDiagnosticsReportNanoseconds = now;
 }
 
 void DsdFmeProcessService::appendDecodedFrame(float left, float right)

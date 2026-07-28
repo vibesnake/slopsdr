@@ -117,6 +117,12 @@ levels, dropped samples, software and platform underruns, and overflows. These
 counters make sustained playback regressions visible without placing
 diagnostics on the audio path.
 
+While DMR/P25 mode is active, the same option adds one bounded decoder-input
+summary per second. It covers application-measured discriminator level and
+clipping, input drops, queued stdin bytes, partial or failed writes, decoded
+stdout backlog, and decoder-mode audio underruns. DSD-FME stderr remains opaque
+decoder-reported text and is not converted into inferred frame or FEC counts.
+
 The GNU Radio hardware backend also reports rate-limited RMS and peak levels
 after the channel filter, active demodulator, resampler, audio filter, and
 bounded audio-sink route. USB and LSB include their reduced-rate sideband FIR

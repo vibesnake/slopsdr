@@ -8,6 +8,33 @@ an executable file and inspect the DSD-FME status and stderr messages in the
 **Console**. Decoding reliability may vary, and FEC errors or audio underruns
 may occur. Encrypted traffic is not decoded.
 
+Start slopSDR with `--verbose` and select **All** in the Console severity filter
+to show one `App-measured decoder diagnostics` summary per second while the
+DMR/P25 decoder is active. The fields are cumulative since the current decoder
+start unless described as a current value:
+
+* `input-rms` and `input-peak` are normalized levels for the bounded samples
+  queued by slopSDR; `1.0` is full scale. `clipped` counts finite input samples
+  outside the accepted `-1.0` to `1.0` range, and `non-finite` counts values
+  replaced with silence.
+* `discontinuities` counts observed input-drop incidents, while
+  `dropped-samples` counts samples lost from the DSP input buffer or discarded
+  to keep the decoder-input queue bounded.
+* `queued-input-bytes` is the current total waiting in slopSDR and Qt's process
+  pipe; `queued-input-peak` is its high-water mark. A sustained high value with
+  increasing drops indicates that DSD-FME is not consuming input fast enough.
+* `partial-writes` counts accepted prefixes that must be retried later;
+  `failed-writes` counts pipe errors that stop the decoder process.
+* `stdout-backlog-bytes` is the current unread decoded-audio backlog, and
+  `stdout-backlog-peak` is its high-water mark.
+* `audio-underruns` and `platform-audio-underruns` count starvation observed by
+  slopSDR's playback buffer and by the platform audio sink while decoder mode
+  is active.
+
+These values are measured by slopSDR. DSD-FME stderr is separate, opaque
+decoder-reported diagnostic text: slopSDR retains and displays it with bounded
+memory and processing, but does not infer frame or FEC counters from it.
+
 ## GNU Radio circular-buffer and `shmat` messages
 
 GNU Radio uses a double-mapped circular buffer between streaming blocks. Its

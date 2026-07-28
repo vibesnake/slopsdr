@@ -388,6 +388,8 @@ public slots:
                            ? m_factories.createDsdFmeProcessService()
                            : platform::makeDsdFmeProcessService();
             if (m_dsdFme) {
+                m_dsdFme->setDiagnosticsClock(m_factories.monotonicClock);
+                m_dsdFme->setDiagnosticsEnabled(m_verboseAudioMetrics);
                 configureDsdFmeLogging();
                 m_dsdFme->setBinaryPath(
                     QSettings()
@@ -2169,6 +2171,17 @@ private:
         const bool digital =
             m_backend->state().demodulationMode ==
             radio::DemodulationMode::DigitalDecoderOutput;
+        if (digital && m_dsdFme && m_audioOutput) {
+            if (!m_decoderAudioDiagnosticsActive) {
+                const auto& audio = m_audioOutput->state();
+                m_lastDecoderAudioUnderruns = audio.underrunEvents;
+                m_lastDecoderPlatformAudioUnderruns =
+                    audio.platformUnderrunEvents;
+                m_decoderAudioDiagnosticsActive = true;
+            }
+        } else {
+            m_decoderAudioDiagnosticsActive = false;
+        }
         const auto previousDsdState =
             m_dsdFme
                 ? std::optional<platform::DsdFmeProcessState>(
@@ -2177,10 +2190,13 @@ private:
         if (digital && m_dsdFme) {
             const std::uint64_t decoderDropped =
                 m_backend->decoderInputDroppedSamples();
-            if (m_audioOutput &&
-                decoderDropped > m_lastDecoderInputDroppedSamples) {
-                m_audioOutput->reportUpstreamOverflow(
-                    decoderDropped - m_lastDecoderInputDroppedSamples);
+            if (decoderDropped > m_lastDecoderInputDroppedSamples) {
+                const std::uint64_t droppedDelta =
+                    decoderDropped - m_lastDecoderInputDroppedSamples;
+                m_dsdFme->reportInputDiscontinuity(droppedDelta);
+                if (m_audioOutput) {
+                    m_audioOutput->reportUpstreamOverflow(droppedDelta);
+                }
             }
             m_lastDecoderInputDroppedSamples = decoderDropped;
             const auto decoderInput = m_backend->takeDecoderInputSamples(
@@ -2206,6 +2222,25 @@ private:
         }
         if (m_audioOutput) {
             m_audioOutput->process();
+            if (digital && m_dsdFme &&
+                m_decoderAudioDiagnosticsActive) {
+                const auto& audio = m_audioOutput->state();
+                const std::uint64_t softwareDelta =
+                    audio.underrunEvents >= m_lastDecoderAudioUnderruns
+                        ? audio.underrunEvents - m_lastDecoderAudioUnderruns
+                        : audio.underrunEvents;
+                const std::uint64_t platformDelta =
+                    audio.platformUnderrunEvents >=
+                            m_lastDecoderPlatformAudioUnderruns
+                        ? audio.platformUnderrunEvents -
+                              m_lastDecoderPlatformAudioUnderruns
+                        : audio.platformUnderrunEvents;
+                m_dsdFme->reportDecoderAudioUnderruns(
+                    softwareDelta, platformDelta);
+                m_lastDecoderAudioUnderruns = audio.underrunEvents;
+                m_lastDecoderPlatformAudioUnderruns =
+                    audio.platformUnderrunEvents;
+            }
         }
         reportAudioMetrics();
         if (previousDsdState && *previousDsdState != m_dsdFme->state()) {
@@ -2660,6 +2695,9 @@ private:
     QString m_dsdFmeInitializationError;
     std::uint64_t m_lastBackendAudioDroppedSamples = 0;
     std::uint64_t m_lastDecoderInputDroppedSamples = 0;
+    std::uint64_t m_lastDecoderAudioUnderruns = 0;
+    std::uint64_t m_lastDecoderPlatformAudioUnderruns = 0;
+    bool m_decoderAudioDiagnosticsActive = false;
     std::uint64_t m_audioTransferredSamples = 0;
     std::uint64_t m_audioServicePasses = 0;
     std::uint64_t m_lastMetricsProducedSamples = 0;

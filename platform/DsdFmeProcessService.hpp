@@ -85,9 +85,32 @@ struct DsdFmeProcessState {
     }
 };
 
+struct DsdFmeDiagnostics {
+    quint64 discriminatorBlocks = 0;
+    quint64 discriminatorSamples = 0;
+    double discriminatorRms = 0.0;
+    double discriminatorPeak = 0.0;
+    quint64 clippedSamples = 0;
+    quint64 nonFiniteSamples = 0;
+    quint64 inputDiscontinuities = 0;
+    quint64 droppedInputSamples = 0;
+    quint64 queuedInputBytes = 0;
+    quint64 peakQueuedInputBytes = 0;
+    quint64 writeAttempts = 0;
+    quint64 writtenInputBytes = 0;
+    quint64 partialWriteEvents = 0;
+    quint64 failedWriteEvents = 0;
+    quint64 stdoutBacklogBytes = 0;
+    quint64 peakStdoutBacklogBytes = 0;
+    quint64 decoderAudioUnderruns = 0;
+    quint64 decoderPlatformAudioUnderruns = 0;
+};
+
 class DsdFmeProcessService final
 {
 public:
+    using MonotonicClock = std::function<std::uint64_t()>;
+
     explicit DsdFmeProcessService(
         std::unique_ptr<DsdFmeChildProcess> child);
     ~DsdFmeProcessService();
@@ -98,17 +121,24 @@ public:
     void setBinaryPath(QString path);
     void setLogHandler(
         std::function<void(DsdFmeLogSeverity, const QString&)> handler);
+    void setDiagnosticsClock(MonotonicClock clock);
+    void setDiagnosticsEnabled(bool enabled);
     [[nodiscard]] const QString& binaryPath() const noexcept;
     void start();
     void stop();
     void process();
 
     void enqueueDiscriminator(std::span<const float> samples);
+    void reportInputDiscontinuity(quint64 droppedSamples);
+    void reportDecoderAudioUnderruns(
+        quint64 softwareUnderruns,
+        quint64 platformUnderruns);
     [[nodiscard]] std::vector<float> takeDecodedStereo(
         std::size_t maximumFrames);
     void flushDecodedOutput();
 
     [[nodiscard]] const DsdFmeProcessState& state() const noexcept;
+    [[nodiscard]] const DsdFmeDiagnostics& diagnostics() const noexcept;
     [[nodiscard]] std::size_t queuedInputBytes() const noexcept;
     [[nodiscard]] std::size_t decodedFrameCount() const;
 
@@ -119,6 +149,10 @@ private:
     void log(DsdFmeLogSeverity severity, const QString& message);
     void drainStandardOutput();
     void writePendingInput();
+    void resetDiagnostics();
+    void updateQueuedInputDiagnostics();
+    void updateStdoutBacklogDiagnostics();
+    void reportDiagnosticsIfDue();
     void appendDecodedFrame(float left, float right);
     void checkDecodedOutputRate();
     void setProcessFailure();
@@ -127,6 +161,7 @@ private:
     std::unique_ptr<DsdFmeChildProcess> m_child;
     QString m_binaryPath;
     DsdFmeProcessState m_state;
+    DsdFmeDiagnostics m_diagnostics;
     QByteArray m_inputBytes;
     QByteArray m_stdoutBytes;
     QByteArray m_stderrLineBytes;
@@ -141,6 +176,11 @@ private:
     quint64 m_lastRateCheckDecodedFrames = 0;
     quint64 m_lastRateCheckGeneratedFrames = 0;
     std::function<void(DsdFmeLogSeverity, const QString&)> m_logHandler;
+    MonotonicClock m_diagnosticsClock;
+    bool m_diagnosticsEnabled = false;
+    bool m_diagnosticsReportClockStarted = false;
+    std::uint64_t m_lastDiagnosticsReportNanoseconds = 0;
+    double m_discriminatorSumSquares = 0.0;
     QString m_lastLoggedDecoderMessage;
     std::chrono::steady_clock::time_point m_lastDecoderMessageTime{};
 };

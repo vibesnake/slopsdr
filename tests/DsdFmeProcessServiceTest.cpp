@@ -153,12 +153,15 @@ private slots:
     void arbitraryChunkingProducesIdenticalOutput();
     void continuousOutputFeedsSinkWithoutSyntheticGaps();
     void silencesNonFiniteSamplesAndClampsFiniteSamples();
+    void measuresBoundedDiscriminatorDiagnostics();
+    void countsPartialAndFailedWrites();
     void boundsInputDuringBackpressure();
     void boundsDecodedOutput();
     void processFailureDoesNotRestart();
     void flushesDecodedOutputWithoutRestarting();
     void reconstructsFragmentedStderrWithoutLoggingStdout();
     void boundsStderrWorkPreservesOrderAndKeepsInputMoving();
+    void reportsDiagnosticsAtBoundedIntervals();
 };
 
 void DsdFmeProcessServiceTest::launchesExactCommandAndFramesInput()
@@ -404,6 +407,71 @@ void DsdFmeProcessServiceTest::silencesNonFiniteSamplesAndClampsFiniteSamples()
     QVERIFY(stereo[23] < 0.0F);
 }
 
+void DsdFmeProcessServiceTest::measuresBoundedDiscriminatorDiagnostics()
+{
+    auto child = std::make_unique<FakeChildProcess>();
+    auto* fake = child.get();
+    sdr::platform::DsdFmeProcessService service(std::move(child));
+    service.setDiagnosticsEnabled(true);
+    service.setBinaryPath(QStringLiteral("/opt/dsd-fme"));
+    service.start();
+    fake->childState = sdr::platform::DsdFmeChildState::Running;
+
+    const std::array samples{
+        0.5F,
+        -0.5F,
+        2.0F,
+        -2.0F,
+        std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(),
+    };
+    service.enqueueDiscriminator(samples);
+    service.reportInputDiscontinuity(7);
+    service.reportDecoderAudioUnderruns(2, 1);
+
+    const auto& diagnostics = service.diagnostics();
+    QCOMPARE(diagnostics.discriminatorBlocks, quint64{1});
+    QCOMPARE(diagnostics.discriminatorSamples, quint64{6});
+    QVERIFY(std::abs(
+                diagnostics.discriminatorRms - std::sqrt(2.5 / 6.0)) <
+            1.0e-9);
+    QCOMPARE(diagnostics.discriminatorPeak, 1.0);
+    QCOMPARE(diagnostics.clippedSamples, quint64{2});
+    QCOMPARE(diagnostics.nonFiniteSamples, quint64{2});
+    QCOMPARE(diagnostics.inputDiscontinuities, quint64{1});
+    QCOMPARE(diagnostics.droppedInputSamples, quint64{7});
+    QCOMPARE(diagnostics.queuedInputBytes, quint64{12});
+    QCOMPARE(diagnostics.peakQueuedInputBytes, quint64{12});
+    QCOMPARE(diagnostics.decoderAudioUnderruns, quint64{2});
+    QCOMPARE(diagnostics.decoderPlatformAudioUnderruns, quint64{1});
+}
+
+void DsdFmeProcessServiceTest::countsPartialAndFailedWrites()
+{
+    auto child = std::make_unique<FakeChildProcess>();
+    auto* fake = child.get();
+    sdr::platform::DsdFmeProcessService service(std::move(child));
+    service.setDiagnosticsEnabled(true);
+    service.setBinaryPath(QStringLiteral("/opt/dsd-fme"));
+    service.start();
+    fake->childState = sdr::platform::DsdFmeChildState::Running;
+    fake->maximumWriteSize = 1;
+    service.enqueueDiscriminator(std::array{0.25F, -0.25F});
+
+    service.process();
+    QCOMPARE(service.diagnostics().writeAttempts, quint64{1});
+    QCOMPARE(service.diagnostics().writtenInputBytes, quint64{1});
+    QCOMPARE(service.diagnostics().partialWriteEvents, quint64{1});
+    QCOMPARE(service.diagnostics().failedWriteEvents, quint64{0});
+
+    fake->failWrites = true;
+    service.process();
+    QCOMPARE(service.diagnostics().writeAttempts, quint64{2});
+    QCOMPARE(service.diagnostics().partialWriteEvents, quint64{1});
+    QCOMPARE(service.diagnostics().failedWriteEvents, quint64{1});
+    QCOMPARE(service.state().state, sdr::platform::DsdFmeState::ProcessFailed);
+}
+
 void DsdFmeProcessServiceTest::reconstructsFragmentedStderrWithoutLoggingStdout()
 {
     auto child = std::make_unique<FakeChildProcess>();
@@ -500,6 +568,7 @@ void DsdFmeProcessServiceTest::boundsInputDuringBackpressure()
     auto child = std::make_unique<FakeChildProcess>();
     auto* fake = child.get();
     sdr::platform::DsdFmeProcessService service(std::move(child));
+    service.setDiagnosticsEnabled(true);
     service.setBinaryPath(QStringLiteral("/opt/dsd-fme"));
     service.start();
     fake->childState = sdr::platform::DsdFmeChildState::Running;
@@ -512,9 +581,76 @@ void DsdFmeProcessServiceTest::boundsInputDuringBackpressure()
     QVERIFY(service.queuedInputBytes() <= std::size_t{96'000});
     QCOMPARE(fake->written.size(), qsizetype{0});
     QVERIFY(service.state().inputOverflowEvents > 0);
+    QCOMPARE(service.diagnostics().discriminatorSamples, quint64{48'000});
+    QCOMPARE(service.diagnostics().inputDiscontinuities, quint64{1});
+    QCOMPARE(service.diagnostics().droppedInputSamples, quint64{152'000});
+    QCOMPARE(service.diagnostics().queuedInputBytes, quint64{112'384});
+    QCOMPARE(service.diagnostics().peakQueuedInputBytes, quint64{112'384});
     QCOMPARE(
         service.state().state,
         sdr::platform::DsdFmeState::InputOverflow);
+}
+
+void DsdFmeProcessServiceTest::reportsDiagnosticsAtBoundedIntervals()
+{
+    auto child = std::make_unique<FakeChildProcess>();
+    auto* fake = child.get();
+    QStringList messages;
+    std::uint64_t nowNanoseconds = 0;
+    sdr::platform::DsdFmeProcessService service(std::move(child));
+    service.setDiagnosticsClock(
+        [&nowNanoseconds] { return nowNanoseconds; });
+    service.setDiagnosticsEnabled(true);
+    service.setLogHandler(
+        [&messages](
+            sdr::platform::DsdFmeLogSeverity,
+            const QString& message) { messages.append(message); });
+    service.setBinaryPath(QStringLiteral("/opt/dsd-fme"));
+    service.start();
+    fake->childState = sdr::platform::DsdFmeChildState::Running;
+    fake->maximumWriteSize = 4;
+    fake->standardOutput = QByteArray(9'000, '\0');
+    service.enqueueDiscriminator(std::array{0.25F, -0.5F, 0.75F});
+    service.reportInputDiscontinuity(3);
+    service.reportDecoderAudioUnderruns(1, 2);
+
+    const auto diagnosticMessages = [&messages] {
+        QStringList result;
+        for (const QString& message : messages) {
+            if (message.startsWith(
+                    QStringLiteral("App-measured decoder diagnostics:"))) {
+                result.append(message);
+            }
+        }
+        return result;
+    };
+
+    nowNanoseconds = 999'999'999ULL;
+    service.process();
+    QVERIFY(diagnosticMessages().isEmpty());
+    QCOMPARE(service.diagnostics().peakStdoutBacklogBytes, quint64{9'000});
+
+    nowNanoseconds = 1'000'000'000ULL;
+    service.process();
+    QCOMPARE(diagnosticMessages().size(), qsizetype{1});
+    const QString firstSummary = diagnosticMessages().front();
+    QVERIFY(firstSummary.contains(QStringLiteral("input-rms=")));
+    QVERIFY(firstSummary.contains(QStringLiteral("clipped=0")));
+    QVERIFY(firstSummary.contains(QStringLiteral("discontinuities=1")));
+    QVERIFY(firstSummary.contains(QStringLiteral("dropped-samples=3")));
+    QVERIFY(firstSummary.contains(QStringLiteral("partial-writes=1")));
+    QVERIFY(firstSummary.contains(QStringLiteral("stdout-backlog-peak=9000")));
+    QVERIFY(firstSummary.contains(QStringLiteral("audio-underruns=1")));
+    QVERIFY(firstSummary.contains(
+        QStringLiteral("platform-audio-underruns=2")));
+
+    nowNanoseconds = 1'999'999'999ULL;
+    service.process();
+    QCOMPARE(diagnosticMessages().size(), qsizetype{1});
+    service.enqueueDiscriminator(std::array{0.125F});
+    nowNanoseconds = 2'000'000'000ULL;
+    service.process();
+    QCOMPARE(diagnosticMessages().size(), qsizetype{2});
 }
 
 void DsdFmeProcessServiceTest::boundsDecodedOutput()
