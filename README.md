@@ -4,6 +4,8 @@ slopSDR is a desktop software-defined-radio receiver for exploring, tuning,
 demodulating, and visualizing signals. Its Qt Quick interface, radio domain,
 GNU Radio DSP, SoapySDR device access, and platform services remain separate.
 
+![slopSDR main receiver window](docs/images/slopsdr-main-window.png)
+
 ## Platform and capabilities
 
 slopSDR targets Debian-family desktop Linux. It is developed and hardware-tested
