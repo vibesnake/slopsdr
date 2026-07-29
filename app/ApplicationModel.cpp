@@ -15,6 +15,8 @@
 #include <QFileInfo>
 #include <QPointer>
 #include <QSettings>
+#include <QSet>
+#include <QUuid>
 
 #include <algorithm>
 #include <chrono>
@@ -55,6 +57,8 @@ constexpr auto scanStepSizeSetting = "scanner/stepSizeHz";
 constexpr auto scanDwellMillisecondsSetting = "scanner/dwellMilliseconds";
 constexpr auto scanResumeDelayMillisecondsSetting =
     "scanner/resumeDelayMilliseconds";
+constexpr auto scanPresetsSetting = "scanner/presets";
+constexpr auto currentPassbandScanType = "currentPassband";
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
 constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
@@ -135,29 +139,23 @@ QString normalizedDsdFmeBinaryPath(const QString& path)
     return QDir::cleanPath(trimmed);
 }
 
-std::optional<quint64> persistedUnsignedInteger(
-    const QSettings& settings,
-    const char* key)
+std::optional<quint64> persistedUnsignedInteger(const QVariant& storedValue)
 {
-    if (!settings.contains(QString::fromLatin1(key))) {
+    if (!storedValue.isValid()) {
         return std::nullopt;
     }
-    const QString text = settings.value(QString::fromLatin1(key))
-                             .toString()
-                             .trimmed();
+    const QString text = storedValue.toString().trimmed();
     bool valid = false;
     const quint64 value = text.toULongLong(&valid, 10);
     return valid ? std::optional<quint64>(value) : std::nullopt;
 }
 
-std::optional<int> persistedInteger(const QSettings& settings, const char* key)
+std::optional<int> persistedInteger(const QVariant& storedValue)
 {
-    if (!settings.contains(QString::fromLatin1(key))) {
+    if (!storedValue.isValid()) {
         return std::nullopt;
     }
-    const QString text = settings.value(QString::fromLatin1(key))
-                             .toString()
-                             .trimmed();
+    const QString text = storedValue.toString().trimmed();
     bool valid = false;
     const qlonglong value = text.toLongLong(&valid, 10);
     if (!valid || value < std::numeric_limits<int>::min() ||
@@ -165,6 +163,23 @@ std::optional<int> persistedInteger(const QSettings& settings, const char* key)
         return std::nullopt;
     }
     return static_cast<int>(value);
+}
+
+std::optional<quint64> persistedUnsignedInteger(
+    const QSettings& settings,
+    const char* key)
+{
+    const QString setting = QString::fromLatin1(key);
+    return settings.contains(setting)
+               ? persistedUnsignedInteger(settings.value(setting))
+               : std::nullopt;
+}
+
+std::optional<int> persistedInteger(const QSettings& settings, const char* key)
+{
+    const QString setting = QString::fromLatin1(key);
+    return settings.contains(setting) ? persistedInteger(settings.value(setting))
+                                      : std::nullopt;
 }
 
 QString expandedDsdFmeBinaryPath(const QString& userPath)
@@ -421,6 +436,7 @@ ApplicationModel::ApplicationModel(
         passbandAlignment(receiverState().demodulationMode));
     resetScanBoundsToCaptureRange();
     restorePersistedScanSettings();
+    restorePersistedScanPresets();
     restorePersistedDisplaySettings();
     m_applicationLog.post(
         sdr::app::ApplicationLogModel::Info,
@@ -489,6 +505,7 @@ ApplicationModel::ApplicationModel(
         passbandAlignment(receiverState().demodulationMode));
     resetScanBoundsToCaptureRange();
     restorePersistedScanSettings();
+    restorePersistedScanPresets();
     restorePersistedDisplaySettings();
     m_applicationLog.post(
         sdr::app::ApplicationLogModel::Info,
@@ -750,6 +767,150 @@ void ApplicationModel::restorePersistedScanSettings()
         fallbackToCaptureDefaults || (!storedLower.has_value() &&
                                       !storedUpper.has_value());
     static_cast<void>(updateScanValidation());
+}
+
+void ApplicationModel::restorePersistedScanPresets()
+{
+    QSettings settings;
+    const QVariantList storedPresets = settings.value(scanPresetsSetting).toList();
+    QSet<QString> knownIds;
+    QSet<QString> knownNames;
+    bool ignoredInvalidPreset = false;
+
+    for (const QVariant& storedPreset : storedPresets) {
+        const QVariantMap fields = storedPreset.toMap();
+        const QUuid uuid(fields.value(QStringLiteral("id")).toString());
+        const QString name = fields.value(QStringLiteral("name")).toString().trimmed();
+        const QString scanType = fields.value(QStringLiteral("scanType")).toString();
+        const auto lower = persistedUnsignedInteger(
+            fields.value(QStringLiteral("lowerFrequencyHz")));
+        const auto upper = persistedUnsignedInteger(
+            fields.value(QStringLiteral("upperFrequencyHz")));
+        const auto step = persistedUnsignedInteger(
+            fields.value(QStringLiteral("stepSizeHz")));
+        const auto dwell = persistedInteger(
+            fields.value(QStringLiteral("dwellMilliseconds")));
+        const auto resumeDelay = persistedInteger(
+            fields.value(QStringLiteral("resumeDelayMilliseconds")));
+        const QString id = uuid.toString(QUuid::WithoutBraces);
+        const QString foldedName = name.toCaseFolded();
+        if (uuid.isNull() || name.isEmpty() ||
+            scanType != QLatin1String(currentPassbandScanType) ||
+            !lower.has_value() || !upper.has_value() || !step.has_value() ||
+            !dwell.has_value() || !resumeDelay.has_value() ||
+            *lower > *upper || *step == 0 || *dwell <= 0 ||
+            *resumeDelay < 0 || knownIds.contains(id) ||
+            knownNames.contains(foldedName)) {
+            ignoredInvalidPreset = true;
+            continue;
+        }
+        knownIds.insert(id);
+        knownNames.insert(foldedName);
+        m_scanPresets.push_back({
+            id,
+            name,
+            scanType,
+            {*lower, *upper, *step, *dwell, *resumeDelay},
+        });
+    }
+
+    if (ignoredInvalidPreset) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Ignored invalid saved scanner preset data"));
+    }
+}
+
+bool ApplicationModel::persistScanPresets()
+{
+    QVariantList storedPresets;
+    storedPresets.reserve(static_cast<qsizetype>(m_scanPresets.size()));
+    for (const ScanPreset& preset : m_scanPresets) {
+        QVariantMap fields;
+        fields.insert(QStringLiteral("id"), preset.id);
+        fields.insert(QStringLiteral("name"), preset.name);
+        fields.insert(QStringLiteral("scanType"), preset.scanType);
+        fields.insert(
+            QStringLiteral("lowerFrequencyHz"),
+            QVariant::fromValue<qulonglong>(preset.settings.lowerFrequency));
+        fields.insert(
+            QStringLiteral("upperFrequencyHz"),
+            QVariant::fromValue<qulonglong>(preset.settings.upperFrequency));
+        fields.insert(
+            QStringLiteral("stepSizeHz"),
+            QVariant::fromValue<qulonglong>(preset.settings.stepSize));
+        fields.insert(
+            QStringLiteral("dwellMilliseconds"),
+            preset.settings.dwellMilliseconds);
+        fields.insert(
+            QStringLiteral("resumeDelayMilliseconds"),
+            preset.settings.resumeDelayMilliseconds);
+        storedPresets.append(fields);
+    }
+    QSettings settings;
+    settings.setValue(scanPresetsSetting, storedPresets);
+    settings.sync();
+    if (settings.status() != QSettings::NoError) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Unable to save scanner presets"));
+        return false;
+    }
+    return true;
+}
+
+void ApplicationModel::setScanPresetStatusMessage(QString message)
+{
+    if (m_scanPresetStatusMessage == message) {
+        return;
+    }
+    m_scanPresetStatusMessage = std::move(message);
+    emit scanPresetStatusChanged();
+}
+
+int ApplicationModel::scanPresetIndex(const QString& presetId) const noexcept
+{
+    const auto iterator = std::find_if(
+        m_scanPresets.cbegin(),
+        m_scanPresets.cend(),
+        [&presetId](const ScanPreset& preset) { return preset.id == presetId; });
+    return iterator == m_scanPresets.cend()
+               ? -1
+               : static_cast<int>(std::distance(m_scanPresets.cbegin(), iterator));
+}
+
+bool ApplicationModel::scanPresetNameAvailable(
+    const QString& name,
+    const QString& exceptPresetId) const
+{
+    const QString foldedName = name.trimmed().toCaseFolded();
+    return !std::any_of(
+        m_scanPresets.cbegin(),
+        m_scanPresets.cend(),
+        [&foldedName, &exceptPresetId](const ScanPreset& preset) {
+            return preset.id != exceptPresetId &&
+                   preset.name.toCaseFolded() == foldedName;
+        });
+}
+
+void ApplicationModel::applyScanPresetConfiguration(
+    const sdr::app::CurrentPassbandScanSettings& settings)
+{
+    m_scanLowerFrequency = settings.lowerFrequency;
+    m_scanUpperFrequency = settings.upperFrequency;
+    m_scanStepSize = settings.stepSize;
+    m_scanDwellMilliseconds = settings.dwellMilliseconds;
+    m_scanResumeDelayMilliseconds = settings.resumeDelayMilliseconds;
+    m_scanBoundsFollowCapture = false;
+
+    QSettings persistedSettings;
+    persistedSettings.setValue(scanLowerFrequencySetting, m_scanLowerFrequency);
+    persistedSettings.setValue(scanUpperFrequencySetting, m_scanUpperFrequency);
+    persistedSettings.setValue(scanStepSizeSetting, m_scanStepSize);
+    persistedSettings.setValue(
+        scanDwellMillisecondsSetting, m_scanDwellMilliseconds);
+    persistedSettings.setValue(
+        scanResumeDelayMillisecondsSetting, m_scanResumeDelayMilliseconds);
+    static_cast<void>(updateScanValidation());
+    emit scannerChanged();
 }
 
 void ApplicationModel::persistSpectrumWaterfallSplitRatio()
@@ -1084,6 +1245,53 @@ bool ApplicationModel::scanCanSkip() const noexcept
 bool ApplicationModel::scanCanStop() const noexcept
 {
     return m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+}
+
+QVariantList ApplicationModel::scanPresets() const
+{
+    QVariantList presets;
+    presets.reserve(static_cast<qsizetype>(m_scanPresets.size()));
+    for (const ScanPreset& preset : m_scanPresets) {
+        QVariantMap fields;
+        fields.insert(QStringLiteral("presetId"), preset.id);
+        fields.insert(QStringLiteral("name"), preset.name);
+        fields.insert(QStringLiteral("scanType"), preset.scanType);
+        fields.insert(
+            QStringLiteral("lowerFrequencyHz"),
+            QVariant::fromValue<qulonglong>(preset.settings.lowerFrequency));
+        fields.insert(
+            QStringLiteral("upperFrequencyHz"),
+            QVariant::fromValue<qulonglong>(preset.settings.upperFrequency));
+        fields.insert(
+            QStringLiteral("stepSizeHz"),
+            QVariant::fromValue<qulonglong>(preset.settings.stepSize));
+        fields.insert(
+            QStringLiteral("dwellMilliseconds"),
+            preset.settings.dwellMilliseconds);
+        fields.insert(
+            QStringLiteral("resumeDelayMilliseconds"),
+            preset.settings.resumeDelayMilliseconds);
+        presets.append(fields);
+    }
+    return presets;
+}
+
+QString ApplicationModel::selectedScanPresetId() const
+{
+    return m_selectedScanPresetId;
+}
+
+QString ApplicationModel::selectedScanPresetName() const
+{
+    const int index = scanPresetIndex(m_selectedScanPresetId);
+    return index < 0
+               ? QString()
+               : m_scanPresets.at(static_cast<std::size_t>(index)).name;
+}
+
+QString ApplicationModel::scanPresetStatusMessage() const
+{
+    return m_scanPresetStatusMessage;
 }
 
 double ApplicationModel::settingsPanelWidth() const noexcept
@@ -2051,6 +2259,142 @@ void ApplicationModel::setScanResumeDelayMilliseconds(int milliseconds)
     } else {
         emit scannerChanged();
     }
+}
+
+void ApplicationModel::selectScanPreset(const QString& presetId)
+{
+    const int index = scanPresetIndex(presetId);
+    const QString selectedId = index >= 0
+                                   ? m_scanPresets.at(static_cast<std::size_t>(index)).id
+                                   : QString();
+    if (m_selectedScanPresetId == selectedId) {
+        return;
+    }
+    m_selectedScanPresetId = selectedId;
+    emit scanPresetSelectionChanged();
+    if (index < 0 && !presetId.isEmpty()) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Selected scanner preset is no longer available"));
+    }
+}
+
+bool ApplicationModel::saveNewScanPreset(const QString& name)
+{
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty()) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Enter a non-empty scanner preset name"));
+        return false;
+    }
+    if (!scanPresetNameAvailable(trimmedName)) {
+        setScanPresetStatusMessage(
+            QStringLiteral("A scanner preset with that name already exists"));
+        return false;
+    }
+
+    const auto previousPresets = m_scanPresets;
+    const QString previousSelection = m_selectedScanPresetId;
+    const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    m_scanPresets.push_back({
+        id,
+        trimmedName,
+        QString::fromLatin1(currentPassbandScanType),
+        scanSettings(),
+    });
+    m_selectedScanPresetId = id;
+    if (!persistScanPresets()) {
+        m_scanPresets = previousPresets;
+        m_selectedScanPresetId = previousSelection;
+        return false;
+    }
+    emit scanPresetsChanged();
+    emit scanPresetSelectionChanged();
+    setScanPresetStatusMessage(
+        QStringLiteral("Saved scanner preset “%1”").arg(trimmedName));
+    return true;
+}
+
+bool ApplicationModel::loadSelectedScanPreset()
+{
+    if (scanCanStop()) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Stop scanning before loading a preset"));
+        return false;
+    }
+    const int index = scanPresetIndex(m_selectedScanPresetId);
+    if (index < 0) {
+        setScanPresetStatusMessage(QStringLiteral("Select a scanner preset to load"));
+        return false;
+    }
+    const ScanPreset& preset = m_scanPresets.at(static_cast<std::size_t>(index));
+    applyScanPresetConfiguration(preset.settings);
+    setScanPresetStatusMessage(
+        QStringLiteral("Loaded scanner preset “%1”").arg(preset.name));
+    return true;
+}
+
+bool ApplicationModel::updateSelectedScanPreset(const QString& name)
+{
+    const int index = scanPresetIndex(m_selectedScanPresetId);
+    if (index < 0) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Select a scanner preset to update"));
+        return false;
+    }
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty()) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Enter a non-empty scanner preset name"));
+        return false;
+    }
+    const ScanPreset& selectedPreset =
+        m_scanPresets.at(static_cast<std::size_t>(index));
+    if (!scanPresetNameAvailable(trimmedName, selectedPreset.id)) {
+        setScanPresetStatusMessage(
+            QStringLiteral("A scanner preset with that name already exists"));
+        return false;
+    }
+
+    const auto previousPresets = m_scanPresets;
+    ScanPreset& preset = m_scanPresets.at(static_cast<std::size_t>(index));
+    preset.name = trimmedName;
+    preset.scanType = QString::fromLatin1(currentPassbandScanType);
+    preset.settings = scanSettings();
+    if (!persistScanPresets()) {
+        m_scanPresets = previousPresets;
+        return false;
+    }
+    emit scanPresetsChanged();
+    emit scanPresetSelectionChanged();
+    setScanPresetStatusMessage(
+        QStringLiteral("Updated scanner preset “%1”").arg(trimmedName));
+    return true;
+}
+
+bool ApplicationModel::deleteSelectedScanPreset()
+{
+    const int index = scanPresetIndex(m_selectedScanPresetId);
+    if (index < 0) {
+        setScanPresetStatusMessage(
+            QStringLiteral("Select a scanner preset to delete"));
+        return false;
+    }
+
+    const auto previousPresets = m_scanPresets;
+    const QString previousSelection = m_selectedScanPresetId;
+    const QString name = m_scanPresets.at(static_cast<std::size_t>(index)).name;
+    m_scanPresets.erase(m_scanPresets.begin() + index);
+    m_selectedScanPresetId.clear();
+    if (!persistScanPresets()) {
+        m_scanPresets = previousPresets;
+        m_selectedScanPresetId = previousSelection;
+        return false;
+    }
+    emit scanPresetsChanged();
+    emit scanPresetSelectionChanged();
+    setScanPresetStatusMessage(
+        QStringLiteral("Deleted scanner preset “%1”").arg(name));
+    return true;
 }
 
 void ApplicationModel::startScan()

@@ -313,6 +313,15 @@ void GainSliderBindingTest::
                                 enabled: false
                                 model: ["Live receiver squelch"]
                             }
+                            TextField { objectName: "scanPresetNameField" }
+                            ListView { objectName: "scanPresetList"; model: [] }
+                            Row {
+                                Button { objectName: "saveNewScanPresetButton" }
+                                Button { objectName: "loadScanPresetButton"; enabled: false }
+                                Button { objectName: "updateScanPresetButton"; enabled: false }
+                                Button { objectName: "deleteScanPresetButton"; enabled: false }
+                            }
+                            Text { objectName: "scanPresetStatusMessage" }
                             Row {
                                 Button { objectName: "scanStartButton"; enabled: true }
                                 Button { objectName: "scanPauseResumeButton"; enabled: false }
@@ -416,6 +425,13 @@ void GainSliderBindingTest::
              "scanDwellTimeField",
              "scanResumeDelayField",
              "scanSquelchSourceControl",
+             "scanPresetNameField",
+             "scanPresetList",
+             "saveNewScanPresetButton",
+             "loadScanPresetButton",
+             "updateScanPresetButton",
+             "deleteScanPresetButton",
+             "scanPresetStatusMessage",
              "scanStartButton",
              "scanPauseResumeButton",
              "scanSkipButton",

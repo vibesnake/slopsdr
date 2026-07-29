@@ -835,6 +835,24 @@ ApplicationWindow {
     }
 
     Dialog {
+        id: deleteScanPresetDialog
+        anchors.centerIn: Overlay.overlay
+        modal: true
+        title: qsTr("Delete scanner preset")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        closePolicy: Popup.CloseOnEscape
+        onAccepted: root.applicationModel.deleteSelectedScanPreset()
+
+        contentItem: Label {
+            width: 300
+            text: qsTr("Delete scanner preset “%1”? This cannot be undone.")
+                      .arg(root.applicationModel.selectedScanPresetName)
+            color: root.primaryTextColor
+            wrapMode: Text.WordWrap
+        }
+    }
+
+    Dialog {
         id: bookmarkEditDialog
         property int editingRow: -1
         property var originalDetails: ({})
@@ -2173,6 +2191,148 @@ ApplicationWindow {
                                 enabled: false
                                 model: [qsTr("Live receiver squelch")]
                                 currentIndex: 0
+                            }
+                        }
+
+                        Rectangle {
+                            objectName: "scanPresetsSection"
+                            Layout.fillWidth: true
+                            Layout.minimumHeight: scanPresetsContent.implicitHeight + 20
+                            radius: 4
+                            color: "#0b111e"
+                            border.color: root.panelBorderColor
+
+                            ColumnLayout {
+                                id: scanPresetsContent
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 6
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Presets")
+                                    color: root.primaryTextColor
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+
+                                    TextField {
+                                        id: scanPresetNameField
+                                        objectName: "scanPresetNameField"
+                                        Layout.fillWidth: true
+                                        placeholderText: qsTr("Preset name")
+                                        Accessible.name: qsTr("Scanner preset name")
+                                        Accessible.description: qsTr(
+                                            "Name for saving or updating a scanner preset")
+                                    }
+
+                                    Button {
+                                        objectName: "saveNewScanPresetButton"
+                                        text: qsTr("Save New")
+                                        Accessible.name: text
+                                        onClicked: root.applicationModel.saveNewScanPreset(
+                                                       scanPresetNameField.text)
+                                    }
+                                }
+
+                                ListView {
+                                    id: scanPresetList
+                                    objectName: "scanPresetList"
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Math.min(
+                                                                144,
+                                                                Math.max(42, contentHeight))
+                                    clip: true
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    spacing: 2
+                                    model: root.applicationModel.scanPresets
+                                    ScrollBar.vertical: ScrollBar {}
+
+                                    delegate: ItemDelegate {
+                                        id: scanPresetDelegate
+                                        required property var modelData
+                                        readonly property var preset: modelData
+                                        width: scanPresetList.width
+                                        highlighted: preset.presetId
+                                                     === root.applicationModel.selectedScanPresetId
+                                        Accessible.name: qsTr("Scanner preset %1")
+                                                         .arg(preset.name)
+                                        Accessible.description: qsTr(
+                                            "Select this scanner preset")
+                                        onClicked: {
+                                            root.applicationModel.selectScanPreset(
+                                                        preset.presetId)
+                                            scanPresetNameField.text = preset.name
+                                        }
+                                        ToolTip.visible: hovered
+                                        ToolTip.text: preset.name
+                                        ToolTip.delay: 500
+
+                                        contentItem: Label {
+                                            text: scanPresetDelegate.preset.name
+                                            color: scanPresetDelegate.highlighted
+                                                   ? root.primaryTextColor
+                                                   : root.secondaryTextColor
+                                            elide: Text.ElideRight
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                    }
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: scanPresetList.count === 0
+                                        text: qsTr("No saved presets")
+                                        color: root.secondaryTextColor
+                                        font.pixelSize: 10
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+
+                                    Button {
+                                        objectName: "loadScanPresetButton"
+                                        Layout.fillWidth: true
+                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
+                                                 && !root.applicationModel.scanCanStop
+                                        text: qsTr("Load")
+                                        Accessible.name: text
+                                        onClicked: root.applicationModel.loadSelectedScanPreset()
+                                    }
+                                    Button {
+                                        objectName: "updateScanPresetButton"
+                                        Layout.fillWidth: true
+                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
+                                        text: qsTr("Update")
+                                        Accessible.name: text
+                                        onClicked: root.applicationModel.updateSelectedScanPreset(
+                                                       scanPresetNameField.text)
+                                    }
+                                    Button {
+                                        objectName: "deleteScanPresetButton"
+                                        Layout.fillWidth: true
+                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
+                                        text: qsTr("Delete")
+                                        Accessible.name: text
+                                        onClicked: deleteScanPresetDialog.open()
+                                    }
+                                }
+
+                                Label {
+                                    objectName: "scanPresetStatusMessage"
+                                    Layout.fillWidth: true
+                                    visible: text.length > 0
+                                    text: root.applicationModel.scanPresetStatusMessage
+                                    color: text.startsWith("Unable")
+                                           ? "#ff9b9b" : root.secondaryTextColor
+                                    wrapMode: Text.WordWrap
+                                    font.pixelSize: 10
+                                }
                             }
                         }
 

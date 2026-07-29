@@ -12,12 +12,22 @@
 #include <QSignalSpy>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <QUrl>
 #include <QtTest>
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+
+namespace {
+
+QVariantMap scanPresetAt(const ApplicationModel& model, qsizetype index)
+{
+    return model.scanPresets().at(index).toMap();
+}
+
+}  // namespace
 
 class ApplicationModelTest final : public QObject
 {
@@ -35,6 +45,13 @@ private slots:
     void persistsExactWideScanFrequencies();
     void fallsBackFromMalformedScanSettings();
     void preservesRestoredInvalidScanBoundsWithoutStarting();
+    void createsLoadsUpdatesDeletesAndOrdersScanPresets();
+    void persistsScanPresetsAcrossApplicationModels();
+    void validatesUniqueScanPresetNames();
+    void roundTripsExactWidePresetFrequencies();
+    void editsLoadedScanSettingsWithoutMutatingPreset();
+    void ignoresMalformedStoredScanPresets();
+    void loadsOutOfPassbandPresetWithoutStartingScanner();
     void scansOnlyInsideTheCurrentCapturePassband();
     void persistsAndValidatesDsdFmeBinaryPath();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
@@ -483,6 +500,219 @@ void ApplicationModelTest::preservesRestoredInvalidScanBoundsWithoutStarting()
     QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
     QVERIFY(model.scanStatusMessage().contains(
         QStringLiteral("Scanner not started")));
+}
+
+void ApplicationModelTest::createsLoadsUpdatesDeletesAndOrdersScanPresets()
+{
+    ApplicationModel model;
+    const quint64 center = model.centerFrequency();
+    model.setScanLowerFrequency(center - 100'000);
+    model.setScanUpperFrequency(center + 100'000);
+    model.setScanStepSize(12'500);
+    model.setScanDwellMilliseconds(80);
+    model.setScanResumeDelayMilliseconds(240);
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Morning")));
+    const QVariantMap morning = scanPresetAt(model, 0);
+    const QString morningId = morning.value(QStringLiteral("presetId")).toString();
+
+    model.setScanLowerFrequency(center + 200'000);
+    model.setScanUpperFrequency(center + 300'000);
+    model.setScanStepSize(25'000);
+    model.setScanDwellMilliseconds(120);
+    model.setScanResumeDelayMilliseconds(360);
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Evening")));
+    const QString eveningId = scanPresetAt(model, 1)
+                                  .value(QStringLiteral("presetId"))
+                                  .toString();
+
+    const QVariantList presets = model.scanPresets();
+    QCOMPARE(presets.size(), 2);
+    QCOMPARE(presets.at(0).toMap().value(QStringLiteral("name")).toString(),
+             QStringLiteral("Morning"));
+    QCOMPARE(presets.at(1).toMap().value(QStringLiteral("name")).toString(),
+             QStringLiteral("Evening"));
+
+    model.selectScanPreset(morningId);
+    QVERIFY(model.loadSelectedScanPreset());
+    QCOMPARE(model.scanLowerFrequency(), center - 100'000);
+    QCOMPARE(model.scanUpperFrequency(), center + 100'000);
+    QCOMPARE(model.scanStepSize(), quint64{12'500});
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+
+    model.setScanStepSize(10'000);
+    QVERIFY(model.updateSelectedScanPreset(QStringLiteral("Morning renamed")));
+    const QVariantMap updated = scanPresetAt(model, 0);
+    QCOMPARE(updated.value(QStringLiteral("presetId")).toString(), morningId);
+    QCOMPARE(updated.value(QStringLiteral("name")).toString(),
+             QStringLiteral("Morning renamed"));
+    QCOMPARE(updated.value(QStringLiteral("stepSizeHz")).toULongLong(),
+             quint64{10'000});
+
+    model.selectScanPreset(eveningId);
+    QVERIFY(model.deleteSelectedScanPreset());
+    QCOMPARE(model.scanPresets().size(), 1);
+    QCOMPARE(scanPresetAt(model, 0).value(QStringLiteral("presetId")).toString(),
+             morningId);
+    QVERIFY(model.selectedScanPresetId().isEmpty());
+}
+
+void ApplicationModelTest::persistsScanPresetsAcrossApplicationModels()
+{
+    QString firstId;
+    QString secondId;
+    {
+        ApplicationModel model;
+        const quint64 center = model.centerFrequency();
+        model.setScanLowerFrequency(center - 75'000);
+        model.setScanUpperFrequency(center + 25'000);
+        QVERIFY(model.saveNewScanPreset(QStringLiteral("First")));
+        firstId = scanPresetAt(model, 0).value(QStringLiteral("presetId")).toString();
+        model.setScanLowerFrequency(center + 100'000);
+        model.setScanUpperFrequency(center + 175'000);
+        model.setScanStepSize(5'000);
+        QVERIFY(model.saveNewScanPreset(QStringLiteral("Second")));
+        secondId = scanPresetAt(model, 1).value(QStringLiteral("presetId")).toString();
+    }
+
+    ApplicationModel restored;
+    QCOMPARE(restored.scanPresets().size(), 2);
+    QCOMPARE(scanPresetAt(restored, 0).value(QStringLiteral("name")).toString(),
+             QStringLiteral("First"));
+    QCOMPARE(scanPresetAt(restored, 1).value(QStringLiteral("name")).toString(),
+             QStringLiteral("Second"));
+    QCOMPARE(
+        scanPresetAt(restored, 0).value(QStringLiteral("presetId")).toString(),
+        firstId);
+    QCOMPARE(
+        scanPresetAt(restored, 1).value(QStringLiteral("presetId")).toString(),
+        secondId);
+    QVERIFY(restored.selectedScanPresetId().isEmpty());
+    QCOMPARE(restored.scanState(), QStringLiteral("Stopped"));
+}
+
+void ApplicationModelTest::validatesUniqueScanPresetNames()
+{
+    ApplicationModel model;
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("City watch")));
+    QVERIFY(!model.saveNewScanPreset(QStringLiteral(" city watch ")));
+    QVERIFY(model.scanPresetStatusMessage().contains(
+        QStringLiteral("already exists")));
+
+    model.selectScanPreset(
+        scanPresetAt(model, 0).value(QStringLiteral("presetId")).toString());
+    QVERIFY(!model.updateSelectedScanPreset(QStringLiteral("   ")));
+    QVERIFY(model.scanPresetStatusMessage().contains(
+        QStringLiteral("non-empty")));
+}
+
+void ApplicationModelTest::roundTripsExactWidePresetFrequencies()
+{
+    constexpr quint64 lower = 4'448'000'123;
+    constexpr quint64 upper = 4'472'000'987;
+    constexpr quint64 step = 4'294'967'297;
+    QString presetId;
+    {
+        ApplicationModel model;
+        model.setScanLowerFrequency(lower);
+        model.setScanUpperFrequency(upper);
+        model.setScanStepSize(step);
+        QVERIFY(model.saveNewScanPreset(QStringLiteral("Wide integers")));
+        const QVariantMap preset = scanPresetAt(model, 0);
+        presetId = preset.value(QStringLiteral("presetId")).toString();
+        QCOMPARE(preset.value(QStringLiteral("lowerFrequencyHz")).toULongLong(),
+                 lower);
+        QCOMPARE(preset.value(QStringLiteral("upperFrequencyHz")).toULongLong(),
+                 upper);
+        QCOMPARE(preset.value(QStringLiteral("stepSizeHz")).toULongLong(), step);
+    }
+
+    ApplicationModel restored;
+    restored.selectScanPreset(presetId);
+    QVERIFY(restored.loadSelectedScanPreset());
+    QCOMPARE(restored.scanLowerFrequency(), lower);
+    QCOMPARE(restored.scanUpperFrequency(), upper);
+    QCOMPARE(restored.scanStepSize(), step);
+}
+
+void ApplicationModelTest::editsLoadedScanSettingsWithoutMutatingPreset()
+{
+    ApplicationModel model;
+    const quint64 center = model.centerFrequency();
+    model.setScanLowerFrequency(center - 50'000);
+    model.setScanUpperFrequency(center + 50'000);
+    model.setScanStepSize(12'500);
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Editable copy")));
+    const QVariantMap saved = scanPresetAt(model, 0);
+    model.setScanLowerFrequency(center + 100'000);
+    model.setScanUpperFrequency(center + 200'000);
+    model.setScanStepSize(20'000);
+
+    model.selectScanPreset(saved.value(QStringLiteral("presetId")).toString());
+    QVERIFY(model.loadSelectedScanPreset());
+    model.setScanStepSize(7'500);
+    model.setScanDwellMilliseconds(333);
+
+    const QVariantMap unchanged = scanPresetAt(model, 0);
+    QCOMPARE(unchanged.value(QStringLiteral("presetId")).toString(),
+             saved.value(QStringLiteral("presetId")).toString());
+    QCOMPARE(unchanged.value(QStringLiteral("stepSizeHz")).toULongLong(),
+             quint64{12'500});
+    QCOMPARE(unchanged.value(QStringLiteral("dwellMilliseconds")).toInt(), 250);
+}
+
+void ApplicationModelTest::ignoresMalformedStoredScanPresets()
+{
+    QVariantMap valid;
+    valid.insert(
+        QStringLiteral("id"),
+        QUuid::createUuid().toString(QUuid::WithoutBraces));
+    valid.insert(QStringLiteral("name"), QStringLiteral("Valid preset"));
+    valid.insert(QStringLiteral("scanType"), QStringLiteral("currentPassband"));
+    valid.insert(QStringLiteral("lowerFrequencyHz"), qulonglong{99'900'000});
+    valid.insert(QStringLiteral("upperFrequencyHz"), qulonglong{100'100'000});
+    valid.insert(QStringLiteral("stepSizeHz"), qulonglong{12'500});
+    valid.insert(QStringLiteral("dwellMilliseconds"), 250);
+    valid.insert(QStringLiteral("resumeDelayMilliseconds"), 1'000);
+    QVariantMap malformed;
+    malformed.insert(QStringLiteral("id"), QStringLiteral("not-a-uuid"));
+    malformed.insert(QStringLiteral("name"), QStringLiteral("Broken"));
+
+    QSettings settings;
+    settings.setValue(
+        QStringLiteral("scanner/presets"),
+        QVariantList{malformed, valid});
+    settings.sync();
+
+    ApplicationModel model;
+    QCOMPARE(model.scanPresets().size(), 1);
+    QCOMPARE(scanPresetAt(model, 0).value(QStringLiteral("name")).toString(),
+             QStringLiteral("Valid preset"));
+    QVERIFY(model.scanPresetStatusMessage().contains(
+        QStringLiteral("Ignored invalid")));
+}
+
+void ApplicationModelTest::loadsOutOfPassbandPresetWithoutStartingScanner()
+{
+    constexpr quint64 lower = 4'448'000'000;
+    constexpr quint64 upper = 4'472'000'000;
+    ApplicationModel model;
+    model.setScanLowerFrequency(lower);
+    model.setScanUpperFrequency(upper);
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Out of passband")));
+    const QString presetId = scanPresetAt(model, 0)
+                                 .value(QStringLiteral("presetId"))
+                                 .toString();
+
+    const quint64 center = model.centerFrequency();
+    model.setScanLowerFrequency(center - 100'000);
+    model.setScanUpperFrequency(center + 100'000);
+    model.selectScanPreset(presetId);
+    QVERIFY(model.loadSelectedScanPreset());
+    QCOMPARE(model.scanLowerFrequency(), lower);
+    QCOMPARE(model.scanUpperFrequency(), upper);
+    QVERIFY(!model.scanValidationError().isEmpty());
+    QVERIFY(!model.scanCanStart());
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
 }
 
 void ApplicationModelTest::scansOnlyInsideTheCurrentCapturePassband()

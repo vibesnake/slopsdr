@@ -84,6 +84,10 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool scanPaused READ scanPaused NOTIFY scannerChanged)
     Q_PROPERTY(bool scanCanSkip READ scanCanSkip NOTIFY scannerChanged)
     Q_PROPERTY(bool scanCanStop READ scanCanStop NOTIFY scannerChanged)
+    Q_PROPERTY(QVariantList scanPresets READ scanPresets NOTIFY scanPresetsChanged)
+    Q_PROPERTY(QString selectedScanPresetId READ selectedScanPresetId NOTIFY scanPresetSelectionChanged)
+    Q_PROPERTY(QString selectedScanPresetName READ selectedScanPresetName NOTIFY scanPresetSelectionChanged)
+    Q_PROPERTY(QString scanPresetStatusMessage READ scanPresetStatusMessage NOTIFY scanPresetStatusChanged)
     Q_PROPERTY(double settingsPanelWidth READ settingsPanelWidth NOTIFY settingsPanelWidthChanged)
     Q_PROPERTY(double consolePanelWidth READ consolePanelWidth NOTIFY consolePanelWidthChanged)
     Q_PROPERTY(QString dsdFmeBinaryPath READ dsdFmeBinaryPath NOTIFY dsdFmeBinaryPathChanged)
@@ -197,6 +201,10 @@ public:
     [[nodiscard]] bool scanPaused() const noexcept;
     [[nodiscard]] bool scanCanSkip() const noexcept;
     [[nodiscard]] bool scanCanStop() const noexcept;
+    [[nodiscard]] QVariantList scanPresets() const;
+    [[nodiscard]] QString selectedScanPresetId() const;
+    [[nodiscard]] QString selectedScanPresetName() const;
+    [[nodiscard]] QString scanPresetStatusMessage() const;
     [[nodiscard]] double settingsPanelWidth() const noexcept;
     [[nodiscard]] double consolePanelWidth() const noexcept;
     [[nodiscard]] QString dsdFmeBinaryPath() const;
@@ -300,6 +308,11 @@ public slots:
     void setScanStepSize(quint64 stepSize);
     void setScanDwellMilliseconds(int milliseconds);
     void setScanResumeDelayMilliseconds(int milliseconds);
+    void selectScanPreset(const QString& presetId);
+    bool saveNewScanPreset(const QString& name);
+    bool loadSelectedScanPreset();
+    bool updateSelectedScanPreset(const QString& name);
+    bool deleteSelectedScanPreset();
     void startScan();
     void pauseOrResumeScan();
     void skipScanFrequency();
@@ -369,6 +382,9 @@ signals:
     void scanPanelWidthChanged();
     void scannerChanged();
     void scanCurrentFrequencyChanged();
+    void scanPresetsChanged();
+    void scanPresetSelectionChanged();
+    void scanPresetStatusChanged();
     void settingsPanelWidthChanged();
     void consolePanelWidthChanged();
     void dsdFmeBinaryPathChanged();
@@ -502,6 +518,15 @@ private:
     void persistSettingsPanelWidth();
     void persistConsolePanelWidth();
     void restorePersistedScanSettings();
+    void restorePersistedScanPresets();
+    [[nodiscard]] bool persistScanPresets();
+    void setScanPresetStatusMessage(QString message);
+    [[nodiscard]] int scanPresetIndex(const QString& presetId) const noexcept;
+    [[nodiscard]] bool scanPresetNameAvailable(
+        const QString& name,
+        const QString& exceptPresetId = {}) const;
+    void applyScanPresetConfiguration(
+        const sdr::app::CurrentPassbandScanSettings& settings);
     void setStatusText(QString statusText);
     [[nodiscard]] sdr::app::CurrentPassbandScanSettings scanSettings() const noexcept;
     [[nodiscard]] bool scannerSquelchOpen() const noexcept;
@@ -549,6 +574,15 @@ private:
     int m_scanResumeDelayMilliseconds = 1'000;
     QString m_scanValidationError;
     QString m_scanStatus = QStringLiteral("Scanner not running");
+    struct ScanPreset {
+        QString id;
+        QString name;
+        QString scanType;
+        sdr::app::CurrentPassbandScanSettings settings;
+    };
+    std::vector<ScanPreset> m_scanPresets;
+    QString m_selectedScanPresetId;
+    QString m_scanPresetStatusMessage;
     bool m_scanBoundsFollowCapture = true;
     bool m_runtimeSquelchOpen = false;
     sdr::app::CurrentPassbandScanner m_scanner;

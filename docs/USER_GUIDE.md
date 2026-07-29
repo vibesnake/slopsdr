@@ -201,6 +201,13 @@ scans are not available. Scanning does not disable or reset the Receiver
 Control settings, and the spectrum and waterfall continue at their normal live
 display cadence.
 
+Use **Presets** to keep ordered, named snapshots of the current scan type,
+bounds, step, dwell time, and resume delay. Enter a unique name and select
+**Save New**. Select a preset to **Load** a disconnected copy into the current
+fields, **Update** it (and optionally rename it), or **Delete** it after
+confirmation. Loading never starts the scanner. Presets retain invalid-for-now
+bounds visibly, so correct them before starting a scan.
+
 **Add Group** creates a nested group under the selected group, or at the root
 when no group is selected. **Add Bookmark** snapshots the current listening
 frequency, requested gain, demodulator, filter edges, squelch state, and

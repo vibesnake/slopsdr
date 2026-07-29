@@ -21,6 +21,8 @@ sends discriminator audio to a separately installed DSD-FME executable.
 Decoding reliability may vary, and FEC errors or audio underruns may occur.
 Encrypted traffic is not decoded. The Scan pane can step only within the SDR's
 current usable capture passband without retuning the hardware center frequency.
+Named Scan-pane presets store ordered current-passband scanner configurations
+without storing runtime scan state or position.
 Bookmark scanner-inclusion checkboxes remain persisted metadata and are not
 used by this scanner.
 
