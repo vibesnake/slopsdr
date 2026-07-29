@@ -193,7 +193,9 @@ stops scanner movement while reception continues, **Skip** advances once, and
 **Stop** leaves the receiver on its current frequency. A center-frequency,
 capture-bandwidth, or device-limit change that places either bound outside the
 usable passband stops the scanner. Scan settings and scanner state are not
-saved, and bookmark or hardware-retuning scans are not available.
+saved, and bookmark or hardware-retuning scans are not available. Scanning does
+not disable or reset the Receiver Control settings, and the spectrum and
+waterfall continue at their normal live display cadence.
 
 **Add Group** creates a nested group under the selected group, or at the root
 when no group is selected. **Add Bookmark** snapshots the current listening

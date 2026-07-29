@@ -950,6 +950,24 @@ public slots:
         publishSnapshot(result.succeeded());
     }
 
+    void setScannerListeningFrequency(quint64 frequency)
+    {
+        if (!m_backend) {
+            emit scannerListeningFrequencyRequestCompleted(
+                frequency,
+                0,
+                false,
+                QStringLiteral("Select a receiver backend before scanning"));
+            return;
+        }
+        const auto result = m_backend->setListeningFrequency(frequency);
+        emit scannerListeningFrequencyRequestCompleted(
+            frequency,
+            m_backend->state().listeningFrequency,
+            result.succeeded(),
+            QString::fromStdString(result.message));
+    }
+
     void shiftCenterFrequency(qint64 requestedStep)
     {
         static_cast<void>(applyTuningOperation(
@@ -1535,6 +1553,11 @@ public slots:
 signals:
     void snapshotChanged(const sdr::app::ReceiverRuntimeSnapshot& snapshot);
     void centerFrequencyRequestCompleted(quint64 frequency, bool succeeded);
+    void scannerListeningFrequencyRequestCompleted(
+        quint64 requestedFrequency,
+        quint64 appliedFrequency,
+        bool succeeded,
+        const QString& message);
     void spectrumFrameReady(
         const QVector<float>& normalizedMagnitudes,
         quint64 centerFrequency,
@@ -2834,6 +2857,12 @@ ReceiverRuntime::ReceiverRuntime(
         Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setCenterFrequencyRequested, m_worker, &Worker::requestCenterFrequency, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setListeningFrequencyRequested, m_worker, &Worker::setListeningFrequency, Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::setScannerListeningFrequencyRequested,
+        m_worker,
+        &Worker::setScannerListeningFrequency,
+        Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::shiftCenterFrequencyRequested, m_worker, &Worker::shiftCenterFrequency, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setSampleRateRequested, m_worker, &Worker::setSampleRate, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setSpectrumFftSizeRequested, m_worker, &Worker::setSpectrumFftSize, Qt::QueuedConnection);
@@ -2866,6 +2895,11 @@ ReceiverRuntime::ReceiverRuntime(
         &Worker::centerFrequencyRequestCompleted,
         this,
         &ReceiverRuntime::centerFrequencyRequestCompleted);
+    connect(
+        m_worker,
+        &Worker::scannerListeningFrequencyRequestCompleted,
+        this,
+        &ReceiverRuntime::finishScannerListeningFrequencyRequest);
     connect(m_worker, &Worker::spectrumFrameReady, this, &ReceiverRuntime::spectrumFrameReady);
     connect(m_worker, &Worker::waterfallFrameReady, this, &ReceiverRuntime::waterfallFrameReady);
     m_workerThread.setObjectName(QStringLiteral("SDR receiver runtime"));
@@ -2988,6 +3022,44 @@ void ReceiverRuntime::setListeningFrequency(quint64 frequency)
 {
     markPending(QStringLiteral("Applying listening frequency…"));
     emit setListeningFrequencyRequested(frequency);
+}
+
+void ReceiverRuntime::requestScannerListeningFrequency(quint64 frequency)
+{
+    m_latestScannerListeningFrequency = frequency;
+    if (m_scannerListeningFrequencyRequestActive) {
+        return;
+    }
+    m_scannerListeningFrequencyRequestActive = true;
+    emit setScannerListeningFrequencyRequested(frequency);
+}
+
+void ReceiverRuntime::cancelScannerListeningFrequencyRequests()
+{
+    m_latestScannerListeningFrequency.reset();
+}
+
+void ReceiverRuntime::finishScannerListeningFrequencyRequest(
+    quint64 requestedFrequency,
+    quint64 appliedFrequency,
+    bool succeeded,
+    const QString& message)
+{
+    emit scannerListeningFrequencyChanged(
+        appliedFrequency, succeeded, message);
+    if (!succeeded) {
+        m_latestScannerListeningFrequency.reset();
+        m_scannerListeningFrequencyRequestActive = false;
+        return;
+    }
+    if (m_latestScannerListeningFrequency.has_value() &&
+        *m_latestScannerListeningFrequency != requestedFrequency) {
+        emit setScannerListeningFrequencyRequested(
+            *m_latestScannerListeningFrequency);
+        return;
+    }
+    m_latestScannerListeningFrequency.reset();
+    m_scannerListeningFrequencyRequestActive = false;
 }
 
 void ReceiverRuntime::shiftCenterFrequency(qint64 requestedStep)

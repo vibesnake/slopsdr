@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace sdr::app {
@@ -140,6 +141,8 @@ public slots:
     void stopReception();
     void setCenterFrequency(quint64 frequency);
     void setListeningFrequency(quint64 frequency);
+    void requestScannerListeningFrequency(quint64 frequency);
+    void cancelScannerListeningFrequencyRequests();
     void shiftCenterFrequency(qint64 requestedStep);
     void setSampleRate(quint64 sampleRate);
     void setSpectrumFftSize(quint64 fftSize);
@@ -179,6 +182,10 @@ signals:
         quint64 tuningGeneration);
     void operationPending(const QString& description);
     void centerFrequencyRequestCompleted(quint64 frequency, bool succeeded);
+    void scannerListeningFrequencyChanged(
+        quint64 frequency,
+        bool succeeded,
+        const QString& message);
 
 signals:
     void initializeRequested();
@@ -193,6 +200,7 @@ signals:
     void stopReceptionRequested();
     void setCenterFrequencyRequested(quint64 frequency);
     void setListeningFrequencyRequested(quint64 frequency);
+    void setScannerListeningFrequencyRequested(quint64 frequency);
     void shiftCenterFrequencyRequested(qint64 requestedStep);
     void setSampleRateRequested(quint64 sampleRate);
     void setSpectrumFftSizeRequested(quint64 fftSize);
@@ -216,11 +224,18 @@ private:
     class Worker;
 
     void markPending(const QString& description);
+    void finishScannerListeningFrequencyRequest(
+        quint64 requestedFrequency,
+        quint64 appliedFrequency,
+        bool succeeded,
+        const QString& message);
 
     StartupMode m_startupMode;
     QThread m_workerThread;
     Worker* m_worker = nullptr;
     bool m_started = false;
+    std::optional<quint64> m_latestScannerListeningFrequency;
+    bool m_scannerListeningFrequencyRequestActive = false;
 };
 
 }  // namespace sdr::app

@@ -75,7 +75,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(quint64 scanStepSize READ scanStepSize NOTIFY scannerChanged)
     Q_PROPERTY(int scanDwellMilliseconds READ scanDwellMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(int scanResumeDelayMilliseconds READ scanResumeDelayMilliseconds NOTIFY scannerChanged)
-    Q_PROPERTY(quint64 scanCurrentFrequency READ scanCurrentFrequency NOTIFY scannerChanged)
+    Q_PROPERTY(quint64 scanCurrentFrequency READ scanCurrentFrequency NOTIFY scanCurrentFrequencyChanged)
     Q_PROPERTY(QString scanState READ scanState NOTIFY scannerChanged)
     Q_PROPERTY(QString scanStatusMessage READ scanStatusMessage NOTIFY scannerChanged)
     Q_PROPERTY(QString scanValidationError READ scanValidationError NOTIFY scannerChanged)
@@ -368,6 +368,7 @@ signals:
     void bookmarksPanelWidthChanged();
     void scanPanelWidthChanged();
     void scannerChanged();
+    void scanCurrentFrequencyChanged();
     void settingsPanelWidthChanged();
     void consolePanelWidthChanged();
     void dsdFmeBinaryPathChanged();
@@ -415,6 +416,10 @@ private:
         sdr::radio::OperationResult result);
     void applyRuntimeSnapshot(
         const sdr::app::ReceiverRuntimeSnapshot& snapshot);
+    void applyScannerListeningFrequency(
+        quint64 frequency,
+        bool succeeded,
+        const QString& message);
     void notifyStateChanges(
         const sdr::radio::ReceiverState& previousState,
         const sdr::radio::ReceiverState& state,
@@ -500,12 +505,13 @@ private:
     [[nodiscard]] sdr::app::CurrentPassbandScanSettings scanSettings() const noexcept;
     [[nodiscard]] bool scannerSquelchOpen() const noexcept;
     void resetScanBoundsToCaptureRange();
-    void updateScanValidation();
+    [[nodiscard]] bool updateScanValidation();
     void validateActiveScanRange();
     void updateScannerSquelchActivity();
     void scheduleScanDwell();
     void scheduleScanResumeDelay();
     void tuneScannerTo(quint64 frequency);
+    void notifyScanCurrentFrequencyChanged();
     void scannerDwellElapsed();
     void scannerResumeDelayElapsed();
     void stopScanner(const QString& status);
@@ -545,6 +551,7 @@ private:
     bool m_scanBoundsFollowCapture = true;
     bool m_runtimeSquelchOpen = false;
     sdr::app::CurrentPassbandScanner m_scanner;
+    std::optional<quint64> m_lastNotifiedScanCurrentFrequency;
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
     QString m_dsdFmeBinaryPath;

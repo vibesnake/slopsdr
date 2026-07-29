@@ -12,6 +12,7 @@
 #include <QSignalSpy>
 #include <QSettings>
 #include <QThread>
+#include <QTimer>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -49,8 +50,15 @@ struct RuntimeTrace {
     std::size_t maximumSpectrumFftSize = 0;
     std::vector<std::uint64_t> requestedSampleRates;
     std::vector<std::uint64_t> requestedCenterFrequencies;
+    std::vector<std::uint64_t> requestedListeningFrequencies;
     std::vector<double> requestedGains;
     std::vector<double> requestedPpmCorrections;
+    int filterApplications = 0;
+    int modeApplications = 0;
+    int squelchLevelApplications = 0;
+    int manualSquelchApplications = 0;
+    int automaticSquelchApplications = 0;
+    int disabledSquelchApplications = 0;
     std::vector<std::string> receiverOperationOrder;
     bool failOpen = false;
     bool failStart = false;
@@ -509,6 +517,7 @@ public:
     [[nodiscard]] radio::OperationResult setListeningFrequency(
         std::uint64_t value) override
     {
+        m_trace->requestedListeningFrequencies.push_back(value);
         return m_delegate.setListeningFrequency(value);
     }
     [[nodiscard]] radio::OperationResult tuneListeningFrequency(
@@ -530,6 +539,7 @@ public:
     [[nodiscard]] radio::OperationResult setFilterWidth(
         std::uint64_t value) override
     {
+        ++m_trace->filterApplications;
         return m_delegate.setFilterWidth(value);
     }
     [[nodiscard]] radio::OperationResult setGain(double value) override
@@ -560,22 +570,27 @@ public:
     [[nodiscard]] radio::OperationResult setDemodulationMode(
         radio::DemodulationMode value) override
     {
+        ++m_trace->modeApplications;
         return m_delegate.setDemodulationMode(value);
     }
     [[nodiscard]] radio::OperationResult setSquelchLevel(double value) override
     {
+        ++m_trace->squelchLevelApplications;
         return m_delegate.setSquelchLevel(value);
     }
     [[nodiscard]] radio::OperationResult enableManualSquelch() override
     {
+        ++m_trace->manualSquelchApplications;
         return m_delegate.enableManualSquelch();
     }
     [[nodiscard]] radio::OperationResult enableAutomaticSquelch() override
     {
+        ++m_trace->automaticSquelchApplications;
         return m_delegate.enableAutomaticSquelch();
     }
     [[nodiscard]] radio::OperationResult disableSquelch() override
     {
+        ++m_trace->disabledSquelchApplications;
         return m_delegate.disableSquelch();
     }
 
@@ -744,6 +759,7 @@ private slots:
     void validatesPersistedSpectrumFftSize();
     void keepsSpectrumCadenceStableAcrossVisibleHistoryChanges();
     void persistsAndRestoresReceiverAndSquelchControls();
+    void scannerRetunesStayFocusedResponsiveAndBounded();
     void migratesLegacyDemodulatorOrdinalToStableId();
     void rejectsInvalidPersistedReceiverControls();
     void defaultsGainToTwentyDbWithoutPersistingIt();
@@ -1434,6 +1450,173 @@ void ReceiverRuntimeTest::persistsAndRestoresReceiverAndSquelchControls()
     QVERIFY(model.squelchDisabled());
     QVERIFY(!trace->requestedGains.empty());
     QCOMPARE(trace->requestedGains.front(), 22.0);
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
+{
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+
+    constexpr quint64 manuallySelectedFrequency = 100'050'000;
+    model.setListeningFrequency(manuallySelectedFrequency);
+    QVERIFY(waitUntil([&model] {
+        return model.listeningFrequency() == manuallySelectedFrequency;
+    }));
+    QTest::qWait(50);
+
+    QSettings settings;
+    settings.sync();
+    QCOMPARE(
+        settings.value(QStringLiteral("receiver/listeningFrequencyHz"))
+            .toULongLong(),
+        qulonglong{manuallySelectedFrequency});
+
+    QSignalSpy normalSpectrumFrames(
+        &model, &ApplicationModel::spectrumFrameReady);
+    QSignalSpy normalWaterfallFrames(
+        &model, &ApplicationModel::waterfallFrameReady);
+    QTest::qWait(120);
+    const qsizetype normalSpectrumFrameCount = normalSpectrumFrames.count();
+    const qsizetype normalWaterfallFrameCount = normalWaterfallFrames.count();
+    QVERIFY(normalSpectrumFrameCount > 0);
+    QVERIFY(normalWaterfallFrameCount > 0);
+
+    const auto listeningRequestsBeforeScan =
+        trace->requestedListeningFrequencies.size();
+    const auto centerRequestsBeforeScan =
+        trace->requestedCenterFrequencies.size();
+    const auto sampleRateRequestsBeforeScan = trace->requestedSampleRates.size();
+    const auto gainRequestsBeforeScan = trace->requestedGains.size();
+    const auto ppmRequestsBeforeScan = trace->requestedPpmCorrections.size();
+    const int filterApplicationsBeforeScan = trace->filterApplications;
+    const int modeApplicationsBeforeScan = trace->modeApplications;
+    const int squelchLevelApplicationsBeforeScan =
+        trace->squelchLevelApplications;
+    const int manualSquelchApplicationsBeforeScan =
+        trace->manualSquelchApplications;
+    const int automaticSquelchApplicationsBeforeScan =
+        trace->automaticSquelchApplications;
+    const int disabledSquelchApplicationsBeforeScan =
+        trace->disabledSquelchApplications;
+    const int audioFlushesBeforeScan = trace->audioFlushes;
+
+    QSignalSpy operationPending(
+        &runtime, &sdr::app::ReceiverRuntime::operationPending);
+    QSignalSpy runtimeBusyChanges(&model, &ApplicationModel::runtimeBusyChanged);
+    QSignalSpy filterChanges(&model, &ApplicationModel::filterWidthChanged);
+    QSignalSpy gainChanges(&model, &ApplicationModel::gainChanged);
+    QSignalSpy requestedGainChanges(
+        &model, &ApplicationModel::requestedGainChanged);
+    QSignalSpy modeChanges(&model, &ApplicationModel::demodulationModeChanged);
+    QSignalSpy squelchChanges(&model, &ApplicationModel::squelchStateChanged);
+    QSignalSpy deviceChanges(&model, &ApplicationModel::deviceStateChanged);
+    QSignalSpy capabilityChanges(
+        &model, &ApplicationModel::deviceCapabilitiesChanged);
+    QSignalSpy audioChanges(&model, &ApplicationModel::audioStateChanged);
+    QSignalSpy statusChanges(&model, &ApplicationModel::statusTextChanged);
+    QSignalSpy listeningChanges(
+        &model, &ApplicationModel::listeningFrequencyChanged);
+    QSignalSpy scannerChanges(&model, &ApplicationModel::scannerChanged);
+    QSignalSpy scanFrequencyChanges(
+        &model, &ApplicationModel::scanCurrentFrequencyChanged);
+    QSignalSpy spectrumFrames(&model, &ApplicationModel::spectrumFrameReady);
+    QSignalSpy waterfallFrames(&model, &ApplicationModel::waterfallFrameReady);
+
+    model.setScanLowerFrequency(100'000'000);
+    model.setScanUpperFrequency(100'200'000);
+    model.setScanStepSize(10'000);
+    model.setScanDwellMilliseconds(50);
+    model.setScanResumeDelayMilliseconds(20);
+    scannerChanges.clear();
+    scanFrequencyChanges.clear();
+    model.startScan();
+    QVERIFY(waitUntil([&trace, listeningRequestsBeforeScan] {
+        return trace->requestedListeningFrequencies.size() >=
+               listeningRequestsBeforeScan + 4;
+    }));
+    QCOMPARE(scannerChanges.count(), 1);
+    QVERIFY(scanFrequencyChanges.count() >= 3);
+    model.pauseOrResumeScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+    QVERIFY(listeningChanges.count() >= 2);
+    QVERIFY(spectrumFrames.count() >= normalSpectrumFrameCount / 2);
+    QVERIFY(waterfallFrames.count() >= normalWaterfallFrameCount / 2);
+
+    QCOMPARE(trace->requestedCenterFrequencies.size(), centerRequestsBeforeScan);
+    QCOMPARE(trace->requestedSampleRates.size(), sampleRateRequestsBeforeScan);
+    QCOMPARE(trace->requestedGains.size(), gainRequestsBeforeScan);
+    QCOMPARE(trace->requestedPpmCorrections.size(), ppmRequestsBeforeScan);
+    QCOMPARE(trace->filterApplications, filterApplicationsBeforeScan);
+    QCOMPARE(trace->modeApplications, modeApplicationsBeforeScan);
+    QCOMPARE(
+        trace->squelchLevelApplications, squelchLevelApplicationsBeforeScan);
+    QCOMPARE(
+        trace->manualSquelchApplications, manualSquelchApplicationsBeforeScan);
+    QCOMPARE(
+        trace->automaticSquelchApplications,
+        automaticSquelchApplicationsBeforeScan);
+    QCOMPARE(
+        trace->disabledSquelchApplications,
+        disabledSquelchApplicationsBeforeScan);
+    QCOMPARE(trace->audioFlushes, audioFlushesBeforeScan);
+    QCOMPARE(operationPending.count(), 0);
+    QCOMPARE(runtimeBusyChanges.count(), 0);
+    QCOMPARE(filterChanges.count(), 0);
+    QCOMPARE(gainChanges.count(), 0);
+    QCOMPARE(requestedGainChanges.count(), 0);
+    QCOMPARE(modeChanges.count(), 0);
+    QCOMPARE(squelchChanges.count(), 0);
+    QCOMPARE(deviceChanges.count(), 0);
+    QCOMPARE(capabilityChanges.count(), 0);
+    QCOMPARE(audioChanges.count(), 0);
+    QCOMPARE(statusChanges.count(), 0);
+
+    settings.sync();
+    QCOMPARE(
+        settings.value(QStringLiteral("receiver/listeningFrequencyHz"))
+            .toULongLong(),
+        qulonglong{manuallySelectedFrequency});
+
+    model.stopScan();
+    QTest::qWait(20);
+    const auto requestsBeforeBurst =
+        trace->requestedListeningFrequencies.size();
+    constexpr quint64 finalBurstFrequency = 100'199'000;
+    for (quint64 offset = 0; offset < 200; ++offset) {
+        runtime.requestScannerListeningFrequency(100'000'000 + offset * 1'000);
+    }
+    QVERIFY(waitUntil([&model] {
+        return model.listeningFrequency() == finalBurstFrequency;
+    }));
+    const auto burstBackendRequests =
+        trace->requestedListeningFrequencies.size() - requestsBeforeBurst;
+    QVERIFY(burstBackendRequests >= 1);
+    QVERIFY(burstBackendRequests <= 2);
+    QCOMPARE(trace->requestedListeningFrequencies.back(), finalBurstFrequency);
+
+    int heartbeatCount = 0;
+    QTimer heartbeat;
+    heartbeat.setInterval(1);
+    connect(&heartbeat, &QTimer::timeout, this, [&heartbeatCount] {
+        ++heartbeatCount;
+    });
+    heartbeat.start();
+    model.setScanDwellMilliseconds(1);
+    model.startScan();
+    QTest::qWait(100);
+    model.pauseOrResumeScan();
+    heartbeat.stop();
+    QVERIFY(heartbeatCount >= 5);
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+    QVERIFY(model.receiverRunning());
     runtime.shutdown();
 }
 

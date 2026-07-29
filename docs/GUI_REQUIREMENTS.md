@@ -293,6 +293,14 @@ only through the existing in-passband listening-frequency path, and never
 retunes the SDR center frequency. It wraps at the upper bound, holds on live
 squelch activity, resumes after the configured delay, and stops safely if a
 center-frequency, sample-rate, or device-limit change invalidates its range.
+Each step changes only the active channel translation on the receiver worker;
+it does not mark the complete runtime busy, flush audio or decoder output,
+persist receiver settings, or publish a full receiver snapshot. Rapid requests
+are bounded to one operation in flight plus the newest pending frequency, and
+the focused confirmation updates listening-frequency presentation without
+renotifying unchanged Receiver Control properties. Per-step current-frequency
+updates use a dedicated notification; scanner state and status are not
+republished when they have not changed.
 Its controls and transient scanner state are not persisted. Bookmark scans and
 hardware-retuning scans are not provided.
 

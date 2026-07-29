@@ -495,6 +495,11 @@ ApplicationModel::ApplicationModel(
         &ApplicationModel::applyRuntimeSnapshot);
     connect(
         &runtime,
+        &sdr::app::ReceiverRuntime::scannerListeningFrequencyChanged,
+        this,
+        &ApplicationModel::applyScannerListeningFrequency);
+    connect(
+        &runtime,
         &sdr::app::ReceiverRuntime::spectrumFrameReady,
         this,
         &ApplicationModel::receiveRuntimeSpectrumFrame);
@@ -1896,10 +1901,12 @@ void ApplicationModel::setScanLowerFrequency(quint64 frequency)
     }
     m_scanLowerFrequency = frequency;
     m_scanBoundsFollowCapture = false;
+    static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    } else {
+        emit scannerChanged();
     }
-    updateScanValidation();
 }
 
 void ApplicationModel::setScanUpperFrequency(quint64 frequency)
@@ -1909,10 +1916,12 @@ void ApplicationModel::setScanUpperFrequency(quint64 frequency)
     }
     m_scanUpperFrequency = frequency;
     m_scanBoundsFollowCapture = false;
+    static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    } else {
+        emit scannerChanged();
     }
-    updateScanValidation();
 }
 
 void ApplicationModel::setScanStepSize(quint64 stepSize)
@@ -1921,10 +1930,12 @@ void ApplicationModel::setScanStepSize(quint64 stepSize)
         return;
     }
     m_scanStepSize = stepSize;
+    static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    } else {
+        emit scannerChanged();
     }
-    updateScanValidation();
 }
 
 void ApplicationModel::setScanDwellMilliseconds(int milliseconds)
@@ -1933,10 +1944,12 @@ void ApplicationModel::setScanDwellMilliseconds(int milliseconds)
         return;
     }
     m_scanDwellMilliseconds = milliseconds;
+    static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    } else {
+        emit scannerChanged();
     }
-    updateScanValidation();
 }
 
 void ApplicationModel::setScanResumeDelayMilliseconds(int milliseconds)
@@ -1945,15 +1958,17 @@ void ApplicationModel::setScanResumeDelayMilliseconds(int milliseconds)
         return;
     }
     m_scanResumeDelayMilliseconds = milliseconds;
+    static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    } else {
+        emit scannerChanged();
     }
-    updateScanValidation();
 }
 
 void ApplicationModel::startScan()
 {
-    updateScanValidation();
+    static_cast<void>(updateScanValidation());
     if (!m_scanValidationError.isEmpty()) {
         m_scanStatus = QStringLiteral("Scanner not started: %1").arg(m_scanValidationError);
         emit scannerChanged();
@@ -1964,7 +1979,8 @@ void ApplicationModel::startScan()
             m_frequencyViewport.captureRange(),
             listeningFrequency(),
             scannerSquelchOpen())) {
-        updateScanValidation();
+        m_scanStatus = QStringLiteral("Scanner not started: invalid settings");
+        emit scannerChanged();
         return;
     }
     tuneScannerTo(m_scanner.currentFrequency());
@@ -1993,6 +2009,9 @@ void ApplicationModel::pauseOrResumeScan()
     } else {
         m_scanDwellTimer.stop();
         m_scanResumeTimer.stop();
+        if (m_runtime) {
+            m_runtime->cancelScannerListeningFrequencyRequests();
+        }
         m_scanner.pause();
         m_scanStatus = QStringLiteral("Scanner paused");
     }
@@ -2844,6 +2863,24 @@ void ApplicationModel::applyRuntimeSnapshot(
     setStatusText(snapshot.statusText);
 }
 
+void ApplicationModel::applyScannerListeningFrequency(
+    quint64 frequency,
+    bool succeeded,
+    const QString& message)
+{
+    if (!succeeded) {
+        setStatusText(message);
+        stopScanner(QStringLiteral("Scanner stopped: %1").arg(message));
+        return;
+    }
+    if (m_runtimeState.listeningFrequency == frequency) {
+        return;
+    }
+    const auto previousState = m_runtimeState;
+    m_runtimeState.listeningFrequency = frequency;
+    notifyStateChanges(previousState, m_runtimeState, true);
+}
+
 void ApplicationModel::notifyStateChanges(
     const sdr::radio::ReceiverState& previousState,
     const sdr::radio::ReceiverState& state,
@@ -3502,20 +3539,22 @@ void ApplicationModel::resetScanBoundsToCaptureRange()
     m_scanLowerFrequency = passband.minimum;
     m_scanUpperFrequency = passband.maximum;
     m_scanBoundsFollowCapture = true;
-    updateScanValidation();
+    static_cast<void>(updateScanValidation());
+    emit scannerChanged();
 }
 
-void ApplicationModel::updateScanValidation()
+bool ApplicationModel::updateScanValidation()
 {
     const auto validation = sdr::app::CurrentPassbandScanner::validate(
         scanSettings(), m_frequencyViewport.captureRange());
     const QString error = validation.has_value()
                               ? QString::fromStdString(*validation)
                               : QString();
-    if (m_scanValidationError != error) {
-        m_scanValidationError = error;
+    if (m_scanValidationError == error) {
+        return false;
     }
-    emit scannerChanged();
+    m_scanValidationError = error;
+    return true;
 }
 
 void ApplicationModel::validateActiveScanRange()
@@ -3525,11 +3564,13 @@ void ApplicationModel::validateActiveScanRange()
         resetScanBoundsToCaptureRange();
         return;
     }
-    updateScanValidation();
+    const bool validationChanged = updateScanValidation();
     if (m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped &&
         !m_scanValidationError.isEmpty()) {
         stopScanner(
             QStringLiteral("Scanner stopped: scan range is outside the current usable capture passband"));
+    } else if (validationChanged) {
+        emit scannerChanged();
     }
 }
 
@@ -3538,6 +3579,9 @@ void ApplicationModel::updateScannerSquelchActivity()
     const bool open = scannerSquelchOpen();
     if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Running && open) {
         m_scanDwellTimer.stop();
+        if (m_runtime) {
+            m_runtime->cancelScannerListeningFrequencyRequests();
+        }
         m_scanner.setSquelchOpen(true);
         m_scanStatus = QStringLiteral("Holding on squelch activity");
         emit scannerChanged();
@@ -3572,7 +3616,31 @@ void ApplicationModel::scheduleScanResumeDelay()
 
 void ApplicationModel::tuneScannerTo(quint64 frequency)
 {
-    setListeningFrequency(frequency);
+    notifyScanCurrentFrequencyChanged();
+    if (m_runtime) {
+        m_runtime->requestScannerListeningFrequency(frequency);
+        return;
+    }
+    const auto previousState = m_receiver->state();
+    const auto result = m_receiver->setListeningFrequency(frequency);
+    if (!result.succeeded()) {
+        setStatusText(QString::fromStdString(result.message));
+        stopScanner(
+            QStringLiteral("Scanner stopped: %1")
+                .arg(QString::fromStdString(result.message)));
+        return;
+    }
+    notifyStateChanges(previousState, m_receiver->state(), true);
+}
+
+void ApplicationModel::notifyScanCurrentFrequencyChanged()
+{
+    const quint64 frequency = m_scanner.currentFrequency();
+    if (m_lastNotifiedScanCurrentFrequency == frequency) {
+        return;
+    }
+    m_lastNotifiedScanCurrentFrequency = frequency;
+    emit scanCurrentFrequencyChanged();
 }
 
 void ApplicationModel::scannerDwellElapsed()
@@ -3583,9 +3651,7 @@ void ApplicationModel::scannerDwellElapsed()
         return;
     }
     tuneScannerTo(*frequency);
-    m_scanStatus = QStringLiteral("Scanning current capture passband");
     scheduleScanDwell();
-    emit scannerChanged();
 }
 
 void ApplicationModel::scannerResumeDelayElapsed()
@@ -3605,6 +3671,9 @@ void ApplicationModel::stopScanner(const QString& status)
 {
     m_scanDwellTimer.stop();
     m_scanResumeTimer.stop();
+    if (m_runtime) {
+        m_runtime->cancelScannerListeningFrequencyRequests();
+    }
     m_scanner.stop();
     m_scanStatus = status;
     emit scannerChanged();
