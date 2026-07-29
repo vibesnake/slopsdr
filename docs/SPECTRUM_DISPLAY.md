@@ -201,6 +201,11 @@ indices, or colorized pixels. Mode changes invalidate only projected-row and
 texture caches, so the same retained history is immediately re-rendered and
 switching back restores Original.
 
+The independent visible-duration selector uses the same timestamp mapping for
+1, 2.5, 5, 10, 15, 30, and 60 seconds. The exact fractional duration is saved
+as a floating-point settings value and changes only raster time mapping; it
+does not restart reception or alter FFT delivery.
+
 The spectrum and waterfall are vertically split by a presentation-only
 draggable handle. Its persisted value is a validated spectrum-to-display
 height ratio rather than a pixel coordinate, so the same proportion is restored
@@ -261,6 +266,12 @@ color. Newly delivered rows and historical rows use the selected aggregation,
 the same C++ lookup table, and the same dBFS mapping; selecting aggregation does
 not change row ordering or presentation cadence.
 
+A paused waterfall normally preserves its image. While current-passband,
+wide-range, or bookmark scanning owns tuning, the renderer instead clears both
+bounded history stores and the visible raster to black. Frames remain dropped
+while paused, scanner Stop cannot revive the cleared rows, and Resume begins
+with the next current-frequency row rather than replaying missed data.
+
 The configured visible duration maps to the complete physical-pixel waterfall
 height using one authoritative monotonic render timestamp rather than row
 arrival time or an assumed fixed cadence. Every output row represents a
@@ -285,7 +296,7 @@ viewport history is bounded by 512 rows and its 8 MiB budget. Reducing Visible
 History changes
 only the displayed time span and does not discard older stored rows; stopping,
 disconnecting, or an incompatible capture reset starts a new retention session.
-Supported 5, 10, 15, 30, and 60 second settings retain the complete requested
+Supported 1, 2.5, 5, 10, 15, 30, and 60 second settings retain the complete requested
 duration by combining the bounded internal cadence with reduced horizontal
 history storage while the live spectrum keeps all selected FFT bins. Changing
 Visible History rebases the newest-row render anchor, preserves fractional

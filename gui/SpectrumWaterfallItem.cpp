@@ -526,8 +526,8 @@ SpectrumWaterfallItem::SpectrumWaterfallItem(QQuickItem* parent)
     m_waterfallHistory.setRetentionDurationSeconds(
         m_retainedHistoryDurationSeconds);
     m_waterfallHistory.setCapacity(
-        static_cast<std::size_t>(std::ceil(m_effectiveRowsPerSecond)) *
-                static_cast<std::size_t>(m_visibleHistorySeconds) +
+        static_cast<std::size_t>(std::ceil(
+            m_effectiveRowsPerSecond * m_visibleHistorySeconds)) +
             2);
     connect(
         this,
@@ -568,6 +568,7 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
     QObject::disconnect(m_filterMarkerConnection);
     QObject::disconnect(m_filterWidthConnection);
     QObject::disconnect(m_demodulationModeConnection);
+    QObject::disconnect(m_scannerConnection);
     QObject::disconnect(m_requestedGainConnection);
     QObject::disconnect(m_effectiveGainConnection);
     QObject::disconnect(m_effectiveSampleRateConnection);
@@ -576,6 +577,7 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
     QObject::disconnect(m_deviceStateConnection);
     resetSpectrumHolds();
     m_applicationModel = typedModel;
+    m_waterfallClearedForScannerPause = false;
     if (m_applicationModel) {
         m_observedRequestedGainDb = m_applicationModel->requestedGain();
         m_observedEffectiveGainDb = m_applicationModel->gain();
@@ -636,6 +638,18 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
             &ApplicationModel::demodulationModeChanged,
             this,
             &SpectrumWaterfallItem::update);
+        m_scannerConnection = connect(
+            m_applicationModel,
+            &ApplicationModel::scannerChanged,
+            this,
+            [this] {
+                if (m_waterfall && m_paused &&
+                    m_applicationModel->scannerOwnsTuning() &&
+                    !m_waterfallClearedForScannerPause) {
+                    clearWaterfallFrames();
+                    m_waterfallClearedForScannerPause = true;
+                }
+            });
         m_requestedGainConnection = connect(
             m_applicationModel,
             &ApplicationModel::requestedGainChanged,
@@ -696,6 +710,11 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
                     resetSpectrumHolds();
                 }
             });
+        if (m_waterfall && m_paused &&
+            m_applicationModel->scannerOwnsTuning()) {
+            clearWaterfallFrames();
+            m_waterfallClearedForScannerPause = true;
+        }
     }
     frequencyAxisChanged();
     emit applicationModelChanged();
@@ -747,7 +766,13 @@ void SpectrumWaterfallItem::setPaused(bool paused)
     if (m_waterfall) {
         if (m_paused) {
             m_scrollTimer.stop();
+            if (m_applicationModel &&
+                m_applicationModel->scannerOwnsTuning()) {
+                clearWaterfallFrames();
+                m_waterfallClearedForScannerPause = true;
+            }
         } else {
+            m_waterfallClearedForScannerPause = false;
             m_scrollTimer.start();
         }
     }
@@ -1103,17 +1128,18 @@ void SpectrumWaterfallItem::setEffectiveRowsPerSecond(double rowsPerSecond)
     reportHistoryMetrics();
 }
 
-quint32 SpectrumWaterfallItem::visibleHistorySeconds() const noexcept
+double SpectrumWaterfallItem::visibleHistorySeconds() const noexcept
 {
     return m_visibleHistorySeconds;
 }
 
-void SpectrumWaterfallItem::setVisibleHistorySeconds(quint32 seconds)
+void SpectrumWaterfallItem::setVisibleHistorySeconds(double seconds)
 {
-    if (seconds == 0 || seconds == m_visibleHistorySeconds) {
+    if (!std::isfinite(seconds) || seconds < 1.0 ||
+        qFuzzyCompare(seconds + 1.0, m_visibleHistorySeconds + 1.0)) {
         return;
     }
-    const quint32 previousSeconds = m_visibleHistorySeconds;
+    const double previousSeconds = m_visibleHistorySeconds;
     const std::uint64_t now = steadyTimestampNanoseconds();
     double fractionalPhase = 0.0;
     if (m_renderClockOriginNanoseconds != 0 &&

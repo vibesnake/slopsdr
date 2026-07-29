@@ -110,8 +110,9 @@ the history
 already on screen without clearing it. This is a display-only setting and does
 not affect the spectrum, FFT normalization, audio, squelch, or demodulation.
 
-**Visible history** selects 5, 10, 15, 30, 60, or a custom number of seconds;
-the default is 10 seconds. It is the only waterfall speed control and persists.
+**Visible history** selects 1, 2.5, 5, 10, 15, 30, 60, or a custom number of
+seconds; the default is 10 seconds. It is the only waterfall speed control and
+persists, including the exact 2.5-second choice.
 That duration maps to the full physical waterfall height, so apparent scrolling
 speed is panel height divided by visible seconds. Changing it remaps only the
 waterfall timeline; the live spectrum, Max-hold accumulation, FFT cadence, and
@@ -268,6 +269,9 @@ applies its saved frequency, gain, mode, filter, and squelch; legacy entries
 without squelch use the live setting captured at Start. A fitting entry changes
 only listening frequency, while another entry safely retunes the hardware and
 waits for settling. Bookmark and normal scanners are mutually exclusive.
+Bookmark transitions are applied as one differential receiver transaction:
+unchanged settings are not sent again, and changed controls publish only the
+final bookmark state rather than intermediate mode or filter defaults.
 
 Bookmarks use stable demodulator IDs. A bookmark for a mode unavailable in the
 current build remains intact and is marked **Unavailable**; it is not changed to
@@ -342,7 +346,10 @@ Use the compact **Pause spectrum** toggle in the Spectrum header and the
 **Pause waterfall** toggle in the Waterfall header to freeze either display
 independently. Pausing drops frames for that display while reception, DSP,
 tuning, audio, and recording continue; resuming accepts the next live frame
-without replaying paused data.
+without replaying paused data. While any scanner owns tuning, a paused
+waterfall is cleared to solid black so rows from an earlier scan frequency
+cannot be mistaken for the current channel. It stays black after Stop until
+Waterfall is resumed and current live rows arrive.
 
 For center-frequency digits, right-click removes the clicked decimal suffix
 immediately. Hover a digit and press `0`–`9` to replace only that digit. A

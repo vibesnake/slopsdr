@@ -63,7 +63,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QStringList spectrumFftSizeOptions READ spectrumFftSizeOptions CONSTANT)
     Q_PROPERTY(double spectrumHertzPerBin READ spectrumHertzPerBin NOTIFY spectrumFftSizeChanged)
     Q_PROPERTY(double effectiveWaterfallRowsPerSecond READ effectiveWaterfallRowsPerSecond NOTIFY waterfallSettingsChanged)
-    Q_PROPERTY(quint32 visibleWaterfallHistorySeconds READ visibleWaterfallHistorySeconds NOTIFY waterfallSettingsChanged)
+    Q_PROPERTY(double visibleWaterfallHistorySeconds READ visibleWaterfallHistorySeconds NOTIFY waterfallSettingsChanged)
     Q_PROPERTY(QStringList visibleWaterfallHistoryOptions READ visibleWaterfallHistoryOptions CONSTANT)
     Q_PROPERTY(quint64 waterfallHistoryMemoryBudgetBytes READ waterfallHistoryMemoryBudgetBytes CONSTANT)
     Q_PROPERTY(double spectrumWaterfallSplitRatio READ spectrumWaterfallSplitRatio NOTIFY spectrumWaterfallSplitRatioChanged)
@@ -201,7 +201,7 @@ public:
     [[nodiscard]] QStringList spectrumFftSizeOptions() const;
     [[nodiscard]] double spectrumHertzPerBin() const noexcept;
     [[nodiscard]] double effectiveWaterfallRowsPerSecond() const noexcept;
-    [[nodiscard]] quint32 visibleWaterfallHistorySeconds() const noexcept;
+    [[nodiscard]] double visibleWaterfallHistorySeconds() const noexcept;
     [[nodiscard]] QStringList visibleWaterfallHistoryOptions() const;
     [[nodiscard]] quint64 waterfallHistoryMemoryBudgetBytes() const noexcept;
     [[nodiscard]] double spectrumWaterfallSplitRatio() const noexcept;
@@ -343,7 +343,7 @@ public slots:
     void setSampleRate(quint64 sampleRate);
     void setCaptureBandwidthText(const QString& bandwidthText);
     void setSpectrumFftSize(quint64 fftSize);
-    void setVisibleWaterfallHistorySeconds(quint32 seconds);
+    void setVisibleWaterfallHistorySeconds(double seconds);
     void setSpectrumWaterfallSplitRatio(double ratio);
     void commitSpectrumWaterfallSplitRatio();
     void setSidebarMode(const QString& mode);
@@ -395,7 +395,7 @@ public slots:
         quint64 bytesUsed,
         quint64 retainedRows,
         double retainedSeconds,
-        quint32 requestedSeconds,
+        double requestedSeconds,
         double retainedCapacitySeconds,
         quint64 storedBins,
         bool fitsMemoryBudget,
@@ -673,7 +673,7 @@ private:
     quint64 m_lastSpectrumFrameTimestampNanoseconds = 0;
     double m_spectrumHertzPerBin = 0.0;
     double m_effectiveWaterfallRowsPerSecond = 60.0;
-    quint32 m_visibleWaterfallHistorySeconds = 10;
+    double m_visibleWaterfallHistorySeconds = 10.0;
     double m_spectrumWaterfallSplitRatio = 0.5;
     sdr::app::ApplicationLogModel m_applicationLog;
     sdr::app::BookmarkTreeModel m_bookmarkModel;
@@ -812,7 +812,7 @@ private:
     quint64 m_lastRenderedWaterfallFrames = 0;
     quint64 m_lastMergedWaterfallUpdates = 0;
     bool m_lastWaterfallHistoryFit = true;
-    quint32 m_lastWaterfallHistoryRequestedSeconds = 0;
+    double m_lastWaterfallHistoryRequestedSeconds = 0.0;
     quint64 m_lastWaterfallHistoryStoredBins = 0;
     bool m_verboseDiagnostics = false;
     QString m_statusText = QStringLiteral("Mock backend ready - no hardware device");

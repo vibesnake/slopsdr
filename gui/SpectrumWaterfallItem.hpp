@@ -33,7 +33,7 @@ class SpectrumWaterfallItem : public QQuickItem
     Q_PROPERTY(quint64 historyMemoryBudgetBytes READ historyMemoryBudgetBytes WRITE setHistoryMemoryBudgetBytes NOTIFY historyMetricsChanged)
     Q_PROPERTY(quint64 viewportHistoryMemoryBudgetBytes READ viewportHistoryMemoryBudgetBytes WRITE setViewportHistoryMemoryBudgetBytes NOTIFY historyMetricsChanged)
     Q_PROPERTY(double effectiveRowsPerSecond READ effectiveRowsPerSecond WRITE setEffectiveRowsPerSecond NOTIFY historyMetricsChanged)
-    Q_PROPERTY(quint32 visibleHistorySeconds READ visibleHistorySeconds WRITE setVisibleHistorySeconds NOTIFY historyMetricsChanged)
+    Q_PROPERTY(double visibleHistorySeconds READ visibleHistorySeconds WRITE setVisibleHistorySeconds NOTIFY historyMetricsChanged)
     Q_PROPERTY(quint64 historyMemoryUsageBytes READ historyMemoryUsageBytes NOTIFY historyMetricsChanged)
     Q_PROPERTY(quint64 viewportHistoryMemoryUsageBytes READ viewportHistoryMemoryUsageBytes NOTIFY historyMetricsChanged)
     Q_PROPERTY(quint64 storedHistoryBins READ storedHistoryBins NOTIFY historyMetricsChanged)
@@ -70,8 +70,8 @@ public:
     void setViewportHistoryMemoryBudgetBytes(quint64 bytes);
     [[nodiscard]] double effectiveRowsPerSecond() const noexcept;
     void setEffectiveRowsPerSecond(double rowsPerSecond);
-    [[nodiscard]] quint32 visibleHistorySeconds() const noexcept;
-    void setVisibleHistorySeconds(quint32 seconds);
+    [[nodiscard]] double visibleHistorySeconds() const noexcept;
+    void setVisibleHistorySeconds(double seconds);
     [[nodiscard]] quint64 historyMemoryUsageBytes() const noexcept;
     [[nodiscard]] quint64 viewportHistoryMemoryUsageBytes() const noexcept;
     [[nodiscard]] quint64 storedHistoryBins() const noexcept;
@@ -222,6 +222,7 @@ private:
     QMetaObject::Connection m_filterMarkerConnection;
     QMetaObject::Connection m_filterWidthConnection;
     QMetaObject::Connection m_demodulationModeConnection;
+    QMetaObject::Connection m_scannerConnection;
     QMetaObject::Connection m_requestedGainConnection;
     QMetaObject::Connection m_effectiveGainConnection;
     QMetaObject::Connection m_effectiveSampleRateConnection;
@@ -239,6 +240,7 @@ private:
     QImage m_waterfallImage;
     bool m_waterfall = false;
     bool m_paused = false;
+    bool m_waterfallClearedForScannerPause = false;
     bool m_frameDirty = false;
     bool m_projectionDirty = false;
     int m_pendingWaterfallRows = 0;
@@ -263,7 +265,7 @@ private:
     int m_observedSelectedDeviceIndex = -1;
     bool m_observedBackendReady = false;
     double m_effectiveRowsPerSecond = 60.0;
-    quint32 m_visibleHistorySeconds = 10;
+    double m_visibleHistorySeconds = 10.0;
     double m_retainedHistoryDurationSeconds = 10.0;
     std::uint64_t m_fallbackSequence = 1;
     std::uint64_t m_waterfallViewportGeneration = 1;

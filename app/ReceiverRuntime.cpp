@@ -43,8 +43,8 @@ constexpr auto spectrumFftSizeSettingsKey = "spectrum/fftSize";
 constexpr auto obsoleteWaterfallRowsPerSecondSettingsKey =
     "waterfall/rowsPerSecond";
 constexpr auto visibleWaterfallHistorySettingsKey = "waterfall/visibleHistorySeconds";
-constexpr std::uint32_t defaultVisibleWaterfallHistorySeconds = 10;
-constexpr std::uint32_t maximumVisibleWaterfallHistorySeconds = 300;
+constexpr double defaultVisibleWaterfallHistorySeconds = 10.0;
+constexpr double maximumVisibleWaterfallHistorySeconds = 300.0;
 constexpr auto ppmCorrectionsByDeviceSettingsPrefix =
     "receiver/ppmByDevice/";
 constexpr std::size_t ppmCalibrationReadBufferBytes = 1'048'576;
@@ -423,8 +423,8 @@ public slots:
         settings.remove(obsoleteWaterfallRowsPerSecondSettingsKey);
         bool savedHistoryValid = false;
         const auto savedHistory = settings.value(visibleWaterfallHistorySettingsKey)
-                                      .toUInt(&savedHistoryValid);
-        if (savedHistoryValid && savedHistory > 0 &&
+                                      .toDouble(&savedHistoryValid);
+        if (savedHistoryValid && std::isfinite(savedHistory) && savedHistory > 0.0 &&
             savedHistory <= maximumVisibleWaterfallHistorySeconds) {
             m_visibleWaterfallHistorySeconds = savedHistory;
         }
@@ -1135,9 +1135,10 @@ public slots:
         publishSnapshot(preferenceSaved);
     }
 
-    void setVisibleWaterfallHistorySeconds(quint32 seconds)
+    void setVisibleWaterfallHistorySeconds(double seconds)
     {
-        if (seconds == 0 || seconds > maximumVisibleWaterfallHistorySeconds) {
+        if (!std::isfinite(seconds) || seconds < 1.0 ||
+            seconds > maximumVisibleWaterfallHistorySeconds) {
             m_statusText = QStringLiteral("Visible waterfall history must be between 1 and %1 seconds")
                                .arg(maximumVisibleWaterfallHistorySeconds);
             publishSnapshot(false);
@@ -1148,8 +1149,10 @@ public slots:
         settings.setValue(visibleWaterfallHistorySettingsKey, seconds);
         settings.sync();
         const bool saved = settings.status() == QSettings::NoError &&
-                           settings.value(visibleWaterfallHistorySettingsKey).toUInt() ==
-                               seconds;
+                           qFuzzyCompare(
+                               settings.value(visibleWaterfallHistorySettingsKey)
+                                       .toDouble() + 1.0,
+                               seconds + 1.0);
         m_statusText = saved
                            ? QStringLiteral("Visible waterfall history changed to %1 seconds")
                                  .arg(seconds)
@@ -1540,50 +1543,24 @@ public slots:
         }
         if (m_centerFrequencyTimer) m_centerFrequencyTimer->stop();
         m_pendingCenterFrequency.reset();
-        const bool decoderLifecycleChange =
-            m_backend->state().demodulationMode ==
-                radio::DemodulationMode::DigitalDecoderOutput ||
-            static_cast<radio::DemodulationMode>(mode) ==
-                radio::DemodulationMode::DigitalDecoderOutput;
-        const auto apply = [this](radio::OperationResult result) {
-            if (result.succeeded()) return true;
-            m_statusText = QString::fromStdString(result.message);
-            return false;
-        };
         try {
-            if (!apply(m_backend->setCenterFrequency(frequency)) ||
-                !apply(m_backend->setGain(requestedGainDb)) ||
-                !apply(m_backend->setDemodulationMode(static_cast<radio::DemodulationMode>(mode))) ||
-                !apply(m_backend->setFilterWidth(filterWidth)) ||
-                (applySquelch &&
-                 (!apply(m_backend->setSquelchLevel(squelchThresholdDb)) ||
-                  (!squelchEnabled && !apply(m_backend->disableSquelch()))))) {
+            BookmarkApplication changes;
+            if (m_backend->state().centerFrequency != frequency ||
+                m_backend->state().listeningFrequency != frequency) {
+                const auto result = m_backend->setCenterFrequency(frequency);
+                if (!bookmarkOperationSucceeded(result)) {
+                    publishSnapshot(false);
+                    return;
+                }
+                changes.tuningChanged = result.stateChanged;
+            }
+            if (!applyBookmarkOwnedSettings(requestedGainDb, mode, filterWidth,
+                    squelchThresholdDb, squelchEnabled, applySquelch,
+                    changes)) {
                 publishSnapshot(false);
                 return;
             }
-            flushDecoderAfterRetune();
-            if (decoderLifecycleChange) {
-                m_backend->clearAudioSamples();
-                if (m_audioOutput) {
-                    m_audioOutput->flush();
-                }
-            }
-            if (m_dsdFme) {
-                if (static_cast<radio::DemodulationMode>(mode) ==
-                        radio::DemodulationMode::DigitalDecoderOutput &&
-                    m_backend->state().running) {
-                    m_dsdFme->start();
-                } else {
-                    m_dsdFme->stop();
-                }
-            }
-            m_filterWidths[static_cast<std::size_t>(mode)] = filterWidth;
-            m_requestedGainDb = requestedGainDb;
-            m_savedGainDb = requestedGainDb;
-            QSettings settings;
-            settings.setValue(receiverGainSettingsKey, requestedGainDb);
-            settings.sync();
-            persistCurrentReceiverControls();
+            finishBookmarkApplication(changes, true);
             m_statusText = QStringLiteral("Bookmark tuned");
             publishSnapshot(true);
         } catch (const std::exception& error) {
@@ -1592,6 +1569,62 @@ public slots:
         } catch (...) {
             m_statusText = QStringLiteral("Receiver operation failed with an unknown error");
             publishSnapshot(false);
+        }
+    }
+
+    void applyScannerBookmark(quint64 frequency, double requestedGainDb,
+        int mode, quint64 filterWidth, double squelchThresholdDb,
+        bool squelchEnabled)
+    {
+        if (!m_backend || mode < static_cast<int>(radio::DemodulationMode::Am) ||
+            mode > static_cast<int>(
+                       radio::DemodulationMode::DigitalDecoderOutput)) {
+            emit scannerListeningFrequencyRequestCompleted(
+                frequency, m_backend ? m_backend->state().listeningFrequency : 0,
+                false, QStringLiteral("Bookmark settings are unavailable"));
+            return;
+        }
+        try {
+            BookmarkApplication changes;
+            if (!applyBookmarkOwnedSettings(requestedGainDb, mode, filterWidth,
+                    squelchThresholdDb, squelchEnabled, true, changes)) {
+                publishSnapshot(false);
+                emit scannerListeningFrequencyRequestCompleted(
+                    frequency, m_backend->state().listeningFrequency, false,
+                    m_statusText);
+                return;
+            }
+            if (m_backend->state().listeningFrequency != frequency) {
+                const auto result = m_backend->setListeningFrequency(frequency);
+                if (!bookmarkOperationSucceeded(result)) {
+                    publishSnapshot(false);
+                    emit scannerListeningFrequencyRequestCompleted(
+                        frequency, m_backend->state().listeningFrequency, false,
+                        m_statusText);
+                    return;
+                }
+                changes.tuningChanged = result.stateChanged;
+            }
+            finishBookmarkApplication(changes, false);
+            m_statusText = QStringLiteral("Bookmark scanner tuned");
+            publishSnapshot(true);
+            emit scannerListeningFrequencyRequestCompleted(
+                frequency, m_backend->state().listeningFrequency, true,
+                m_statusText);
+        } catch (const std::exception& error) {
+            m_statusText = QStringLiteral("Receiver operation failed: %1")
+                               .arg(QString::fromUtf8(error.what()));
+            publishSnapshot(false);
+            emit scannerListeningFrequencyRequestCompleted(
+                frequency, m_backend->state().listeningFrequency, false,
+                m_statusText);
+        } catch (...) {
+            m_statusText = QStringLiteral(
+                "Receiver operation failed with an unknown error");
+            publishSnapshot(false);
+            emit scannerListeningFrequencyRequestCompleted(
+                frequency, m_backend->state().listeningFrequency, false,
+                m_statusText);
         }
     }
 
@@ -1627,6 +1660,103 @@ signals:
         quint64 tuningGeneration);
 
 private:
+    struct BookmarkApplication {
+        bool receiverSettingsChanged = false;
+        bool tuningChanged = false;
+        bool decoderLifecycleChanged = false;
+    };
+
+    bool bookmarkOperationSucceeded(const radio::OperationResult& result)
+    {
+        if (result.succeeded()) {
+            return true;
+        }
+        m_statusText = QString::fromStdString(result.message);
+        return false;
+    }
+
+    bool applyBookmarkOwnedSettings(double requestedGainDb, int mode,
+        quint64 filterWidth, double squelchThresholdDb, bool squelchEnabled,
+        bool applySquelch, BookmarkApplication& changes)
+    {
+        const auto requestedMode = static_cast<radio::DemodulationMode>(mode);
+        const auto originalMode = m_backend->state().demodulationMode;
+        if (std::abs(m_requestedGainDb - requestedGainDb) > 1.0e-9) {
+            const auto result = m_backend->setGain(requestedGainDb);
+            if (!bookmarkOperationSucceeded(result)) return false;
+            changes.receiverSettingsChanged |= result.stateChanged;
+            m_requestedGainDb = requestedGainDb;
+            m_savedGainDb = requestedGainDb;
+        }
+        if (m_backend->state().demodulationMode != requestedMode) {
+            const auto result = m_backend->setDemodulationMode(requestedMode);
+            if (!bookmarkOperationSucceeded(result)) return false;
+            changes.receiverSettingsChanged |= result.stateChanged;
+            changes.decoderLifecycleChanged =
+                originalMode == radio::DemodulationMode::DigitalDecoderOutput ||
+                requestedMode == radio::DemodulationMode::DigitalDecoderOutput;
+        }
+        if (m_backend->state().filterWidth != filterWidth) {
+            const auto result = m_backend->setFilterWidth(filterWidth);
+            if (!bookmarkOperationSucceeded(result)) return false;
+            changes.receiverSettingsChanged |= result.stateChanged;
+        }
+        if (applySquelch) {
+            const auto& state = m_backend->state();
+            const bool thresholdChanged =
+                std::abs(state.manualSquelchLevelDb - squelchThresholdDb) >
+                1.0e-9;
+            if (squelchEnabled &&
+                (thresholdChanged ||
+                 state.squelchMode != radio::SquelchMode::Manual)) {
+                const auto result =
+                    m_backend->setSquelchLevel(squelchThresholdDb);
+                if (!bookmarkOperationSucceeded(result)) return false;
+                changes.receiverSettingsChanged |= result.stateChanged;
+            } else if (!squelchEnabled) {
+                if (thresholdChanged) {
+                    const auto result =
+                        m_backend->setSquelchLevel(squelchThresholdDb);
+                    if (!bookmarkOperationSucceeded(result)) return false;
+                    changes.receiverSettingsChanged |= result.stateChanged;
+                }
+                if (m_backend->state().squelchMode !=
+                    radio::SquelchMode::Disabled) {
+                    const auto result = m_backend->disableSquelch();
+                    if (!bookmarkOperationSucceeded(result)) return false;
+                    changes.receiverSettingsChanged |= result.stateChanged;
+                }
+            }
+        }
+        m_filterWidths[static_cast<std::size_t>(mode)] = filterWidth;
+        return true;
+    }
+
+    void finishBookmarkApplication(
+        const BookmarkApplication& changes, bool persistTuning)
+    {
+        if (changes.tuningChanged || changes.receiverSettingsChanged) {
+            flushDecoderAfterRetune();
+        }
+        if (changes.receiverSettingsChanged ||
+            (persistTuning && changes.tuningChanged)) {
+            persistCurrentReceiverControls();
+        }
+        if (changes.decoderLifecycleChanged) {
+            m_backend->clearAudioSamples();
+            if (m_audioOutput) m_audioOutput->flush();
+            if (m_dsdFme) {
+                if (m_backend->state().demodulationMode ==
+                        radio::DemodulationMode::DigitalDecoderOutput &&
+                    m_backend->state().running) {
+                    m_dsdFme->start();
+                } else {
+                    m_dsdFme->stop();
+                }
+            }
+        }
+    }
+
     [[nodiscard]] bool automaticPpmCalibrationAvailable() const
     {
         if (!m_selectedCapabilities ||
@@ -2793,7 +2923,7 @@ private:
     QElapsedTimer m_audioMetricsTimer;
     std::uint32_t m_targetSpectrumFramesPerSecond =
         dsp::defaultSpectrumDisplayFramesPerSecond;
-    std::uint32_t m_visibleWaterfallHistorySeconds =
+    double m_visibleWaterfallHistorySeconds =
         defaultVisibleWaterfallHistorySeconds;
     std::size_t m_spectrumFftSize = 4'096;
     WaterfallFrameDelivery m_waterfallDelivery;
@@ -2947,6 +3077,8 @@ ReceiverRuntime::ReceiverRuntime(
     connect(this, &ReceiverRuntime::enableAutomaticSquelchRequested, m_worker, &Worker::enableAutomaticSquelch, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::disableSquelchRequested, m_worker, &Worker::disableSquelch, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::applyBookmarkRequested, m_worker, &Worker::applyBookmark, Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::applyScannerBookmarkRequested, m_worker,
+        &Worker::applyScannerBookmark, Qt::QueuedConnection);
 
     connect(m_worker, &Worker::snapshotChanged, this, &ReceiverRuntime::snapshotChanged);
     connect(
@@ -3149,7 +3281,7 @@ void ReceiverRuntime::setSpectrumFftSize(quint64 fftSize)
     emit setSpectrumFftSizeRequested(fftSize);
 }
 
-void ReceiverRuntime::setVisibleWaterfallHistorySeconds(quint32 seconds)
+void ReceiverRuntime::setVisibleWaterfallHistorySeconds(double seconds)
 {
     markPending(QStringLiteral("Changing visible waterfall history…"));
     emit setVisibleWaterfallHistorySecondsRequested(seconds);
@@ -3221,6 +3353,14 @@ void ReceiverRuntime::applyBookmark(quint64 frequency, double requestedGainDb,
     markPending(QStringLiteral("Applying bookmark…"));
     emit applyBookmarkRequested(frequency, requestedGainDb, demodulationMode,
         filterWidth, squelchThresholdDb, squelchEnabled, applySquelch);
+}
+
+void ReceiverRuntime::applyScannerBookmark(quint64 frequency,
+    double requestedGainDb, int demodulationMode, quint64 filterWidth,
+    double squelchThresholdDb, bool squelchEnabled)
+{
+    emit applyScannerBookmarkRequested(frequency, requestedGainDb,
+        demodulationMode, filterWidth, squelchThresholdDb, squelchEnabled);
 }
 
 }  // namespace sdr::app

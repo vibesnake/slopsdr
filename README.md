@@ -127,6 +127,9 @@ history.
 
 The waterfall's primary click selects the listening frequency represented by
 that horizontal position. No drag or double-click is needed for normal tuning.
+The persisted visible-history selector includes fast 1-second and 2.5-second
+views. If Waterfall is paused during any scan, its image is blacked until
+resumed so stale rows cannot represent a newly scanned frequency.
 For the complete interaction rules, see [GUI requirements](docs/GUI_REQUIREMENTS.md),
 the [frequency-control guide](docs/FREQUENCY_CONTROL.md), and the
 [user guide](docs/USER_GUIDE.md).

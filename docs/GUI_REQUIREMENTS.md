@@ -205,9 +205,10 @@ branch without restarting audio or the source. The selected request remains
 persisted; if allocation or backend limits require a smaller plan, the control
 shows both requested and effective sizes instead of misrepresenting either.
 
-The visible-history control offers 5, 10, 15, 30, and 60 seconds plus a custom
-value; 10 seconds is the default. It is the only user-facing waterfall speed
-control and persists. Its duration fills the physical waterfall height, so
+The visible-history control offers 1, 2.5, 5, 10, 15, 30, and 60 seconds plus
+a custom value; 10 seconds is the default. It is the only user-facing waterfall
+speed control and persists fractional preset values exactly. Its duration fills
+the physical waterfall height, so
 apparent speed is physical height divided by visible seconds. Changing it is a
 waterfall-only time-mapping operation and must not reconfigure the shared FFT
 producer or interrupt live spectrum frames and Max-hold accumulation. FFT-row
@@ -235,6 +236,11 @@ original FFT to the current physical viewport. Changing the selection
 re-renders those retained statistics without clearing history or changing
 timestamps, frequency metadata, zoom, viewport, spectrum, audio, or receiver
 processing. Zoomed enlargement remains nearest-bin/flat-hold.
+
+When any scanner owns tuning, pausing the waterfall clears its retained visible
+rows and renders black. A scanner start while Waterfall is already paused does
+the same. Stopping does not restore stale rows; only resuming accepts new live
+rows. Spectrum pause semantics remain independent.
 
 Viewport-resolution rows must exactly match the current viewport generation,
 visible lower and upper frequencies, physical width, device-pixel ratio, and
@@ -320,7 +326,9 @@ nested groups with independent expansion state and scanner-inclusion checkboxes.
 Group inclusion is derived as a tri-state value and updates all descendant
 bookmarks. Bookmark scanning snapshots checked bookmark UUIDs in saved list
 order when Start is pressed, so later bookmark edits or reordering apply only
-to a future scan.
+to a future scan. Each bookmark transition computes its complete receiver
+change set first, skips unchanged bookmark-owned values, and publishes one
+coherent final receiver state without refreshing unrelated controls.
 
 The Scan panel runs current-passband and wide-range scanners owned by the
 application model.

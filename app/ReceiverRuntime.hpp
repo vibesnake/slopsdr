@@ -36,7 +36,7 @@ struct ReceiverRuntimeSnapshot {
     quint64 effectiveSpectrumFftSize = 4'096;
     double spectrumHertzPerBin = 0.0;
     double effectiveSpectrumFramesPerSecond = 60.0;
-    quint32 visibleWaterfallHistorySeconds = 10;
+    double visibleWaterfallHistorySeconds = 10.0;
     QStringList deviceIdentifiers;
     QStringList deviceDisplayNames;
     QString selectedDeviceIdentifier;
@@ -148,7 +148,7 @@ public slots:
     void shiftCenterFrequency(qint64 requestedStep);
     void setSampleRate(quint64 sampleRate);
     void setSpectrumFftSize(quint64 fftSize);
-    void setVisibleWaterfallHistorySeconds(quint32 seconds);
+    void setVisibleWaterfallHistorySeconds(double seconds);
     void setFilterWidth(quint64 filterWidth);
     void setGain(double gainDb);
     void setPpmCorrection(double ppmCorrection);
@@ -163,6 +163,9 @@ public slots:
         int demodulationMode, quint64 filterWidth,
         double squelchThresholdDb, bool squelchEnabled,
         bool applySquelch = true);
+    void applyScannerBookmark(quint64 frequency, double requestedGainDb,
+        int demodulationMode, quint64 filterWidth,
+        double squelchThresholdDb, bool squelchEnabled);
 
 signals:
     void snapshotChanged(const sdr::app::ReceiverRuntimeSnapshot& snapshot);
@@ -213,7 +216,7 @@ signals:
     void shiftCenterFrequencyRequested(qint64 requestedStep);
     void setSampleRateRequested(quint64 sampleRate);
     void setSpectrumFftSizeRequested(quint64 fftSize);
-    void setVisibleWaterfallHistorySecondsRequested(quint32 seconds);
+    void setVisibleWaterfallHistorySecondsRequested(double seconds);
     void setFilterWidthRequested(quint64 filterWidth);
     void setGainRequested(double gainDb);
     void setPpmCorrectionRequested(double ppmCorrection);
@@ -228,6 +231,9 @@ signals:
         int demodulationMode, quint64 filterWidth,
         double squelchThresholdDb, bool squelchEnabled,
         bool applySquelch);
+    void applyScannerBookmarkRequested(quint64 frequency,
+        double requestedGainDb, int demodulationMode, quint64 filterWidth,
+        double squelchThresholdDb, bool squelchEnabled);
 
 private:
     class Worker;

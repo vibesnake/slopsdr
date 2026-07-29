@@ -771,6 +771,7 @@ private slots:
     void recentersRunningReceiverAndFlushesStaleAudio();
     void remembersFilterWidthPerMode();
     void appliesBookmarkAsOneAsynchronousLiveOperation();
+    void appliesBookmarkScannerTransitionsDifferentially();
     void managesDsdFmeLifecycleWithoutRestartingOnRetune();
     void keepsReceptionAndDisplayActiveWhenDsdFmeFails();
     void enablesAutoPpmForCanonicalRtlSdrDiscoveryKeyBeforeOpen();
@@ -954,12 +955,19 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
         QSignalSpy waterfallFrames(&model, &ApplicationModel::waterfallFrameReady);
         runtime.start();
         QVERIFY(waitUntil([&model] { return model.backendReady(); }));
-        QCOMPARE(model.visibleWaterfallHistorySeconds(), quint32{10});
+        QCOMPARE(model.visibleWaterfallHistorySeconds(), 10.0);
+        QVERIFY(model.visibleWaterfallHistoryOptions().contains(
+            QStringLiteral("1 s")));
+        QVERIFY(model.visibleWaterfallHistoryOptions().contains(
+            QStringLiteral("2.5 s")));
         QCOMPARE(model.effectiveWaterfallRowsPerSecond(), 60.0);
         model.startReception();
         QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
 
-        for (const quint32 seconds : {30U, 5U, 60U, 15U, 30U}) {
+        QSignalSpy receiverRunningChanges(
+            &model, &ApplicationModel::receiverRunningChanged);
+        QSignalSpy fftChanges(&model, &ApplicationModel::spectrumFftSizeChanged);
+        for (const double seconds : {30.0, 1.0, 2.5, 5.0, 60.0, 2.5}) {
             spectrumFrames.clear();
             waterfallFrames.clear();
             model.setVisibleWaterfallHistorySeconds(seconds);
@@ -979,21 +987,24 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
         }
         QVERIFY(model.receiverRunning());
         QCOMPARE(waterfallResets.count(), 0);
+        QCOMPARE(receiverRunningChanges.count(), 0);
+        QCOMPARE(fftChanges.count(), 0);
         runtime.shutdown();
     }
 
     QSettings persistedSettings;
     persistedSettings.sync();
     QVERIFY(!persistedSettings.contains(QStringLiteral("waterfall/rowsPerSecond")));
-    QCOMPARE(persistedSettings.value(QStringLiteral("waterfall/visibleHistorySeconds")).toUInt(),
-             30U);
+    QCOMPARE(persistedSettings.value(
+                 QStringLiteral("waterfall/visibleHistorySeconds")).toDouble(),
+             2.5);
 
     sdr::app::ReceiverRuntime restored(
         sdr::app::ReceiverRuntime::StartupMode::Mock);
     ApplicationModel restoredModel(restored);
     restored.start();
     QVERIFY2(waitUntil([&restoredModel] {
-        return restoredModel.visibleWaterfallHistorySeconds() == 30 &&
+        return restoredModel.visibleWaterfallHistorySeconds() == 2.5 &&
                restoredModel.effectiveWaterfallRowsPerSecond() == 60.0;
     }), qPrintable(QStringLiteral("restored source cadence=%1 history=%2")
                        .arg(restoredModel.effectiveWaterfallRowsPerSecond())
@@ -1948,6 +1959,126 @@ void ReceiverRuntimeTest::appliesBookmarkAsOneAsynchronousLiveOperation()
     QCOMPARE(trace->backendStops, backendStops);
     QCOMPARE(trace->audioFlushes, audioFlushes);
     QCOMPARE(waterfallResets.count(), 0);
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::appliesBookmarkScannerTransitionsDifferentially()
+{
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+
+    auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(
+        model.bookmarkModel());
+    QVERIFY(bookmarks);
+    const auto add = [bookmarks](const QString& name, quint64 frequency) {
+        sdr::app::BookmarkData bookmark;
+        bookmark.name = name;
+        bookmark.listeningFrequency = frequency;
+        bookmark.requestedGainDb = 20.0;
+        bookmark.demodulatorId = QStringLiteral("am");
+        bookmark.filterLowHz = -6'250;
+        bookmark.filterHighHz = 6'250;
+        bookmark.squelchThresholdDb = -80.0;
+        bookmark.squelchEnabled = true;
+        bookmark.hasSavedSquelch = true;
+        bookmark.scannerIncluded = true;
+        return bookmarks->addBookmark(-1, bookmark);
+    };
+    QVERIFY(!add(QStringLiteral("Current"), 100'000'000).isEmpty());
+    QVERIFY(!add(QStringLiteral("Next"), 100'010'000).isEmpty());
+    sdr::app::BookmarkData changed;
+    changed.name = QStringLiteral("Changed USB");
+    changed.listeningFrequency = 100'020'000;
+    changed.requestedGainDb = 27.0;
+    changed.demodulatorId = QStringLiteral("usb");
+    changed.filterLowHz = 0;
+    changed.filterHighHz = 2'700;
+    changed.squelchThresholdDb = -55.0;
+    changed.squelchEnabled = false;
+    changed.hasSavedSquelch = true;
+    changed.scannerIncluded = true;
+    QVERIFY(!bookmarks->addBookmark(-1, changed).isEmpty());
+
+    const auto gainsBefore = trace->requestedGains.size();
+    const int modesBefore = trace->modeApplications;
+    const int filtersBefore = trace->filterApplications;
+    const int squelchBefore = trace->squelchLevelApplications;
+    const int disabledBefore = trace->disabledSquelchApplications;
+    const int stopsBefore = trace->backendStops;
+    QSignalSpy runningChanges(&model, &ApplicationModel::receiverRunningChanged);
+    QSignalSpy fftChanges(&model, &ApplicationModel::spectrumFftSizeChanged);
+    QSignalSpy waterfallChanges(&model, &ApplicationModel::waterfallSettingsChanged);
+    QSignalSpy modeChanges(&model, &ApplicationModel::demodulationModeChanged);
+    QSignalSpy filterChanges(&model, &ApplicationModel::filterWidthChanged);
+    QSignalSpy gainChanges(&model, &ApplicationModel::requestedGainChanged);
+    QSignalSpy squelchChanges(&model, &ApplicationModel::squelchStateChanged);
+
+    model.setBookmarkScanDwellMilliseconds(100'000);
+    model.startBookmarkScan();
+    QVERIFY(waitUntil([&model] {
+        return model.bookmarkScanState() == QLatin1String("Running");
+    }));
+    QCOMPARE(trace->requestedGains.size(), gainsBefore);
+    QCOMPARE(trace->modeApplications, modesBefore);
+    QCOMPARE(trace->filterApplications, filtersBefore);
+    QCOMPARE(trace->squelchLevelApplications, squelchBefore);
+    QCOMPARE(trace->disabledSquelchApplications, disabledBefore);
+    QCOMPARE(modeChanges.count(), 0);
+    QCOMPARE(filterChanges.count(), 0);
+    QCOMPARE(gainChanges.count(), 0);
+    QCOMPARE(squelchChanges.count(), 0);
+
+    model.pauseOrResumeBookmarkScan();
+    model.skipBookmarkScan();
+    QVERIFY(waitUntil([&model] {
+        return model.bookmarkScanCurrentName() == QLatin1String("Next") &&
+               model.bookmarkScanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(model.listeningFrequency(), quint64{100'010'000});
+    QCOMPARE(trace->requestedGains.size(), gainsBefore);
+    QCOMPARE(trace->modeApplications, modesBefore);
+    QCOMPARE(trace->filterApplications, filtersBefore);
+    QCOMPARE(trace->squelchLevelApplications, squelchBefore);
+    QCOMPARE(modeChanges.count(), 0);
+    QCOMPARE(filterChanges.count(), 0);
+    QCOMPARE(gainChanges.count(), 0);
+    QCOMPARE(squelchChanges.count(), 0);
+    QCOMPARE(runningChanges.count(), 0);
+    QCOMPARE(fftChanges.count(), 0);
+    QCOMPARE(waterfallChanges.count(), 0);
+    QCOMPARE(trace->backendStops, stopsBefore);
+    QVERIFY(model.receiverRunning());
+
+    modeChanges.clear();
+    filterChanges.clear();
+    gainChanges.clear();
+    squelchChanges.clear();
+    model.skipBookmarkScan();
+    QVERIFY(waitUntil([&model] {
+        return model.bookmarkScanCurrentName() == QLatin1String("Changed USB") &&
+               model.bookmarkScanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(model.demodulationModeName(), QStringLiteral("USB"));
+    QCOMPARE(model.filterWidth(), quint64{2'700});
+    QCOMPARE(model.requestedGain(), 27.0);
+    QCOMPARE(model.squelchLevel(), -55.0);
+    QVERIFY(model.squelchDisabled());
+    QCOMPARE(modeChanges.count(), 1);
+    QCOMPARE(filterChanges.count(), 1);
+    QCOMPARE(gainChanges.count(), 1);
+    QCOMPARE(squelchChanges.count(), 1);
+    QCOMPARE(runningChanges.count(), 0);
+    QCOMPARE(fftChanges.count(), 0);
+    QCOMPARE(waterfallChanges.count(), 0);
+    QCOMPARE(trace->backendStops, stopsBefore);
+    model.stopBookmarkScan();
     runtime.shutdown();
 }
 

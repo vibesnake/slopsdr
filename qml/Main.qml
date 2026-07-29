@@ -3559,7 +3559,7 @@ ApplicationWindow {
                 Accessible.name: qsTr("Spectrum and waterfall frequency pan")
                 Accessible.description: qsTr(
                     "Pan the shared visible spectrum and waterfall frequency range")
-                onMoved: root.applicationModel.setDisplayPanPosition(position)
+                onPositionChanged: root.applicationModel.setDisplayPanPosition(position)
             }
         }
 
@@ -3736,6 +3736,7 @@ ApplicationWindow {
                         font.pixelSize: 11
                     }
                     ComboBox {
+                        objectName: "waterfallAggregationSelector"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         implicitHeight: root.controlHeight
@@ -3763,6 +3764,7 @@ ApplicationWindow {
                         font.pixelSize: 11
                     }
                     ComboBox {
+                        objectName: "visibleWaterfallHistorySelector"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         implicitHeight: root.controlHeight

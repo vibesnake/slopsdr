@@ -158,6 +158,7 @@ private slots:
     void rendersSpectrumHoldsAbovePaletteAndLiveTrace();
     void retainsSpectrumFrameAcrossCenterRetunes();
     void pausesSpectrumAndWaterfallIndependently();
+    void blanksPausedWaterfallForEveryScannerModeUntilResume();
     void keepsPausedDisplaysPausedWhileViewportPans();
     void exposesMajorTicksAndCustomRange();
     void estimatesAndSmoothsNoiseFloor();
@@ -988,6 +989,69 @@ void SpectrumWaterfallItemTest::pausesSpectrumAndWaterfallIndependently()
         waterfall, first, 100'000'000, 2'000'000, 4, 400));
     QCOMPARE(waterfall.m_latestFrame.sequence, std::uint64_t{4});
     QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{3});
+}
+
+void SpectrumWaterfallItemTest::blanksPausedWaterfallForEveryScannerModeUntilResume()
+{
+    enum class ScannerMode { CurrentPassband, WideRange, Bookmarks };
+    for (const auto scannerMode : {ScannerMode::CurrentPassband,
+             ScannerMode::WideRange, ScannerMode::Bookmarks}) {
+        ApplicationModel model;
+        SpectrumWaterfallItem waterfall;
+        waterfall.setWaterfall(true);
+        waterfall.setApplicationModel(&model);
+        const QVector<float> stale{0.1F, 0.8F, 0.2F, 0.4F};
+        QVERIFY(deliverWaterfallFrame(
+            waterfall, stale, 100'000'000, 2'000'000, 1, 100));
+        QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{1});
+        waterfall.setPaused(true);
+
+        model.startReception();
+        if (scannerMode == ScannerMode::WideRange) {
+            model.setScanTypeIndex(1);
+            model.setScanLowerFrequency(99'000'000);
+            model.setScanUpperFrequency(101'000'000);
+            model.setScanStepSize(1'000'000);
+            model.startScan();
+        } else if (scannerMode == ScannerMode::Bookmarks) {
+            auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(
+                model.bookmarkModel());
+            QVERIFY(bookmarks);
+            sdr::app::BookmarkData bookmark;
+            bookmark.name = QStringLiteral("Paused waterfall");
+            bookmark.listeningFrequency = 100'000'000;
+            bookmark.demodulatorId = QStringLiteral("am");
+            bookmark.filterLowHz = -6'250;
+            bookmark.filterHighHz = 6'250;
+            bookmark.scannerIncluded = true;
+            QVERIFY(!bookmarks->addBookmark(-1, bookmark).isEmpty());
+            model.startBookmarkScan();
+        } else {
+            model.startScan();
+        }
+
+        QVERIFY(model.scannerOwnsTuning());
+        QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{0});
+        QVERIFY(waterfall.m_waterfallImage.isNull());
+        QVERIFY(deliverWaterfallFrame(
+            waterfall, stale, 100'000'000, 2'000'000, 2, 200));
+        QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{0});
+
+        if (scannerMode == ScannerMode::Bookmarks) {
+            model.stopBookmarkScan();
+        } else {
+            model.stopScan();
+        }
+        QVERIFY(!model.scannerOwnsTuning());
+        QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{0});
+        waterfall.setPaused(false);
+        const QVector<float> current{0.9F, 0.3F, 0.6F, 0.2F};
+        QVERIFY(deliverWaterfallFrame(
+            waterfall, current, model.centerFrequency(),
+            model.effectiveSampleRate(), 3, 300));
+        QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{1});
+        QCOMPARE(waterfall.m_latestFrame.sequence, std::uint64_t{3});
+    }
 }
 
 void SpectrumWaterfallItemTest::keepsPausedDisplaysPausedWhileViewportPans()
