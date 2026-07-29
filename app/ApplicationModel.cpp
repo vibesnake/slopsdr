@@ -1777,6 +1777,11 @@ bool ApplicationModel::audioRunning() const noexcept
     return m_audioRunning;
 }
 
+bool ApplicationModel::decoderRunning() const noexcept
+{
+    return m_decoderRunning;
+}
+
 quint64 ApplicationModel::audioOverflowEvents() const noexcept
 {
     return m_audioOverflowEvents;
@@ -3635,6 +3640,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     const bool previousAudioMuted = m_audioMuted;
     const bool previousAudioReady = m_audioReady;
     const bool previousAudioRunning = m_audioRunning;
+    const bool previousDecoderRunning = m_decoderRunning;
     const quint64 previousAudioOverflowEvents = m_audioOverflowEvents;
     const quint64 previousAudioUnderrunEvents = m_audioUnderrunEvents;
 
@@ -3691,6 +3697,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_audioMuted = snapshot.audioMuted;
     m_audioReady = snapshot.audioReady;
     m_audioRunning = snapshot.audioRunning;
+    m_decoderRunning = snapshot.decoderRunning;
     m_audioOverflowEvents = snapshot.audioOverflowEvents;
     m_audioUnderrunEvents = snapshot.audioUnderrunEvents;
     if (m_audioUnderrunEvents > previousAudioUnderrunEvents) {
@@ -3849,6 +3856,7 @@ void ApplicationModel::applyRuntimeSnapshot(
         previousAudioMuted != m_audioMuted ||
         previousAudioReady != m_audioReady ||
         previousAudioRunning != m_audioRunning ||
+        previousDecoderRunning != m_decoderRunning ||
         previousAudioOverflowEvents != m_audioOverflowEvents ||
         previousAudioUnderrunEvents != m_audioUnderrunEvents) {
         emit audioStateChanged();

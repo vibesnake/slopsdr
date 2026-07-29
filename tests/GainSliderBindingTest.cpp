@@ -18,7 +18,7 @@ class GainSliderBindingTest final : public QObject
 
 private slots:
     void reappliesRequestedGainWhenCapabilitiesArrive();
-    void keepsFilterTextVisibleAndPlacesGainStatusBelowSlider();
+    void keepsReceiverControlsGeometryStableAcrossRuntimeValues();
     void maximumHoldToggleHasDistinctCheckedAndUncheckedStates();
     void sidebarButtonsKeepNavigationEntriesExclusiveAndExposeScanShell();
     void toolbarUsesEmbeddedSlopSdrLogo();
@@ -58,7 +58,7 @@ void GainSliderBindingTest::reappliesRequestedGainWhenCapabilitiesArrive()
     QCOMPARE(slider->property("value").toDouble(), 21.0);
 }
 
-void GainSliderBindingTest::keepsFilterTextVisibleAndPlacesGainStatusBelowSlider()
+void GainSliderBindingTest::keepsReceiverControlsGeometryStableAcrossRuntimeValues()
 {
     QQmlEngine engine;
     QQmlComponent component(&engine);
@@ -73,6 +73,7 @@ void GainSliderBindingTest::keepsFilterTextVisibleAndPlacesGainStatusBelowSlider
                 width: 416
                 height: 180
                 property bool dense: false
+                property bool gainSupported: true
                 property var filterWidthOptions: ["8.33 kHz", "12.50 kHz", "25 kHz", "Custom…"]
                 property string formattedFilterWidth: "12.50 kHz"
 
@@ -84,30 +85,14 @@ void GainSliderBindingTest::keepsFilterTextVisibleAndPlacesGainStatusBelowSlider
                     columnSpacing: 8
 
                     ColumnLayout {
-                        TextMetrics {
-                            id: filterWidthTextMetrics
-                            font: filterWidthSelector.font
-                            text: filterWidthSelector.widestAvailableLabel
-                        }
                         ComboBox {
                             id: filterWidthSelector
                             objectName: "filterWidthSelector"
-                            readonly property string widestAvailableLabel: {
-                                var widest = root.formattedFilterWidth
-                                for (var index = 0; index < root.filterWidthOptions.length; ++index) {
-                                    var label = root.filterWidthOptions[index]
-                                    if (label === "Custom…")
-                                        label = "Custom · " + root.formattedFilterWidth
-                                    if (label.length > widest.length)
-                                        widest = label
-                                }
-                                return widest
-                            }
-                            readonly property real minimumDisplayWidth: Math.ceil(
-                                filterWidthTextMetrics.advanceWidth
-                                + leftPadding + rightPadding + implicitIndicatorWidth + 8)
                             Layout.fillWidth: true
-                            Layout.minimumWidth: minimumDisplayWidth
+                            Layout.minimumWidth: implicitWidth
+                            Layout.preferredWidth: implicitWidth
+                            implicitContentWidthPolicy: ComboBox.WidestText
+                            model: root.filterWidthOptions
                             displayText: root.formattedFilterWidth
                         }
                     }
@@ -126,10 +111,19 @@ void GainSliderBindingTest::keepsFilterTextVisibleAndPlacesGainStatusBelowSlider
                             id: gainStatusText
                             objectName: "gainStatusText"
                             Layout.fillWidth: true
-                            text: "Requested: 20.0 dB · Effective: 19.7 dB"
+                            Layout.minimumHeight: gainStatusMetrics.height * 2
+                            Layout.preferredHeight: gainStatusMetrics.height * 2
+                            text: root.gainSupported
+                                  ? "Requested: 20.0 dB · Effective: 19.7 dB"
+                                  : "Gain control unsupported"
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
+                        }
+                        TextMetrics {
+                            id: gainStatusMetrics
+                            font: gainStatusText.font
+                            text: "M"
                         }
                     }
 
@@ -153,11 +147,27 @@ void GainSliderBindingTest::keepsFilterTextVisibleAndPlacesGainStatusBelowSlider
     QVERIFY(controls);
     QVERIFY(root);
     QCoreApplication::processEvents();
-    QVERIFY(filter->width() >= filter->property("minimumDisplayWidth").toDouble());
+    const double filterWidth = filter->width();
+    const double filterImplicitWidth = filter->implicitWidth();
+    const double controlsHeight = controls->implicitHeight();
+    const double gainStatusHeight = status->height();
+    QVERIFY(filter->property("implicitContentWidthPolicy").toInt() != 0);
     QCOMPARE(filter->property("displayText").toString(), QStringLiteral("12.50 kHz"));
     QVERIFY(status->mapToItem(root, QPointF()).y() >=
              slider->mapToItem(root, QPointF(0.0, slider->height())).y());
     QVERIFY(status->width() >= slider->width());
+    for (int index = 0;
+         index < filter->property("count").toInt();
+         ++index) {
+        filter->setProperty("currentIndex", index);
+        QCoreApplication::processEvents();
+        QCOMPARE(filter->width(), filterWidth);
+        QCOMPARE(filter->implicitWidth(), filterImplicitWidth);
+    }
+    root->setProperty("gainSupported", false);
+    QCoreApplication::processEvents();
+    QCOMPARE(status->height(), gainStatusHeight);
+    QCOMPARE(controls->implicitHeight(), controlsHeight);
 
     const std::unique_ptr<QObject> narrowObject(
         component.createWithInitialProperties(

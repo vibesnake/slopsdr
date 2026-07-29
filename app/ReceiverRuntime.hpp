@@ -71,6 +71,7 @@ struct ReceiverRuntimeSnapshot {
     bool audioMuted = false;
     bool audioReady = false;
     bool audioRunning = false;
+    bool decoderRunning = false;
     quint64 audioOverflowEvents = 0;
     quint64 audioUnderrunEvents = 0;
     quintptr workerThreadToken = 0;

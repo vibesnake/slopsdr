@@ -3962,26 +3962,6 @@ ApplicationWindow {
                     }
                 }
 
-                Label {
-                    Layout.fillWidth: true
-                    text: root.applicationModel.audioStatusText
-                    color: root.applicationModel.audioRunning ? "#68d391"
-                                                               : root.secondaryTextColor
-                    font.pixelSize: 9
-                    elide: Text.ElideRight
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    visible: root.applicationModel.demodulationModeIndex === 5
-                    text: root.applicationModel.dsdFmeStatusText
-                    color: text.indexOf("running") >= 0
-                           ? "#68d391"
-                           : root.secondaryTextColor
-                    font.pixelSize: 9
-                    elide: Text.ElideRight
-                }
-
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 6
@@ -4028,41 +4008,21 @@ ApplicationWindow {
                             color: root.secondaryTextColor
                             font.pixelSize: 11
                         }
-                        TextMetrics {
-                            id: filterWidthTextMetrics
-                            font: filterWidthSelector.font
-                            text: filterWidthSelector.widestAvailableLabel
-                        }
                         ComboBox {
                             id: filterWidthSelector
+                            objectName: "filterWidthSelector"
                             readonly property string formattedFilterWidth:
                                 (Number(root.applicationModel.filterWidth) / 1000).toFixed(
                                     Number(root.applicationModel.filterWidth) % 1000 === 0 ? 0 : 2)
                                 + qsTr(" kHz")
                             readonly property int presetIndex:
                                 find(formattedFilterWidth)
-                            readonly property string widestAvailableLabel: {
-                                var widest = formattedFilterWidth
-                                for (var index = 0;
-                                     index < root.applicationModel.filterWidthOptions.length;
-                                     ++index) {
-                                    var label = root.applicationModel.filterWidthOptions[index]
-                                    if (label === qsTr("Custom…"))
-                                        label = qsTr("Custom · %1").arg(formattedFilterWidth)
-                                    if (label.length > widest.length)
-                                        widest = label
-                                }
-                                return widest
-                            }
-                            readonly property real minimumDisplayWidth: Math.ceil(
-                                                                   filterWidthTextMetrics.advanceWidth
-                                                                   + leftPadding + rightPadding
-                                                                   + implicitIndicatorWidth + 8)
 
                             Layout.fillWidth: true
-                            Layout.minimumWidth: minimumDisplayWidth
-                            Layout.preferredWidth: minimumDisplayWidth
+                            Layout.minimumWidth: implicitWidth
+                            Layout.preferredWidth: implicitWidth
                             implicitHeight: root.controlHeight
+                            implicitContentWidthPolicy: ComboBox.WidestText
                             model: root.applicationModel.filterWidthOptions
                             currentIndex: presetIndex >= 0 ? presetIndex : count - 1
                             displayText: presetIndex >= 0
@@ -4119,6 +4079,8 @@ ApplicationWindow {
                             id: gainStatusText
                             objectName: "gainStatusText"
                             Layout.fillWidth: true
+                            Layout.minimumHeight: gainStatusMetrics.height * 2
+                            Layout.preferredHeight: gainStatusMetrics.height * 2
                             text: root.applicationModel.gainSupported
                                   ? qsTr("Requested: %1 dB · Effective: %2 dB").arg(
                                         Number(root.applicationModel.requestedGain).toFixed(1)).arg(
@@ -4129,6 +4091,11 @@ ApplicationWindow {
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
+                        }
+                        TextMetrics {
+                            id: gainStatusMetrics
+                            font: gainStatusText.font
+                            text: qsTr("M")
                         }
                     }
 
@@ -4236,6 +4203,29 @@ ApplicationWindow {
                 color: "#d7e0ee"
                 elide: Text.ElideRight
                 font.pixelSize: root.denseLayout ? 10 : 12
+            }
+
+            Label {
+                id: runtimeServiceStatus
+                objectName: "runtimeServiceStatus"
+                readonly property string audioState: root.applicationModel.audioReady
+                                                    ? qsTr("Audio ready")
+                                                    : (root.applicationModel.audioStatusText.indexOf(
+                                                           "initializing") >= 0
+                                                       ? qsTr("Audio initializing")
+                                                       : qsTr("Audio unavailable"))
+                readonly property string decoderState:
+                    root.applicationModel.demodulationModeIndex === 5
+                    ? (root.applicationModel.decoderRunning
+                       ? qsTr("Decoder running") : qsTr("Decoder stopped"))
+                    : ""
+                text: decoderState === "" ? audioState
+                                            : audioState + qsTr(" · ") + decoderState
+                color: root.applicationModel.decoderRunning
+                       || root.applicationModel.audioReady ? "#68d391"
+                                                            : root.secondaryTextColor
+                font.pixelSize: 9
+                elide: Text.ElideRight
             }
 
             Label {

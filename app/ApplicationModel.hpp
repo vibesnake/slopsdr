@@ -154,6 +154,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool audioMuted READ audioMuted WRITE setAudioMuted NOTIFY audioStateChanged)
     Q_PROPERTY(bool audioReady READ audioReady NOTIFY audioStateChanged)
     Q_PROPERTY(bool audioRunning READ audioRunning NOTIFY audioStateChanged)
+    Q_PROPERTY(bool decoderRunning READ decoderRunning NOTIFY audioStateChanged)
     Q_PROPERTY(quint64 audioOverflowEvents READ audioOverflowEvents NOTIFY audioStateChanged)
     Q_PROPERTY(quint64 audioUnderrunEvents READ audioUnderrunEvents NOTIFY audioStateChanged)
     Q_PROPERTY(quint64 tuningWheelStep READ tuningWheelStep WRITE setTuningWheelStep NOTIFY tuningWheelStepChanged)
@@ -289,6 +290,7 @@ public:
     [[nodiscard]] bool audioMuted() const noexcept;
     [[nodiscard]] bool audioReady() const noexcept;
     [[nodiscard]] bool audioRunning() const noexcept;
+    [[nodiscard]] bool decoderRunning() const noexcept;
     [[nodiscard]] quint64 audioOverflowEvents() const noexcept;
     [[nodiscard]] quint64 audioUnderrunEvents() const noexcept;
     [[nodiscard]] const std::vector<sdr::radio::FrequencyRange>&
@@ -792,6 +794,7 @@ private:
     bool m_audioMuted = false;
     bool m_audioReady = false;
     bool m_audioRunning = false;
+    bool m_decoderRunning = false;
     quint64 m_audioOverflowEvents = 0;
     quint64 m_audioUnderrunEvents = 0;
     quint64 m_tuningWheelStep = 10'000;

@@ -309,10 +309,10 @@ discover, or update DSD-FME.
 ## Console
 
 The read-only **Console** keeps a bounded recent history throughout the current
-application session, including receiver and device failures, audio underruns,
-bookmark save failures, and DSD-FME lifecycle and stderr messages. Decoder
-stdout is decoded PCM and is never displayed. Use the severity selector to show
-all entries, Info and above, warnings and above, or errors only. **Copy
+application session, including receiver and device failures, audio lifecycle
+and underrun messages, bookmark save failures, and DSD-FME lifecycle and stderr
+messages. Decoder stdout is decoded PCM and is never displayed. Use the severity
+selector to show all entries, Info and above, warnings and above, or errors only. **Copy
 Selected**, **Copy All**, and **Clear** affect only the displayed in-memory
 history. Auto-scroll follows new entries only while the view remains at its
 bottom; scrolling upward leaves the current position undisturbed.
@@ -387,15 +387,17 @@ sends flat, unsquelched discriminator audio to DSD-FME for its default DMR and
 P25 detection. Decoded 8 kHz interleaved stereo native IEEE-754 float32 output
 is resampled to 48 kHz stereo while preserving its two timeslot channels.
 Retuning keeps the decoder process running but discards stale decoded audio.
-The status below the normal audio status reports not configured, starting,
-running, stopped, failure, or bounded input/output overflow. Decoding
+The fixed status bar shows concise decoder state; not configured, starting,
+failure, and bounded input/output overflow details are recorded in Console.
+Decoding
 reliability may vary, and FEC errors or audio underruns may occur. Encrypted
 traffic is not decoded. Decoder failure does not stop the receiver, spectrum,
 or waterfall. Configure the executable path in **Settings**; slopSDR does not
 install or update DSD-FME.
 
-The audio status line reports the active format or a no-device, unsupported
-format, open, disappearance, underrun, overflow, or write failure. Reception
-and spectrum display remain available when audio cannot be opened. Overflow
-drops the oldest queued audio to retain bounded live latency. Underrun inserts
-silence rather than replaying old samples.
+The fixed status bar shows concise audio state. The Console records active
+format and no-device, unsupported-format, open, disappearance, underrun,
+overflow, and write-failure details. Reception and spectrum display remain
+available when audio cannot be opened. Overflow drops the oldest queued audio to
+retain bounded live latency. Underrun inserts silence rather than replaying old
+samples.

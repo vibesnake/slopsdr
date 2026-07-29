@@ -2651,6 +2651,8 @@ private:
         }
         if (m_dsdFme) {
             snapshot.dsdFmeStatusText = m_dsdFme->state().statusText;
+            snapshot.decoderRunning =
+                m_dsdFme->state().state == platform::DsdFmeState::Running;
         } else if (!m_dsdFmeInitializationError.isEmpty()) {
             snapshot.dsdFmeStatusText = m_dsdFmeInitializationError;
         } else {

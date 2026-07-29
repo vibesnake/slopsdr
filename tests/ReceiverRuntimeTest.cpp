@@ -1972,6 +1972,11 @@ void ReceiverRuntimeTest::managesDsdFmeLifecycleWithoutRestartingOnRetune()
         return trace->dsdProcessStarts == 1 &&
                model.dsdFmeStatusText() == QStringLiteral("DSD-FME running");
     }));
+    QVERIFY(model.decoderRunning());
+    QVERIFY(waitUntil([&model] {
+        return model.applicationLog()->formattedText().contains(
+            QStringLiteral("[Info] [DSD-FME] Decoder is running"));
+    }));
     QCOMPARE(trace->dsdProgram, QStringLiteral("/test/dsd-fme"));
     QCOMPARE(
         trace->dsdArguments,

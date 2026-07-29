@@ -256,6 +256,11 @@ must not enumerate or open sound devices. Audio-device selection, volume, and
 mute remain visible during normal reception; audio failures must not disable
 receiver tuning or spectrum display.
 
+Receiver Controls reserves the filter-width selector's widest supported text
+and keeps normal state/value changes from changing the pane geometry. Detailed
+runtime audio and decoder messages belong in the bounded Console; the fixed
+status bar may show only concise service state.
+
 ## Device selection and runtime confirmation
 
 Hardware discovery runs once at startup and remains available through the
@@ -276,8 +281,9 @@ selection with the first remaining device.
 ## Current boundaries
 
 The GUI offers conventional single-frequency **DMR/P25** decoding through the
-configured DSD-FME executable and reports its bounded runtime state near normal
-audio status. DSD-FME process management remains outside QML. Bookmark
+configured DSD-FME executable. Its concise runtime state is shown in the fixed
+status bar and detailed lifecycle or diagnostics are recorded in Console.
+DSD-FME process management remains outside QML. Bookmark
 scanner-inclusion checkboxes are persisted metadata and are not used by either
 Scan-pane scan type.
 
@@ -299,8 +305,9 @@ calibration** section showing the effective signed PPM correction, one **Auto
 PPM** button that becomes **Cancel**, a progress indicator, and the preparing,
 settling, measuring 1/3 through 3/3, applying, completed, failed, and cancelled
 states. Auto PPM is disabled unless the selected physical device exposes both
-RTL-SDR test mode and frequency correction. Decoder runtime status remains near
-the normal audio status rather than in the Settings panel. The Console is a
+RTL-SDR test mode and frequency correction. Concise decoder runtime state is
+shown in the fixed status bar rather than in Receiver Controls; detailed
+decoder messages remain in the Console. The Console is a
 bounded, read-only session log with severity filtering, copy and clear actions,
 and conditional auto-scrolling; it never exposes command entry or DSD-FME's
 binary stdout. The Bookmarks panel renders
