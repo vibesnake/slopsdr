@@ -21,13 +21,17 @@ digits to its left remain unchanged. Each numeric key replaces the active digit
 and advances to the next digit, without tuning the receiver. The control marks
 the active digit and remaining editable suffix. After the final digit, Enter
 validates and applies the complete integer-Hz value; Escape restores the exact
-original displayed frequency. Unsupported completed values remain pending for
-correction and never alter receiver tuning.
+original displayed frequency. Clicking any digit in the editable suffix moves
+the active position without discarding pending replacements, so an earlier
+digit can be corrected before continuing. Unsupported completed values remain
+pending for correction and never alter receiver tuning. Enter, Escape, wheel,
+touch, and other cancellation paths clear the digit focus and edit highlight.
 
 When the pointer directly hovers a digit, pressing `0` through `9` instead
 replaces only that digit and immediately applies the exact resulting frequency.
-This is disabled while a text editor has keyboard focus, and neither hover
-replacement nor sequential editing is available while the scanner owns tuning.
+The same hover routing applies to Up and Down for increment/decrement. It is
+disabled while a text editor has keyboard focus, during sequential editing, and
+while the scanner owns tuning. Up and Down do nothing during a sequential edit.
 
 Right-click or Delete sets the selected digit and every less-significant digit
 to zero by removing the corresponding decimal suffix. A right-click does not

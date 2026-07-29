@@ -116,8 +116,10 @@ The center-frequency entry must provide a decimal digit control:
   left remain unchanged; each numeric key replaces the active digit and moves
   right. The active digit and remaining editable suffix are visibly indicated,
   and no receiver tuning occurs until the completed value is confirmed with
-  Enter. Escape restores the exact original display. An unsupported completed
-  value is retained for correction and must not retune the receiver.
+  Enter. Clicking another digit in that suffix moves the active position while
+  preserving pending replacements, allowing backward and forward correction.
+  Escape restores the exact original display. An unsupported completed value is
+  retained for correction and must not retune the receiver.
 * Carry and borrow operate across adjacent digits.
 * Increment/decrement and complete-entry values are validated and clamped to
   available center-frequency limits. Exact hover replacement, sequential
@@ -126,13 +128,16 @@ The center-frequency entry must provide a decimal digit control:
 * Keyboard focus is visible. Up and Down perform the same increment/decrement
   operation, Left and Right move between digits, and Delete performs the same
   zeroing operation as right-click. Outside a sequential edit, Enter opens
-  complete-frequency entry.
+  complete-frequency entry. During a sequential edit, Up and Down are consumed
+  without changing pending or live frequency state.
 * Touching the upper or lower half of a digit increments or decrements it without
   changing mouse-wheel or right-click behavior.
 * Each digit exposes an accessible name, role, and operation description.
 
 All center-frequency digit interactions are unavailable while the scanner owns
 tuning, including its running, paused, holding, and retuning states.
+Ending or cancelling an edit also clears the digit's keyboard focus and every
+edit highlight.
 
 Tuning arithmetic, carry, borrow, zeroing, and limit enforcement must be
 implemented in C++, not QML JavaScript.

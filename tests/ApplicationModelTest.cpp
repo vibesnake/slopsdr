@@ -1041,6 +1041,8 @@ void ApplicationModelTest::givesActiveScannerExclusiveTuningControl()
     model.replaceHoveredCenterFrequencyDigit(8, 5);
     model.commitCenterFrequencyDigitEdit();
     QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), -1);
+    QCOMPARE(model.centerFrequencyDigitEditStartIndex(), -1);
     model.shiftCenterFromSpectrum(120);
     model.handleFrequencyWheel(false, 120);
     model.setListeningFrequency(lower + 5'000);
@@ -1367,18 +1369,26 @@ void ApplicationModelTest::supportsCenterFrequencyDigitEditSessions()
     model.beginCenterFrequencyDigitEdit(8);
     QVERIFY(model.centerFrequencyDigitEditActive());
     QCOMPARE(model.centerFrequencyDigitEditIndex(), 8);
+    QCOMPARE(model.centerFrequencyDigitEditStartIndex(), 8);
     QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000000"));
     model.replaceCenterFrequencyDigitInEdit(4);
     QCOMPARE(model.centerFrequencyDigitEditIndex(), 9);
     QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000040"));
     QCOMPARE(model.centerFrequency(), quint64{100'000'000});
     QCOMPARE(frequencySpy.count(), 0);
+    model.adjustCenterFrequencyDigit(9, 1);
+    model.adjustCenterFrequencyDigit(9, -1);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000040"));
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 9);
+    QCOMPARE(model.centerFrequency(), quint64{100'000'000});
     model.replaceCenterFrequencyDigitInEdit(2);
     QCOMPARE(model.centerFrequencyDigitEditIndex(), 10);
     QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000042"));
     QCOMPARE(model.centerFrequency(), quint64{100'000'000});
     model.commitCenterFrequencyDigitEdit();
     QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), -1);
+    QCOMPARE(model.centerFrequencyDigitEditStartIndex(), -1);
     QCOMPARE(model.centerFrequency(), quint64{100'000'042});
     QCOMPARE(model.listeningFrequency(), quint64{100'000'042});
     QCOMPARE(frequencySpy.count(), 1);
@@ -1396,6 +1406,43 @@ void ApplicationModelTest::supportsCenterFrequencyDigitEditSessions()
     QVERIFY(model.centerFrequencyDigitEditActive());
     model.zeroCenterFrequencyFromDigit(4);
     QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequency(), quint64{100'000'000});
+
+    model.setCenterFrequencyText(QStringLiteral("100000000"));
+    model.beginCenterFrequencyDigitEdit(7);
+    model.replaceCenterFrequencyDigitInEdit(4);
+    model.replaceCenterFrequencyDigitInEdit(5);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000450"));
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 9);
+    QVERIFY(model.beginCenterFrequencyDigitEdit(6) == false);
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 9);
+    QVERIFY(model.beginCenterFrequencyDigitEdit(7));
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 7);
+    QVERIFY(model.beginCenterFrequencyDigitEdit(8));
+    model.replaceCenterFrequencyDigitInEdit(6);
+    model.replaceCenterFrequencyDigitInEdit(7);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000467"));
+    model.beginCenterFrequencyDigitEdit(9);
+    model.replaceCenterFrequencyDigitInEdit(8);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000468"));
+    model.commitCenterFrequencyDigitEdit();
+    QCOMPARE(model.centerFrequency(), quint64{100'000'468});
+
+    model.beginCenterFrequencyDigitEdit(7);
+    model.replaceCenterFrequencyDigitInEdit(9);
+    model.beginCenterFrequencyDigitEdit(8);
+    model.replaceCenterFrequencyDigitInEdit(1);
+    model.cancelCenterFrequencyDigitEdit();
+    QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), -1);
+    QCOMPARE(model.centerFrequencyDigitEditStartIndex(), -1);
+    QCOMPARE(model.centerFrequency(), quint64{100'000'468});
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000468"));
+
+    model.setCenterFrequencyText(QStringLiteral("100000000"));
+    model.adjustCenterFrequencyDigit(9, 1);
+    QCOMPARE(model.centerFrequency(), quint64{100'000'001});
+    model.adjustCenterFrequencyDigit(9, -1);
     QCOMPARE(model.centerFrequency(), quint64{100'000'000});
 }
 

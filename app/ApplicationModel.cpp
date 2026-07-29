@@ -1014,6 +1014,11 @@ int ApplicationModel::centerFrequencyDigitEditIndex() const noexcept
     return m_centerFrequencyDigitEditIndex;
 }
 
+int ApplicationModel::centerFrequencyDigitEditStartIndex() const noexcept
+{
+    return m_centerFrequencyDigitEditStartIndex;
+}
+
 double ApplicationModel::listeningPosition() const noexcept
 {
     return m_frequencyViewport.normalizedPosition(listeningFrequency());
@@ -1856,7 +1861,7 @@ void ApplicationModel::setListeningFrequency(quint64 frequency)
 
 void ApplicationModel::adjustCenterFrequencyDigit(int digitIndex, int direction)
 {
-    if (rejectManualTuningWhileScanning()) {
+    if (rejectManualTuningWhileScanning() || centerFrequencyDigitEditActive()) {
         return;
     }
     applyCenterFrequencyEdit(sdr::app::FrequencyDigitController::adjustDigit(
@@ -1876,28 +1881,39 @@ void ApplicationModel::zeroCenterFrequencyFromDigit(int digitIndex)
         centerFrequency(), digitIndex, effectiveCenterFrequencyRanges()));
 }
 
-void ApplicationModel::beginCenterFrequencyDigitEdit(int digitIndex)
+bool ApplicationModel::beginCenterFrequencyDigitEdit(int digitIndex)
 {
     if (rejectManualTuningWhileScanning()) {
-        return;
+        return false;
     }
     if (!sdr::app::FrequencyDigitController::placeValue(digitIndex).has_value()) {
         setStatusText(QStringLiteral("Frequency digit index is outside the displayed range"));
-        return;
+        return false;
+    }
+    if (centerFrequencyDigitEditActive()) {
+        if (digitIndex < m_centerFrequencyDigitEditStartIndex) {
+            return false;
+        }
+        m_centerFrequencyDigitEditIndex = digitIndex;
+        emit centerFrequencyDigitEditChanged();
+        return true;
     }
 
     cancelPendingManualTuning();
     m_centerFrequencyDigitEditOriginal = centerFrequency();
     m_centerFrequencyDigitEditPending = *m_centerFrequencyDigitEditOriginal;
     m_centerFrequencyDigitEditIndex = digitIndex;
+    m_centerFrequencyDigitEditStartIndex = digitIndex;
     emit centerFrequencyDigitsChanged();
     emit centerFrequencyDigitEditChanged();
+    return true;
 }
 
 void ApplicationModel::replaceCenterFrequencyDigitInEdit(int replacementDigit)
 {
     if (rejectManualTuningWhileScanning() ||
         !m_centerFrequencyDigitEditPending.has_value() ||
+        m_centerFrequencyDigitEditIndex < 0 ||
         m_centerFrequencyDigitEditIndex >=
             sdr::app::FrequencyDigitController::digitCount) {
         return;
@@ -1928,29 +1944,46 @@ void ApplicationModel::replaceHoveredCenterFrequencyDigit(
             centerFrequency(), digitIndex, replacementDigit));
 }
 
-void ApplicationModel::commitCenterFrequencyDigitEdit()
+bool ApplicationModel::commitCenterFrequencyDigitEdit()
 {
     if (rejectManualTuningWhileScanning() ||
         !m_centerFrequencyDigitEditPending.has_value()) {
-        return;
+        return false;
     }
     if (m_centerFrequencyDigitEditIndex <
         sdr::app::FrequencyDigitController::digitCount) {
         setStatusText(QStringLiteral("Replace the remaining center-frequency digits before applying"));
-        return;
+        return false;
     }
 
-    applyExactCenterFrequencyEdit({
+    const auto constrained = sdr::app::FrequencyDigitController::constrain(
+        *m_centerFrequencyDigitEditPending, effectiveCenterFrequencyRanges());
+    if (!constrained.succeeded() || constrained.adjustedToLimit) {
+        setStatusText(QStringLiteral(
+            "Center frequency is outside the available receiver and device limits"));
+        return false;
+    }
+    applyCenterFrequencyEdit({
         sdr::app::FrequencyEditError::None,
-        *m_centerFrequencyDigitEditPending,
+        constrained.frequency,
         false,
         "Center frequency is within the available range",
     });
+    return !centerFrequencyDigitEditActive();
 }
 
 void ApplicationModel::cancelCenterFrequencyDigitEdit()
 {
+    if (!m_centerFrequencyDigitEditPending.has_value()) {
+        return;
+    }
+    const quint64 originalFrequency = *m_centerFrequencyDigitEditOriginal;
     clearCenterFrequencyDigitEdit();
+    if (!scannerOwnsTuning() && centerFrequency() != originalFrequency) {
+        applyExactCenterFrequencyEdit(
+            sdr::app::FrequencyDigitController::constrain(
+                originalFrequency, effectiveCenterFrequencyRanges()));
+    }
 }
 
 void ApplicationModel::handleFrequencyWheel(
@@ -3990,6 +4023,7 @@ void ApplicationModel::clearCenterFrequencyDigitEdit()
     m_centerFrequencyDigitEditOriginal.reset();
     m_centerFrequencyDigitEditPending.reset();
     m_centerFrequencyDigitEditIndex = -1;
+    m_centerFrequencyDigitEditStartIndex = -1;
     emit centerFrequencyDigitsChanged();
     emit centerFrequencyDigitEditChanged();
 }

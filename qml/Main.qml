@@ -28,6 +28,7 @@ ApplicationWindow {
     property bool scanPresetDragActive: false
     property real scanPresetDragListY: -1
     property int hoveredCenterFrequencyDigitIndex: -1
+    property int focusedCenterFrequencyDigitIndex: -1
     readonly property string sidebarModeNone: "none"
     readonly property string sidebarModeBookmarks: "bookmarks"
     readonly property string sidebarModeScan: "scan"
@@ -54,6 +55,32 @@ ApplicationWindow {
         return false
     }
 
+    function centerFrequencyDigitHasFocus() {
+        return root.focusedCenterFrequencyDigitIndex >= 0
+    }
+
+    function clearCenterFrequencyDigitFocus() {
+        centerDigit0.focus = false
+        centerDigit1.focus = false
+        centerDigit2.focus = false
+        centerDigit3.focus = false
+        centerDigit4.focus = false
+        centerDigit5.focus = false
+        centerDigit6.focus = false
+        centerDigit7.focus = false
+        centerDigit8.focus = false
+        centerDigit9.focus = false
+        root.focusedCenterFrequencyDigitIndex = -1
+    }
+
+    Connections {
+        target: root.applicationModel
+        function onCenterFrequencyDigitEditChanged() {
+            if (!root.applicationModel.centerFrequencyDigitEditActive)
+                root.clearCenterFrequencyDigitFocus()
+        }
+    }
+
     Repeater {
         model: 10
 
@@ -70,6 +97,27 @@ ApplicationWindow {
                          && root.hoveredCenterFrequencyDigitIndex >= 0
                 onActivated: root.applicationModel.replaceHoveredCenterFrequencyDigit(
                                  root.hoveredCenterFrequencyDigitIndex, index)
+            }
+        }
+    }
+
+    Repeater {
+        model: [1, -1]
+
+        delegate: Item {
+            width: 0
+            height: 0
+
+            Shortcut {
+                sequence: index === 0 ? "Up" : "Down"
+                context: Qt.WindowShortcut
+                enabled: !root.applicationModel.scannerOwnsTuning
+                         && !root.applicationModel.centerFrequencyDigitEditActive
+                         && !root.textEditorHasFocus()
+                         && !root.centerFrequencyDigitHasFocus()
+                         && root.hoveredCenterFrequencyDigitIndex >= 0
+                onActivated: root.applicationModel.adjustCenterFrequencyDigit(
+                                 root.hoveredCenterFrequencyDigitIndex, modelData)
             }
         }
     }
@@ -696,7 +744,7 @@ ApplicationWindow {
         readonly property bool activeEditDigit: editActive
             && applicationModel.centerFrequencyDigitEditIndex === digitIndex
         readonly property bool editableInSession: editActive
-            && digitIndex >= applicationModel.centerFrequencyDigitEditIndex
+            && digitIndex >= applicationModel.centerFrequencyDigitEditStartIndex
 
         implicitWidth: dense ? 25 : 31
         implicitHeight: dense ? 36 : 42
@@ -708,6 +756,14 @@ ApplicationWindow {
         border.width: activeEditDigit || activeFocus ? 2 : 1
         activeFocusOnTab: true
         objectName: "centerFrequencyDigit" + digitIndex
+
+        onActiveFocusChanged: {
+            if (activeFocus) {
+                root.focusedCenterFrequencyDigitIndex = digitIndex
+            } else if (root.focusedCenterFrequencyDigitIndex === digitIndex) {
+                root.focusedCenterFrequencyDigitIndex = -1
+            }
+        }
 
         Accessible.role: Accessible.SpinBox
         Accessible.name: qsTr("Center frequency digit %1 of 10").arg(digitIndex + 1)
@@ -767,60 +823,84 @@ ApplicationWindow {
         }
 
         Keys.onUpPressed: function(event) {
-            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+            if (frequencyDigit.editActive) {
+                event.accepted = true
+                return
+            }
             frequencyDigit.applicationModel.adjustCenterFrequencyDigit(
                 frequencyDigit.digitIndex, 1)
             event.accepted = true
         }
         Keys.onDownPressed: function(event) {
-            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+            if (frequencyDigit.editActive) {
+                event.accepted = true
+                return
+            }
             frequencyDigit.applicationModel.adjustCenterFrequencyDigit(
                 frequencyDigit.digitIndex, -1)
             event.accepted = true
         }
         Keys.onDeletePressed: function(event) {
+            const wasEditing = frequencyDigit.editActive
             frequencyDigit.applicationModel.zeroCenterFrequencyFromDigit(
                 frequencyDigit.digitIndex)
+            if (wasEditing)
+                root.clearCenterFrequencyDigitFocus()
             event.accepted = true
         }
         Keys.onLeftPressed: function(event) {
-            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+            if (frequencyDigit.editActive) {
+                event.accepted = true
+                return
+            }
             if (frequencyDigit.previousDigit) {
                 frequencyDigit.previousDigit.forceActiveFocus()
             }
             event.accepted = true
         }
         Keys.onRightPressed: function(event) {
-            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+            if (frequencyDigit.editActive) {
+                event.accepted = true
+                return
+            }
             if (frequencyDigit.nextDigit) {
                 frequencyDigit.nextDigit.forceActiveFocus()
             }
             event.accepted = true
         }
         Keys.onReturnPressed: function(event) {
-            if (frequencyDigit.editActive)
-                frequencyDigit.applicationModel.commitCenterFrequencyDigitEdit()
-            else
+            if (frequencyDigit.editActive) {
+                if (frequencyDigit.applicationModel.commitCenterFrequencyDigitEdit())
+                    root.clearCenterFrequencyDigitFocus()
+            } else {
                 frequencyDigit.completeEntryRequested()
+            }
             event.accepted = true
         }
         Keys.onEnterPressed: function(event) {
-            if (frequencyDigit.editActive)
-                frequencyDigit.applicationModel.commitCenterFrequencyDigitEdit()
-            else
+            if (frequencyDigit.editActive) {
+                if (frequencyDigit.applicationModel.commitCenterFrequencyDigitEdit())
+                    root.clearCenterFrequencyDigitFocus()
+            } else {
                 frequencyDigit.completeEntryRequested()
+            }
             event.accepted = true
         }
         Keys.onEscapePressed: function(event) {
             if (!frequencyDigit.editActive)
                 return
             frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+            root.clearCenterFrequencyDigitFocus()
             event.accepted = true
         }
 
         TapHandler {
             acceptedDevices: PointerDevice.TouchScreen
             onTapped: function(eventPoint) {
+                if (frequencyDigit.editActive) {
+                    frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+                    root.clearCenterFrequencyDigitFocus()
+                }
                 frequencyDigit.forceActiveFocus()
                 frequencyDigit.applicationModel.adjustCenterFrequencyDigit(
                     frequencyDigit.digitIndex,
@@ -836,13 +916,16 @@ ApplicationWindow {
 
             onClicked: function(mouse) {
                 if (mouse.button === Qt.RightButton) {
+                    const wasEditing = frequencyDigit.editActive
                     frequencyDigit.applicationModel.zeroCenterFrequencyFromDigit(
                         frequencyDigit.digitIndex)
+                    if (wasEditing)
+                        root.clearCenterFrequencyDigitFocus()
                     return
                 }
-                frequencyDigit.applicationModel.beginCenterFrequencyDigitEdit(
-                    frequencyDigit.digitIndex)
-                frequencyDigit.forceActiveFocus()
+                if (frequencyDigit.applicationModel.beginCenterFrequencyDigitEdit(
+                        frequencyDigit.digitIndex))
+                    frequencyDigit.forceActiveFocus()
             }
             onContainsMouseChanged: {
                 if (containsMouse) {
@@ -853,6 +936,10 @@ ApplicationWindow {
                 }
             }
             onWheel: function(wheel) {
+                if (frequencyDigit.editActive) {
+                    frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
+                    root.clearCenterFrequencyDigitFocus()
+                }
                 frequencyDigit.applicationModel.adjustCenterFrequencyDigit(
                     frequencyDigit.digitIndex, wheel.angleDelta.y)
                 wheel.accepted = true

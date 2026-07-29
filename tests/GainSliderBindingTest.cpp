@@ -906,6 +906,8 @@ void GainSliderBindingTest::centerDigitHoverKeysAvoidTextEditorsAndScannerOwners
                 property bool centerFrequencyDigitEditActive: false
                 property int replacements: 0
                 property int replacementDigit: -1
+                property int adjustments: 0
+                property int adjustmentDirection: 0
 
                 function textEditorHasFocus() {
                     let item = root.activeFocusItem
@@ -934,6 +936,28 @@ void GainSliderBindingTest::centerDigitHoverKeysAvoidTextEditorsAndScannerOwners
                             onActivated: {
                                 ++root.replacements
                                 root.replacementDigit = index
+                            }
+                        }
+                    }
+                }
+
+                Repeater {
+                    model: [1, -1]
+
+                    delegate: Item {
+                        width: 0
+                        height: 0
+
+                        Shortcut {
+                            sequence: index === 0 ? "Up" : "Down"
+                            context: Qt.WindowShortcut
+                            enabled: !root.scannerOwnsTuning
+                                     && !root.centerFrequencyDigitEditActive
+                                     && !root.textEditorHasFocus()
+                                     && root.hoveredCenterFrequencyDigitIndex >= 0
+                            onActivated: {
+                                ++root.adjustments
+                                root.adjustmentDirection = modelData
                             }
                         }
                     }
@@ -971,20 +995,32 @@ void GainSliderBindingTest::centerDigitHoverKeysAvoidTextEditorsAndScannerOwners
     QTest::keyClick(window, Qt::Key_4);
     QCOMPARE(object->property("replacements").toInt(), 1);
     QCOMPARE(object->property("replacementDigit").toInt(), 4);
+    QTest::keyClick(window, Qt::Key_Up);
+    QCOMPARE(object->property("adjustments").toInt(), 1);
+    QCOMPARE(object->property("adjustmentDirection").toInt(), 1);
+    QTest::keyClick(window, Qt::Key_Down);
+    QCOMPARE(object->property("adjustments").toInt(), 2);
+    QCOMPARE(object->property("adjustmentDirection").toInt(), -1);
 
     editor->forceActiveFocus();
     QTest::keyClick(window, Qt::Key_5);
     QCOMPARE(object->property("replacements").toInt(), 1);
+    QTest::keyClick(window, Qt::Key_Up);
+    QCOMPARE(object->property("adjustments").toInt(), 2);
 
     object->setProperty("scannerOwnsTuning", true);
     digitFocus->forceActiveFocus();
     QTest::keyClick(window, Qt::Key_6);
     QCOMPARE(object->property("replacements").toInt(), 1);
+    QTest::keyClick(window, Qt::Key_Down);
+    QCOMPARE(object->property("adjustments").toInt(), 2);
 
     object->setProperty("scannerOwnsTuning", false);
     object->setProperty("centerFrequencyDigitEditActive", true);
     QTest::keyClick(window, Qt::Key_7);
     QCOMPARE(object->property("replacements").toInt(), 1);
+    QTest::keyClick(window, Qt::Key_Up);
+    QCOMPARE(object->property("adjustments").toInt(), 2);
 }
 
 QTEST_MAIN(GainSliderBindingTest)

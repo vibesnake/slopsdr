@@ -38,6 +38,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString centerFrequencyDigits READ centerFrequencyDigits NOTIFY centerFrequencyDigitsChanged)
     Q_PROPERTY(bool centerFrequencyDigitEditActive READ centerFrequencyDigitEditActive NOTIFY centerFrequencyDigitEditChanged)
     Q_PROPERTY(int centerFrequencyDigitEditIndex READ centerFrequencyDigitEditIndex NOTIFY centerFrequencyDigitEditChanged)
+    Q_PROPERTY(int centerFrequencyDigitEditStartIndex READ centerFrequencyDigitEditStartIndex NOTIFY centerFrequencyDigitEditChanged)
     Q_PROPERTY(double listeningPosition READ listeningPosition NOTIFY listeningPositionChanged)
     Q_PROPERTY(double filterLowerPosition READ filterLowerPosition NOTIFY filterMarkerChanged)
     Q_PROPERTY(double filterUpperPosition READ filterUpperPosition NOTIFY filterMarkerChanged)
@@ -161,6 +162,7 @@ public:
     [[nodiscard]] QString centerFrequencyDigits() const;
     [[nodiscard]] bool centerFrequencyDigitEditActive() const noexcept;
     [[nodiscard]] int centerFrequencyDigitEditIndex() const noexcept;
+    [[nodiscard]] int centerFrequencyDigitEditStartIndex() const noexcept;
     [[nodiscard]] double listeningPosition() const noexcept;
     [[nodiscard]] double filterLowerPosition() const noexcept;
     [[nodiscard]] double filterUpperPosition() const noexcept;
@@ -291,10 +293,10 @@ public slots:
     void setListeningFrequency(quint64 frequency);
     void adjustCenterFrequencyDigit(int digitIndex, int direction);
     void zeroCenterFrequencyFromDigit(int digitIndex);
-    void beginCenterFrequencyDigitEdit(int digitIndex);
+    bool beginCenterFrequencyDigitEdit(int digitIndex);
     void replaceCenterFrequencyDigitInEdit(int replacementDigit);
     void replaceHoveredCenterFrequencyDigit(int digitIndex, int replacementDigit);
-    void commitCenterFrequencyDigitEdit();
+    bool commitCenterFrequencyDigitEdit();
     void cancelCenterFrequencyDigitEdit();
     void handleFrequencyWheel(
         bool waterfall, int wheelDelta, int modifierKeys = 0);
@@ -699,6 +701,7 @@ private:
     std::optional<quint64> m_centerFrequencyDigitEditOriginal;
     std::optional<quint64> m_centerFrequencyDigitEditPending;
     int m_centerFrequencyDigitEditIndex = -1;
+    int m_centerFrequencyDigitEditStartIndex = -1;
     std::optional<quint64> m_pendingCenterWheelFrequency;
     std::optional<quint64> m_pendingListeningWheelFrequency;
     std::optional<std::vector<sdr::radio::FrequencyRange>> m_deviceFrequencyRanges;
