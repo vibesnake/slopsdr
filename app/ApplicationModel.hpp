@@ -501,6 +501,7 @@ private:
     void persistScanPanelWidth();
     void persistSettingsPanelWidth();
     void persistConsolePanelWidth();
+    void restorePersistedScanSettings();
     void setStatusText(QString statusText);
     [[nodiscard]] sdr::app::CurrentPassbandScanSettings scanSettings() const noexcept;
     [[nodiscard]] bool scannerSquelchOpen() const noexcept;

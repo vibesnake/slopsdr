@@ -192,10 +192,14 @@ squelch opens and resumes after the configured delay once it closes. **Pause**
 stops scanner movement while reception continues, **Skip** advances once, and
 **Stop** leaves the receiver on its current frequency. A center-frequency,
 capture-bandwidth, or device-limit change that places either bound outside the
-usable passband stops the scanner. Scan settings and scanner state are not
-saved, and bookmark or hardware-retuning scans are not available. Scanning does
-not disable or reset the Receiver Control settings, and the spectrum and
-waterfall continue at their normal live display cadence.
+usable passband stops the scanner. The bounds, step size, dwell time, and
+resume delay are saved and restored as scanner configuration; running, paused,
+holding, and current-frequency state are not saved, so scanning always starts
+stopped. If saved bounds no longer fit the current passband, they remain
+visible with a validation error until corrected. Bookmark or hardware-retuning
+scans are not available. Scanning does not disable or reset the Receiver
+Control settings, and the spectrum and waterfall continue at their normal live
+display cadence.
 
 **Add Group** creates a nested group under the selected group, or at the root
 when no group is selected. **Add Bookmark** snapshots the current listening

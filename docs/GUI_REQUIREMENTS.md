@@ -301,7 +301,11 @@ the focused confirmation updates listening-frequency presentation without
 renotifying unchanged Receiver Control properties. Per-step current-frequency
 updates use a dedicated notification; scanner state and status are not
 republished when they have not changed.
-Its controls and transient scanner state are not persisted. Bookmark scans and
+Its lower and upper bounds, step size, dwell time, and resume delay are
+persisted as integer-Hz scanner configuration. Running, paused, holding, and
+current-frequency state are transient and always reset to stopped on startup.
+Saved bounds remain visible and invalid rather than being silently replaced if
+the current usable passband no longer contains them. Bookmark scans and
 hardware-retuning scans are not provided.
 
 The panel provides Add Group, Add Bookmark, Update Bookmark, Edit, Remove, and

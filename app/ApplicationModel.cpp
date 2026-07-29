@@ -49,6 +49,12 @@ constexpr auto bookmarksPanelWidthSetting = "display/bookmarksPanelWidth";
 constexpr auto scanPanelWidthSetting = "display/scanPanelWidth";
 constexpr auto settingsPanelWidthSetting = "display/settingsPanelWidth";
 constexpr auto consolePanelWidthSetting = "display/consolePanelWidth";
+constexpr auto scanLowerFrequencySetting = "scanner/lowerFrequencyHz";
+constexpr auto scanUpperFrequencySetting = "scanner/upperFrequencyHz";
+constexpr auto scanStepSizeSetting = "scanner/stepSizeHz";
+constexpr auto scanDwellMillisecondsSetting = "scanner/dwellMilliseconds";
+constexpr auto scanResumeDelayMillisecondsSetting =
+    "scanner/resumeDelayMilliseconds";
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
 constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
@@ -127,6 +133,38 @@ QString normalizedDsdFmeBinaryPath(const QString& path)
         return QStringLiteral("~/") + QDir::cleanPath(trimmed.mid(2));
     }
     return QDir::cleanPath(trimmed);
+}
+
+std::optional<quint64> persistedUnsignedInteger(
+    const QSettings& settings,
+    const char* key)
+{
+    if (!settings.contains(QString::fromLatin1(key))) {
+        return std::nullopt;
+    }
+    const QString text = settings.value(QString::fromLatin1(key))
+                             .toString()
+                             .trimmed();
+    bool valid = false;
+    const quint64 value = text.toULongLong(&valid, 10);
+    return valid ? std::optional<quint64>(value) : std::nullopt;
+}
+
+std::optional<int> persistedInteger(const QSettings& settings, const char* key)
+{
+    if (!settings.contains(QString::fromLatin1(key))) {
+        return std::nullopt;
+    }
+    const QString text = settings.value(QString::fromLatin1(key))
+                             .toString()
+                             .trimmed();
+    bool valid = false;
+    const qlonglong value = text.toLongLong(&valid, 10);
+    if (!valid || value < std::numeric_limits<int>::min() ||
+        value > std::numeric_limits<int>::max()) {
+        return std::nullopt;
+    }
+    return static_cast<int>(value);
 }
 
 QString expandedDsdFmeBinaryPath(const QString& userPath)
@@ -382,6 +420,7 @@ ApplicationModel::ApplicationModel(
         false,
         passbandAlignment(receiverState().demodulationMode));
     resetScanBoundsToCaptureRange();
+    restorePersistedScanSettings();
     restorePersistedDisplaySettings();
     m_applicationLog.post(
         sdr::app::ApplicationLogModel::Info,
@@ -449,6 +488,7 @@ ApplicationModel::ApplicationModel(
         false,
         passbandAlignment(receiverState().demodulationMode));
     resetScanBoundsToCaptureRange();
+    restorePersistedScanSettings();
     restorePersistedDisplaySettings();
     m_applicationLog.post(
         sdr::app::ApplicationLogModel::Info,
@@ -668,6 +708,48 @@ void ApplicationModel::restorePersistedDisplaySettings()
         settings.setValue(dsdFmeBinaryPathSetting, m_dsdFmeBinaryPath);
     }
     revalidateDsdFmeBinaryPath();
+}
+
+void ApplicationModel::restorePersistedScanSettings()
+{
+    QSettings settings;
+    const auto passband = m_frequencyViewport.captureRange();
+    const auto storedLower =
+        persistedUnsignedInteger(settings, scanLowerFrequencySetting);
+    const auto storedUpper =
+        persistedUnsignedInteger(settings, scanUpperFrequencySetting);
+    const auto storedStep =
+        persistedUnsignedInteger(settings, scanStepSizeSetting);
+    const auto storedDwell =
+        persistedInteger(settings, scanDwellMillisecondsSetting);
+    const auto storedResumeDelay =
+        persistedInteger(settings, scanResumeDelayMillisecondsSetting);
+
+    m_scanLowerFrequency = storedLower.value_or(passband.minimum);
+    m_scanUpperFrequency = storedUpper.value_or(passband.maximum);
+    m_scanStepSize = storedStep.value_or(12'500);
+    m_scanDwellMilliseconds = storedDwell.value_or(250);
+    m_scanResumeDelayMilliseconds = storedResumeDelay.value_or(1'000);
+
+    bool fallbackToCaptureDefaults = false;
+    if (!storedStep.has_value() || m_scanStepSize == 0) {
+        m_scanStepSize = 12'500;
+    }
+    if (!storedDwell.has_value() || m_scanDwellMilliseconds <= 0) {
+        m_scanDwellMilliseconds = 250;
+    }
+    if (!storedResumeDelay.has_value() || m_scanResumeDelayMilliseconds < 0) {
+        m_scanResumeDelayMilliseconds = 1'000;
+    }
+    if (m_scanLowerFrequency > m_scanUpperFrequency) {
+        m_scanLowerFrequency = passband.minimum;
+        m_scanUpperFrequency = passband.maximum;
+        fallbackToCaptureDefaults = true;
+    }
+    m_scanBoundsFollowCapture =
+        fallbackToCaptureDefaults || (!storedLower.has_value() &&
+                                      !storedUpper.has_value());
+    static_cast<void>(updateScanValidation());
 }
 
 void ApplicationModel::persistSpectrumWaterfallSplitRatio()
@@ -1901,6 +1983,7 @@ void ApplicationModel::setScanLowerFrequency(quint64 frequency)
     }
     m_scanLowerFrequency = frequency;
     m_scanBoundsFollowCapture = false;
+    QSettings().setValue(scanLowerFrequencySetting, frequency);
     static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
@@ -1916,6 +1999,7 @@ void ApplicationModel::setScanUpperFrequency(quint64 frequency)
     }
     m_scanUpperFrequency = frequency;
     m_scanBoundsFollowCapture = false;
+    QSettings().setValue(scanUpperFrequencySetting, frequency);
     static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
@@ -1930,6 +2014,7 @@ void ApplicationModel::setScanStepSize(quint64 stepSize)
         return;
     }
     m_scanStepSize = stepSize;
+    QSettings().setValue(scanStepSizeSetting, stepSize);
     static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
@@ -1944,6 +2029,7 @@ void ApplicationModel::setScanDwellMilliseconds(int milliseconds)
         return;
     }
     m_scanDwellMilliseconds = milliseconds;
+    QSettings().setValue(scanDwellMillisecondsSetting, milliseconds);
     static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
@@ -1958,6 +2044,7 @@ void ApplicationModel::setScanResumeDelayMilliseconds(int milliseconds)
         return;
     }
     m_scanResumeDelayMilliseconds = milliseconds;
+    QSettings().setValue(scanResumeDelayMillisecondsSetting, milliseconds);
     static_cast<void>(updateScanValidation());
     if (scanCanStop()) {
         stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));

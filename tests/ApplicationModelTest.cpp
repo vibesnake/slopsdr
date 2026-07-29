@@ -30,6 +30,11 @@ private slots:
     void hasSafeDefaults();
     void persistsAndClampsSpectrumWaterfallSplitRatio();
     void persistsAndClampsSidebarState();
+    void usesPassbandDefaultsForFirstScanConfiguration();
+    void persistsScanConfigurationAcrossApplicationModels();
+    void persistsExactWideScanFrequencies();
+    void fallsBackFromMalformedScanSettings();
+    void preservesRestoredInvalidScanBoundsWithoutStarting();
     void scansOnlyInsideTheCurrentCapturePassband();
     void persistsAndValidatesDsdFmeBinaryPath();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
@@ -342,6 +347,142 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
     settings.remove(settingsWidthKey);
     settings.remove(consoleWidthKey);
     settings.sync();
+}
+
+void ApplicationModelTest::usesPassbandDefaultsForFirstScanConfiguration()
+{
+    QSettings settings;
+    QVERIFY(!settings.contains(QStringLiteral("scanner/lowerFrequencyHz")));
+    QVERIFY(!settings.contains(QStringLiteral("scanner/upperFrequencyHz")));
+    QVERIFY(!settings.contains(QStringLiteral("scanner/stepSizeHz")));
+    QVERIFY(!settings.contains(QStringLiteral("scanner/dwellMilliseconds")));
+    QVERIFY(!settings.contains(
+        QStringLiteral("scanner/resumeDelayMilliseconds")));
+
+    ApplicationModel model;
+    const quint64 center = model.centerFrequency();
+    QCOMPARE(model.scanLowerFrequency(), center - model.sampleRate() / 2);
+    QCOMPARE(model.scanUpperFrequency(), center + model.sampleRate() / 2);
+    QCOMPARE(model.scanStepSize(), quint64{12'500});
+    QCOMPARE(model.scanDwellMilliseconds(), 250);
+    QCOMPARE(model.scanResumeDelayMilliseconds(), 1'000);
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{0});
+}
+
+void ApplicationModelTest::persistsScanConfigurationAcrossApplicationModels()
+{
+    ApplicationModel defaults;
+    const quint64 center = defaults.centerFrequency();
+    const quint64 lower = center - 150'000;
+    const quint64 upper = center + 175'000;
+    {
+        ApplicationModel model;
+        model.setScanLowerFrequency(lower);
+        model.setScanUpperFrequency(upper);
+        model.setScanStepSize(25'000);
+        model.setScanDwellMilliseconds(75);
+        model.setScanResumeDelayMilliseconds(325);
+        model.startScan();
+        QCOMPARE(model.scanState(), QStringLiteral("Running"));
+    }
+
+    QSettings settings;
+    settings.sync();
+    QCOMPARE(
+        settings.value(QStringLiteral("scanner/lowerFrequencyHz"))
+            .toULongLong(),
+        lower);
+    QCOMPARE(
+        settings.value(QStringLiteral("scanner/upperFrequencyHz"))
+            .toULongLong(),
+        upper);
+    QCOMPARE(
+        settings.value(QStringLiteral("scanner/stepSizeHz")).toULongLong(),
+        quint64{25'000});
+    QCOMPARE(
+        settings.value(QStringLiteral("scanner/dwellMilliseconds")).toInt(),
+        75);
+    QCOMPARE(
+        settings.value(QStringLiteral("scanner/resumeDelayMilliseconds"))
+            .toInt(),
+        325);
+
+    ApplicationModel restored;
+    QCOMPARE(restored.scanLowerFrequency(), lower);
+    QCOMPARE(restored.scanUpperFrequency(), upper);
+    QCOMPARE(restored.scanStepSize(), quint64{25'000});
+    QCOMPARE(restored.scanDwellMilliseconds(), 75);
+    QCOMPARE(restored.scanResumeDelayMilliseconds(), 325);
+    QCOMPARE(restored.scanState(), QStringLiteral("Stopped"));
+    QCOMPARE(restored.scanCurrentFrequency(), quint64{0});
+}
+
+void ApplicationModelTest::persistsExactWideScanFrequencies()
+{
+    constexpr quint64 lower = 4'448'000'123;
+    constexpr quint64 upper = 4'472'000'987;
+    constexpr quint64 step = 4'294'967'297;
+    QSettings settings;
+    settings.setValue(QStringLiteral("scanner/lowerFrequencyHz"), lower);
+    settings.setValue(QStringLiteral("scanner/upperFrequencyHz"), upper);
+    settings.setValue(QStringLiteral("scanner/stepSizeHz"), step);
+    settings.sync();
+
+    ApplicationModel model;
+    QCOMPARE(model.scanLowerFrequency(), lower);
+    QCOMPARE(model.scanUpperFrequency(), upper);
+    QCOMPARE(model.scanStepSize(), step);
+    QVERIFY(!model.scanValidationError().isEmpty());
+}
+
+void ApplicationModelTest::fallsBackFromMalformedScanSettings()
+{
+    QSettings settings;
+    settings.setValue(
+        QStringLiteral("scanner/lowerFrequencyHz"),
+        QStringLiteral("not-a-frequency"));
+    settings.setValue(
+        QStringLiteral("scanner/upperFrequencyHz"),
+        QStringLiteral("not-a-frequency"));
+    settings.setValue(QStringLiteral("scanner/stepSizeHz"), qulonglong{0});
+    settings.setValue(QStringLiteral("scanner/dwellMilliseconds"), -10);
+    settings.setValue(
+        QStringLiteral("scanner/resumeDelayMilliseconds"),
+        QStringLiteral("negative is invalid"));
+    settings.sync();
+
+    ApplicationModel model;
+    const quint64 center = model.centerFrequency();
+    QCOMPARE(model.scanLowerFrequency(), center - model.sampleRate() / 2);
+    QCOMPARE(model.scanUpperFrequency(), center + model.sampleRate() / 2);
+    QCOMPARE(model.scanStepSize(), quint64{12'500});
+    QCOMPARE(model.scanDwellMilliseconds(), 250);
+    QCOMPARE(model.scanResumeDelayMilliseconds(), 1'000);
+    QVERIFY(model.scanValidationError().isEmpty());
+    QVERIFY(model.scanCanStart());
+}
+
+void ApplicationModelTest::preservesRestoredInvalidScanBoundsWithoutStarting()
+{
+    ApplicationModel defaults;
+    const quint64 lower = defaults.scanLowerFrequency();
+    const quint64 upper = defaults.scanUpperFrequency();
+    QSettings settings;
+    settings.setValue(QStringLiteral("scanner/lowerFrequencyHz"), lower - 1);
+    settings.setValue(QStringLiteral("scanner/upperFrequencyHz"), upper + 1);
+    settings.sync();
+
+    ApplicationModel model;
+    QCOMPARE(model.scanLowerFrequency(), lower - 1);
+    QCOMPARE(model.scanUpperFrequency(), upper + 1);
+    QVERIFY(model.scanValidationError().contains(
+        QStringLiteral("inside the usable capture passband")));
+    QVERIFY(!model.scanCanStart());
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+    QVERIFY(model.scanStatusMessage().contains(
+        QStringLiteral("Scanner not started")));
 }
 
 void ApplicationModelTest::scansOnlyInsideTheCurrentCapturePassband()
