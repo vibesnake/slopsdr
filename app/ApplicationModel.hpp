@@ -81,8 +81,6 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(int scanDwellMilliseconds READ scanDwellMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(int scanResumeDelayMilliseconds READ scanResumeDelayMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(quint64 scanCurrentFrequency READ scanCurrentFrequency NOTIFY scanCurrentFrequencyChanged)
-    Q_PROPERTY(QString scanCurrentBookmarkName READ scanCurrentBookmarkName NOTIFY scannerChanged)
-    Q_PROPERTY(QString scanBookmarkPosition READ scanBookmarkPosition NOTIFY scannerChanged)
     Q_PROPERTY(QString scanCaptureBlockProgress READ scanCaptureBlockProgress NOTIFY scannerChanged)
     Q_PROPERTY(QString scanState READ scanState NOTIFY scannerChanged)
     Q_PROPERTY(QString scanStatusMessage READ scanStatusMessage NOTIFY scannerChanged)
@@ -97,6 +95,17 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString selectedScanPresetId READ selectedScanPresetId NOTIFY scanPresetSelectionChanged)
     Q_PROPERTY(QString selectedScanPresetName READ selectedScanPresetName NOTIFY scanPresetSelectionChanged)
     Q_PROPERTY(QString scanPresetStatusMessage READ scanPresetStatusMessage NOTIFY scanPresetStatusChanged)
+    Q_PROPERTY(int bookmarkScanDwellMilliseconds READ bookmarkScanDwellMilliseconds NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(int bookmarkScanResumeDelayMilliseconds READ bookmarkScanResumeDelayMilliseconds NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(QString bookmarkScanCurrentName READ bookmarkScanCurrentName NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(QString bookmarkScanPosition READ bookmarkScanPosition NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(QString bookmarkScanState READ bookmarkScanState NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(QString bookmarkScanStatusMessage READ bookmarkScanStatusMessage NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(bool bookmarkScanCanStart READ bookmarkScanCanStart NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(bool bookmarkScanCanPauseResume READ bookmarkScanCanPauseResume NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(bool bookmarkScanPaused READ bookmarkScanPaused NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(bool bookmarkScanCanSkip READ bookmarkScanCanSkip NOTIFY bookmarkScannerChanged)
+    Q_PROPERTY(bool bookmarkScanCanStop READ bookmarkScanCanStop NOTIFY bookmarkScannerChanged)
     Q_PROPERTY(double settingsPanelWidth READ settingsPanelWidth NOTIFY settingsPanelWidthChanged)
     Q_PROPERTY(double consolePanelWidth READ consolePanelWidth NOTIFY consolePanelWidthChanged)
     Q_PROPERTY(QString dsdFmeBinaryPath READ dsdFmeBinaryPath NOTIFY dsdFmeBinaryPathChanged)
@@ -206,8 +215,6 @@ public:
     [[nodiscard]] int scanDwellMilliseconds() const noexcept;
     [[nodiscard]] int scanResumeDelayMilliseconds() const noexcept;
     [[nodiscard]] quint64 scanCurrentFrequency() const noexcept;
-    [[nodiscard]] QString scanCurrentBookmarkName() const;
-    [[nodiscard]] QString scanBookmarkPosition() const;
     [[nodiscard]] QString scanCaptureBlockProgress() const;
     [[nodiscard]] QString scanState() const;
     [[nodiscard]] QString scanStatusMessage() const;
@@ -222,6 +229,17 @@ public:
     [[nodiscard]] QString selectedScanPresetId() const;
     [[nodiscard]] QString selectedScanPresetName() const;
     [[nodiscard]] QString scanPresetStatusMessage() const;
+    [[nodiscard]] int bookmarkScanDwellMilliseconds() const noexcept;
+    [[nodiscard]] int bookmarkScanResumeDelayMilliseconds() const noexcept;
+    [[nodiscard]] QString bookmarkScanCurrentName() const;
+    [[nodiscard]] QString bookmarkScanPosition() const;
+    [[nodiscard]] QString bookmarkScanState() const;
+    [[nodiscard]] QString bookmarkScanStatusMessage() const;
+    [[nodiscard]] bool bookmarkScanCanStart() const;
+    [[nodiscard]] bool bookmarkScanCanPauseResume() const noexcept;
+    [[nodiscard]] bool bookmarkScanPaused() const noexcept;
+    [[nodiscard]] bool bookmarkScanCanSkip() const noexcept;
+    [[nodiscard]] bool bookmarkScanCanStop() const noexcept;
     [[nodiscard]] double settingsPanelWidth() const noexcept;
     [[nodiscard]] double consolePanelWidth() const noexcept;
     [[nodiscard]] QString dsdFmeBinaryPath() const;
@@ -344,6 +362,12 @@ public slots:
     void pauseOrResumeScan();
     void skipScanFrequency();
     void stopScan();
+    void setBookmarkScanDwellMilliseconds(int milliseconds);
+    void setBookmarkScanResumeDelayMilliseconds(int milliseconds);
+    void startBookmarkScan();
+    void pauseOrResumeBookmarkScan();
+    void skipBookmarkScan();
+    void stopBookmarkScan();
     void setSettingsPanelWidth(double width);
     void commitSettingsPanelWidth();
     void setConsolePanelWidth(double width);
@@ -409,6 +433,7 @@ signals:
     void bookmarksPanelWidthChanged();
     void scanPanelWidthChanged();
     void scannerChanged();
+    void bookmarkScannerChanged();
     void scanCurrentFrequencyChanged();
     void scanPresetsChanged();
     void scanPresetSelectionChanged();
@@ -580,6 +605,13 @@ private:
     [[nodiscard]] sdr::app::WideRangePlanResult makeWideRangePlan() const;
     [[nodiscard]] bool wideRangeScanActive() const noexcept;
     [[nodiscard]] bool bookmarkScanActive() const noexcept;
+    [[nodiscard]] QString activeScannerState() const;
+    void pauseOrResumeActiveScan();
+    void skipActiveScan();
+    void stopActiveScan();
+    [[nodiscard]] int activeScanDwellMilliseconds() const noexcept;
+    [[nodiscard]] int activeScanResumeDelayMilliseconds() const noexcept;
+    void initializeBookmarkScannerBindings();
     [[nodiscard]] bool scannerRetuning() const noexcept;
     [[nodiscard]] bool refreshWideRangePlan();
     enum class WideTuneResult {
@@ -653,6 +685,10 @@ private:
     int m_scanTypeIndex = 0;
     QString m_scanValidationError;
     QString m_scanStatus = QStringLiteral("Scanner not running");
+    int m_bookmarkScanDwellMilliseconds = 250;
+    int m_bookmarkScanResumeDelayMilliseconds = 1'000;
+    QString m_bookmarkScanStatus = QStringLiteral("Scanner not running");
+    QString m_scanStatusBeforeBookmarkScan;
     struct ScanPreset {
         QString id;
         QString name;
@@ -680,6 +716,7 @@ private:
     std::optional<quint64> m_pendingBookmarkListeningFrequency;
     std::vector<sdr::app::BookmarkSnapshot> m_bookmarkScanBookmarks;
     bool m_bookmarkScannerAwaitingSettle = false;
+    bool m_bookmarkScanSession = false;
     std::optional<sdr::app::WideRangeScanPlan> m_wideRangePlan;
     std::size_t m_wideRangeBlockIndex = 0;
     bool m_wideRangePlanDirty = false;

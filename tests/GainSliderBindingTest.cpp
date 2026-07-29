@@ -288,6 +288,19 @@ void GainSliderBindingTest::
                         objectName: "bookmarksSidebarPane"
                         anchors.fill: parent
                         visible: window.sidebarMode === "bookmarks"
+                        Column {
+                            Rectangle { objectName: "bookmarkScanningSection" }
+                            TextField { objectName: "bookmarkScanDwellField" }
+                            TextField { objectName: "bookmarkScanResumeDelayField" }
+                            Button { objectName: "bookmarkScanStartButton" }
+                            Button { objectName: "bookmarkScanPauseResumeButton" }
+                            Button { objectName: "bookmarkScanSkipButton" }
+                            Button { objectName: "bookmarkScanStopButton" }
+                            Text { objectName: "bookmarkScanCurrentName" }
+                            Text { objectName: "bookmarkScanPosition" }
+                            Text { objectName: "bookmarkScanState" }
+                            Text { objectName: "bookmarkScanStatus" }
+                        }
                     }
                     Rectangle {
                         objectName: "scanSidebarContent"
@@ -304,7 +317,7 @@ void GainSliderBindingTest::
                             ComboBox {
                                 objectName: "scanTypeControl"
                                 enabled: true
-                                model: ["Current passband", "Wide range", "Bookmarks"]
+                                model: ["Current passband", "Wide range"]
                             }
                             TextField { objectName: "scanLowerFrequencyField"; enabled: true }
                             TextField { objectName: "scanUpperFrequencyField"; enabled: true }
@@ -326,8 +339,6 @@ void GainSliderBindingTest::
                                 objectName: "scanCurrentFrequencyDisplay"
                                 text: "—"
                             }
-                            Text { objectName: "scanCurrentBookmarkDisplay" }
-                            Text { objectName: "scanBookmarkPositionDisplay" }
                             Text { objectName: "scanListeningFrequencyDisplay" }
                             Text { objectName: "scanHardwareCenterFrequencyDisplay" }
                             Text { objectName: "scanCaptureBlockProgressDisplay" }
@@ -478,7 +489,7 @@ void GainSliderBindingTest::
     QCOMPARE(scanType->property("enabled").toBool(), true);
     QCOMPARE(scanType->property("currentText").toString(),
              QStringLiteral("Current passband"));
-    QCOMPARE(scanType->property("count").toInt(), 3);
+    QCOMPARE(scanType->property("count").toInt(), 2);
     for (const char* objectName : {
              "scanPaneHeading",
              "scanLowerFrequencyField",
@@ -500,8 +511,6 @@ void GainSliderBindingTest::
              "scanSkipButton",
              "scanStopButton",
              "scanCurrentFrequencyDisplay",
-             "scanCurrentBookmarkDisplay",
-             "scanBookmarkPositionDisplay",
              "scanListeningFrequencyDisplay",
              "scanHardwareCenterFrequencyDisplay",
              "scanCaptureBlockProgressDisplay",
@@ -510,6 +519,32 @@ void GainSliderBindingTest::
              "scanValidationError",
          }) {
         QVERIFY2(object->findChild<QObject*>(objectName), objectName);
+    }
+    for (const char* objectName : {
+             "bookmarkScanningSection",
+             "bookmarkScanDwellField",
+             "bookmarkScanResumeDelayField",
+             "bookmarkScanStartButton",
+             "bookmarkScanPauseResumeButton",
+             "bookmarkScanSkipButton",
+             "bookmarkScanStopButton",
+             "bookmarkScanCurrentName",
+             "bookmarkScanPosition",
+             "bookmarkScanState",
+             "bookmarkScanStatus",
+         }) {
+        QObject* control = object->findChild<QObject*>(objectName);
+        QVERIFY2(control, objectName);
+        QObject* ancestor = control;
+        bool inBookmarksPane = false;
+        while (ancestor) {
+            if (ancestor == bookmarksPane) {
+                inBookmarksPane = true;
+                break;
+            }
+            ancestor = ancestor->parent();
+        }
+        QVERIFY2(inBookmarksPane, objectName);
     }
     for (const char* objectName : {
              "scanLowerFrequencyField",

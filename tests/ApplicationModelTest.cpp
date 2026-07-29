@@ -67,7 +67,10 @@ private slots:
     void ignoresMalformedStoredScanPresets();
     void loadsOutOfPassbandPresetWithoutStartingScanner();
     void persistsWideRangeScanTypeAndLoadsLegacyPresets();
+    void updatesBookmarkScanAvailabilityFromInclusion();
     void scansCheckedBookmarkSnapshotsWithSavedReceiverSettings();
+    void advancesAndWrapsBookmarkScanAfterDwell();
+    void holdsBookmarkScanOnSquelchActivity();
     void retunesWideRangeOnlyBetweenCaptureBlocksAndWraps();
     void recentersCurrentWideChannelAfterDynamicFilterWidening();
     void suppressesSquelchWhileWideRangeTunerSettles();
@@ -864,47 +867,163 @@ void ApplicationModelTest::scansCheckedBookmarkSnapshotsWithSavedReceiverSetting
     QVERIFY(!distant.isEmpty());
 
     model.setSquelchLevel(-52.0);
+    model.setBookmarkScanDwellMilliseconds(100'000);
+    model.setBookmarkScanResumeDelayMilliseconds(321);
+    ApplicationModel restoredTiming;
+    QCOMPARE(restoredTiming.bookmarkScanDwellMilliseconds(), 100'000);
+    QCOMPARE(restoredTiming.bookmarkScanResumeDelayMilliseconds(), 321);
+
     model.setScanTypeIndex(2);
-    model.setScanDwellMilliseconds(100'000);
-    QVERIFY(model.saveNewScanPreset(QStringLiteral("Bookmark timing")));
+    QCOMPARE(model.scanTypeIndex(), 0);
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Normal scanner only")));
     const QString presetId = scanPresetAt(model, 0)
                                  .value(QStringLiteral("presetId")).toString();
-    model.setScanTypeIndex(0);
+    QCOMPARE(scanPresetAt(model, 0).value(QStringLiteral("scanType")).toString(),
+             QStringLiteral("currentPassband"));
     model.selectScanPreset(presetId);
     QVERIFY(model.loadSelectedScanPreset());
-    QCOMPARE(model.scanTypeIndex(), 2);
+    QCOMPARE(model.scanTypeIndex(), 0);
     QVERIFY(bookmarks->bookmarkAt(bookmarks->visibleRowForUuid(legacy))
                 ->scannerIncluded);
+    QVERIFY(!model.bookmarkScanCanStart());
     model.startReception();
-    QVERIFY(model.scanCanStart());
+    QVERIFY(model.bookmarkScanCanStart());
     const quint64 initialCenter = model.centerFrequency();
-    model.startScan();
-    QVERIFY2(waitFor([&model] { return model.scanState() == QLatin1String("Running"); }),
-             qPrintable(model.scanStatusMessage()));
-    QCOMPARE(model.scanCurrentBookmarkName(), QStringLiteral("Legacy AM"));
-    QCOMPARE(model.scanBookmarkPosition(), QStringLiteral("1 of 3"));
-    QCOMPARE(model.scanCurrentFrequency(), quint64{100'000'000});
+    model.startBookmarkScan();
+    QVERIFY2(waitFor([&model] { return model.bookmarkScanState() == QLatin1String("Running"); }),
+             qPrintable(model.bookmarkScanStatusMessage()));
+    QCOMPARE(model.bookmarkScanCurrentName(), QStringLiteral("Legacy AM"));
+    QCOMPARE(model.bookmarkScanPosition(), QStringLiteral("1 of 3"));
     QCOMPARE(model.squelchLevel(), -52.0);
     QCOMPARE(model.centerFrequency(), initialCenter);
+    QVERIFY(!model.scanCanStart());
+    model.startScan();
+    QCOMPARE(model.bookmarkScanCurrentName(), QStringLiteral("Legacy AM"));
 
-    model.pauseOrResumeScan();
-    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+    model.pauseOrResumeBookmarkScan();
+    QCOMPARE(model.bookmarkScanState(), QStringLiteral("Paused"));
     QVERIFY(bookmarks->moveBookmark(distant, legacy, QStringLiteral("before")));
-    model.skipScanFrequency();
-    QVERIFY(waitFor([&model] { return model.scanState() == QLatin1String("Paused"); }));
-    QCOMPARE(model.scanCurrentBookmarkName(), QStringLiteral("USB duplicate"));
-    QCOMPARE(model.scanBookmarkPosition(), QStringLiteral("2 of 3"));
+    model.skipBookmarkScan();
+    QVERIFY(waitFor([&model] { return model.bookmarkScanState() == QLatin1String("Paused"); }));
+    QCOMPARE(model.bookmarkScanCurrentName(), QStringLiteral("USB duplicate"));
+    QCOMPARE(model.bookmarkScanPosition(), QStringLiteral("2 of 3"));
     QCOMPARE(model.demodulationModeName(), QStringLiteral("USB"));
     QCOMPARE(model.squelchLevel(), -64.0);
 
-    model.skipScanFrequency();
-    QVERIFY(waitFor([&model] { return model.scanState() == QLatin1String("Paused"); }));
-    QCOMPARE(model.scanCurrentBookmarkName(), QStringLiteral("Distant AM"));
+    model.skipBookmarkScan();
+    QVERIFY(waitFor([&model] { return model.bookmarkScanState() == QLatin1String("Paused"); }));
+    QCOMPARE(model.bookmarkScanCurrentName(), QStringLiteral("Distant AM"));
     QCOMPARE(model.centerFrequency(), quint64{103'000'000});
     QCOMPARE(model.listeningFrequency(), quint64{103'000'000});
-    model.stopScan();
+    model.skipBookmarkScan();
+    QVERIFY(waitFor([&model] { return model.bookmarkScanState() == QLatin1String("Paused"); }));
+    QCOMPARE(model.bookmarkScanCurrentName(), QStringLiteral("Legacy AM"));
+    QCOMPARE(model.bookmarkScanPosition(), QStringLiteral("1 of 3"));
+    model.stopBookmarkScan();
     QVERIFY(!model.scannerOwnsTuning());
-    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+    QCOMPARE(model.bookmarkScanState(), QStringLiteral("Stopped"));
+
+    model.setScanDwellMilliseconds(100'000);
+    model.startScan();
+    QVERIFY(model.scannerOwnsTuning());
+    QVERIFY(!model.bookmarkScanCanStart());
+    const quint64 normalScanFrequency = model.scanCurrentFrequency();
+    model.startBookmarkScan();
+    QCOMPARE(model.scanCurrentFrequency(), normalScanFrequency);
+    QCOMPARE(model.bookmarkScanState(), QStringLiteral("Stopped"));
+    model.stopScan();
+}
+
+void ApplicationModelTest::updatesBookmarkScanAvailabilityFromInclusion()
+{
+    ApplicationModel model;
+    auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(model.bookmarkModel());
+    QVERIFY(bookmarks);
+    const QString group = bookmarks->addGroup(-1, QStringLiteral("Local group"));
+    sdr::app::BookmarkData bookmark;
+    bookmark.name = QStringLiteral("Reachable");
+    bookmark.listeningFrequency = 100'000'000;
+    bookmark.demodulatorId = QStringLiteral("am");
+    bookmark.filterLowHz = -2'500;
+    bookmark.filterHighHz = 2'500;
+    const QString child = bookmarks->addBookmark(
+        bookmarks->visibleRowForUuid(group), bookmark);
+    QVERIFY(!child.isEmpty());
+    model.startReception();
+    QVERIFY(!model.bookmarkScanCanStart());
+    QSignalSpy availabilityChanges(
+        &model, &ApplicationModel::bookmarkScannerChanged);
+    QVERIFY(bookmarks->toggleScannerInclusion(
+        bookmarks->visibleRowForUuid(group)));
+    QVERIFY(availabilityChanges.count() > 0);
+    QVERIFY(model.bookmarkScanCanStart());
+    availabilityChanges.clear();
+    QVERIFY(bookmarks->toggleScannerInclusion(
+        bookmarks->visibleRowForUuid(group)));
+    QVERIFY(availabilityChanges.count() > 0);
+    QVERIFY(!model.bookmarkScanCanStart());
+
+    bookmark.name = QStringLiteral("Unsupported");
+    bookmark.demodulatorId = QStringLiteral("missing-mode");
+    bookmark.scannerIncluded = true;
+    QVERIFY(!bookmarks->addBookmark(-1, bookmark).isEmpty());
+    QVERIFY(!model.bookmarkScanCanStart());
+}
+
+void ApplicationModelTest::holdsBookmarkScanOnSquelchActivity()
+{
+    auto backend = std::make_unique<sdr::radio::MockReceiverBackend>(
+        sdr::radio::MockReceiverConfiguration{.squelchOpen = true});
+    ApplicationModel model(std::move(backend));
+    auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(model.bookmarkModel());
+    QVERIFY(bookmarks);
+    sdr::app::BookmarkData bookmark;
+    bookmark.name = QStringLiteral("Active channel");
+    bookmark.listeningFrequency = 100'000'000;
+    bookmark.demodulatorId = QStringLiteral("am");
+    bookmark.filterLowHz = -2'500;
+    bookmark.filterHighHz = 2'500;
+    bookmark.scannerIncluded = true;
+    QVERIFY(!bookmarks->addBookmark(-1, bookmark).isEmpty());
+    model.startReception();
+    model.startBookmarkScan();
+    QVERIFY(waitFor([&model] {
+        return model.bookmarkScanState() ==
+               QLatin1String("Holding on squelch activity");
+    }));
+    model.pauseOrResumeBookmarkScan();
+    QCOMPARE(model.bookmarkScanState(), QStringLiteral("Paused"));
+    model.stopBookmarkScan();
+    QVERIFY(!model.scannerOwnsTuning());
+}
+
+void ApplicationModelTest::advancesAndWrapsBookmarkScanAfterDwell()
+{
+    ApplicationModel model;
+    auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(model.bookmarkModel());
+    QVERIFY(bookmarks);
+    const auto add = [bookmarks](const QString& name, quint64 frequency) {
+        sdr::app::BookmarkData bookmark;
+        bookmark.name = name;
+        bookmark.listeningFrequency = frequency;
+        bookmark.demodulatorId = QStringLiteral("am");
+        bookmark.filterLowHz = -2'500;
+        bookmark.filterHighHz = 2'500;
+        bookmark.scannerIncluded = true;
+        return bookmarks->addBookmark(-1, bookmark);
+    };
+    QVERIFY(!add(QStringLiteral("First"), 100'000'000).isEmpty());
+    QVERIFY(!add(QStringLiteral("Second"), 100'010'000).isEmpty());
+    model.setBookmarkScanDwellMilliseconds(20);
+    model.startReception();
+    model.startBookmarkScan();
+    QVERIFY(waitFor([&model] {
+        return model.bookmarkScanCurrentName() == QLatin1String("Second");
+    }));
+    QVERIFY(waitFor([&model] {
+        return model.bookmarkScanCurrentName() == QLatin1String("First");
+    }));
+    model.stopBookmarkScan();
 }
 
 void ApplicationModelTest::retunesWideRangeOnlyBetweenCaptureBlocksAndWraps()

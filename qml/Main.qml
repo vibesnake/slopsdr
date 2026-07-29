@@ -1840,6 +1840,132 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
                 }
 
+                Rectangle {
+                    id: bookmarkScanningSection
+                    objectName: "bookmarkScanningSection"
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: bookmarkScanningContent.implicitHeight + 16
+                    radius: 4
+                    color: "#111a2b"
+                    border.color: root.panelBorderColor
+
+                    ColumnLayout {
+                        id: bookmarkScanningContent
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 5
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Bookmark scanning")
+                            color: root.primaryTextColor
+                            font.bold: true
+                            font.pixelSize: 12
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 6
+                            rowSpacing: 4
+
+                            Label { text: qsTr("Dwell (ms)"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            TextField {
+                                objectName: "bookmarkScanDwellField"
+                                Layout.fillWidth: true
+                                enabled: !root.applicationModel.bookmarkScanCanStop
+                                text: root.applicationModel.bookmarkScanDwellMilliseconds.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 1 }
+                                onEditingFinished: root.applicationModel.setBookmarkScanDwellMilliseconds(Number(text))
+                            }
+                            Label { text: qsTr("Resume delay (ms)"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            TextField {
+                                objectName: "bookmarkScanResumeDelayField"
+                                Layout.fillWidth: true
+                                enabled: !root.applicationModel.bookmarkScanCanStop
+                                text: root.applicationModel.bookmarkScanResumeDelayMilliseconds.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 0 }
+                                onEditingFinished: root.applicationModel.setBookmarkScanResumeDelayMilliseconds(Number(text))
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Button {
+                                objectName: "bookmarkScanStartButton"
+                                Layout.fillWidth: true
+                                enabled: root.applicationModel.bookmarkScanCanStart
+                                text: qsTr("Start")
+                                onClicked: root.applicationModel.startBookmarkScan()
+                            }
+                            Button {
+                                objectName: "bookmarkScanPauseResumeButton"
+                                Layout.fillWidth: true
+                                enabled: root.applicationModel.bookmarkScanCanPauseResume
+                                text: root.applicationModel.bookmarkScanPaused
+                                      ? qsTr("Resume") : qsTr("Pause")
+                                onClicked: root.applicationModel.pauseOrResumeBookmarkScan()
+                            }
+                            Button {
+                                objectName: "bookmarkScanSkipButton"
+                                Layout.fillWidth: true
+                                enabled: root.applicationModel.bookmarkScanCanSkip
+                                text: qsTr("Skip")
+                                onClicked: root.applicationModel.skipBookmarkScan()
+                            }
+                            Button {
+                                objectName: "bookmarkScanStopButton"
+                                Layout.fillWidth: true
+                                enabled: root.applicationModel.bookmarkScanCanStop
+                                text: qsTr("Stop")
+                                onClicked: root.applicationModel.stopBookmarkScan()
+                            }
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 6
+                            rowSpacing: 2
+                            Label { text: qsTr("Bookmark"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "bookmarkScanCurrentName"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.bookmarkScanCurrentName.length > 0
+                                      ? root.applicationModel.bookmarkScanCurrentName : "—"
+                                color: root.primaryTextColor
+                                elide: Text.ElideRight
+                            }
+                            Label { text: qsTr("Position"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "bookmarkScanPosition"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.bookmarkScanPosition
+                                color: root.primaryTextColor
+                            }
+                            Label { text: qsTr("State"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "bookmarkScanState"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.bookmarkScanState
+                                color: root.primaryTextColor
+                            }
+                        }
+
+                        Label {
+                            objectName: "bookmarkScanStatus"
+                            Layout.fillWidth: true
+                            text: root.applicationModel.bookmarkScanStatusMessage
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 9
+                        }
+                    }
+                }
+
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("Scanner inclusion")
@@ -2307,9 +2433,7 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             text: root.applicationModel.scanTypeIndex === 0
                                   ? qsTr("Centers the SDR once on Start, then scans within that fixed usable capture passband.")
-                                  : (root.applicationModel.scanTypeIndex === 1
-                                     ? qsTr("Plans safe capture blocks and retunes the SDR only between blocks.")
-                                     : qsTr("Scans checked bookmarks in their saved order."))
+                                  : qsTr("Plans safe capture blocks and retunes the SDR only between blocks.")
                             color: root.secondaryTextColor
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
@@ -2326,50 +2450,38 @@ ApplicationWindow {
                                 objectName: "scanTypeControl"
                                 Layout.fillWidth: true
                                 enabled: !root.applicationModel.scannerOwnsTuning
-                                model: [qsTr("Current passband"), qsTr("Wide range"), qsTr("Bookmarks")]
+                                model: [qsTr("Current passband"), qsTr("Wide range")]
                                 currentIndex: root.applicationModel.scanTypeIndex
                                 onActivated: root.applicationModel.setScanTypeIndex(currentIndex)
                             }
 
-                            Label {
-                                visible: root.applicationModel.scanTypeIndex !== 2
-                                text: qsTr("Lower frequency"); color: root.secondaryTextColor
-                            }
+                            Label { text: qsTr("Lower frequency"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanLowerFrequencyField"
                                 Layout.fillWidth: true
-                                visible: root.applicationModel.scanTypeIndex !== 2
-                                enabled: visible && !root.applicationModel.scannerOwnsTuning
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanLowerFrequency.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
                                 onEditingFinished: root.applicationModel.setScanLowerFrequency(Number(text))
                             }
 
-                            Label {
-                                visible: root.applicationModel.scanTypeIndex !== 2
-                                text: qsTr("Upper frequency"); color: root.secondaryTextColor
-                            }
+                            Label { text: qsTr("Upper frequency"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanUpperFrequencyField"
                                 Layout.fillWidth: true
-                                visible: root.applicationModel.scanTypeIndex !== 2
-                                enabled: visible && !root.applicationModel.scannerOwnsTuning
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanUpperFrequency.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
                                 onEditingFinished: root.applicationModel.setScanUpperFrequency(Number(text))
                             }
 
-                            Label {
-                                visible: root.applicationModel.scanTypeIndex !== 2
-                                text: qsTr("Step size"); color: root.secondaryTextColor
-                            }
+                            Label { text: qsTr("Step size"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanStepSizeField"
                                 Layout.fillWidth: true
-                                visible: root.applicationModel.scanTypeIndex !== 2
-                                enabled: visible && !root.applicationModel.scannerOwnsTuning
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanStepSize.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
@@ -2455,30 +2567,6 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: root.applicationModel.scanCurrentFrequency === 0
                                       ? "—" : root.applicationModel.scanCurrentFrequency + qsTr(" Hz")
-                                color: root.primaryTextColor
-                            }
-                            Label {
-                                visible: root.applicationModel.scanTypeIndex === 2
-                                text: qsTr("Bookmark"); color: root.secondaryTextColor; font.pixelSize: 10
-                            }
-                            Label {
-                                objectName: "scanCurrentBookmarkDisplay"
-                                visible: root.applicationModel.scanTypeIndex === 2
-                                Layout.fillWidth: true
-                                text: root.applicationModel.scanCurrentBookmarkName.length === 0
-                                      ? "—" : root.applicationModel.scanCurrentBookmarkName
-                                color: root.primaryTextColor
-                                elide: Text.ElideRight
-                            }
-                            Label {
-                                visible: root.applicationModel.scanTypeIndex === 2
-                                text: qsTr("Position"); color: root.secondaryTextColor; font.pixelSize: 10
-                            }
-                            Label {
-                                objectName: "scanBookmarkPositionDisplay"
-                                visible: root.applicationModel.scanTypeIndex === 2
-                                Layout.fillWidth: true
-                                text: root.applicationModel.scanBookmarkPosition
                                 color: root.primaryTextColor
                             }
                             Label { text: qsTr("Listening"); color: root.secondaryTextColor; font.pixelSize: 10 }
@@ -2681,9 +2769,7 @@ ApplicationWindow {
                                                     Layout.fillWidth: true
                                                     text: scanPresetDelegate.preset.scanType === "wideRange"
                                                           ? qsTr("Wide range")
-                                                          : (scanPresetDelegate.preset.scanType === "bookmarks"
-                                                             ? qsTr("Bookmarks")
-                                                             : qsTr("Current passband"))
+                                                          : qsTr("Current passband")
                                                     color: root.secondaryTextColor
                                                     font.pixelSize: 9
                                                     elide: Text.ElideRight

@@ -183,8 +183,7 @@ selecting the active button closes it. Only one pane is open at a time. Opening
 one reduces the spectrum and waterfall width. Drag its right edge to resize it;
 each pane keeps its own width, and the active pane is restored at startup.
 
-The **Scan** pane offers **Current passband**, **Wide range**, and
-**Bookmarks** scans. Initial
+The **Scan** pane offers **Current passband** and **Wide range** scans. Initial
 bounds come from the current usable captured passband, not the displayed zoom
 range, but saved and loaded ranges remain unchanged even when they are
 elsewhere. Set the type, bounds, step, dwell time, and resume delay, then select
@@ -216,12 +215,7 @@ available. Wide range checks filter fit again after live mode or filter changes:
 narrowing keeps the current center, while a channel that no longer fits is
 recentered without advancing. The bounds, step size, dwell time, resume delay,
 and scan type are saved and restored, but runtime scanner state and position
-are not. **Bookmarks** uses only checked bookmarks in their current saved order
-and snapshots that order and identity at Start. It applies each bookmark's
-saved mode, filter, squelch, gain, and listening frequency; older bookmarks
-without a squelch setting use the live squelch captured at Start. Range and
-step fields are unused in this mode. Fitting entries stay in the current
-capture passband, while other entries retune safely and wait for settling.
+are not.
 
 Use the **Presets** section at the bottom of the Scan pane to keep ordered,
 named snapshots of the current scan type, bounds, step, dwell time, and resume
@@ -266,7 +260,14 @@ history; a running receiver uses its live update paths.
 Groups expand independently and remember their state.
 The checkboxes select bookmarks for **Bookmarks** scanning. The scanner
 snapshots checked bookmarks in their saved order on Start; edits and reordering
-during a scan affect the next session only.
+during a scan affect the next session only. Use the compact **Bookmark
+scanning** section in this pane to set its independently persisted dwell and
+resume-delay timing, then Start, Pause/Resume, Skip, or Stop. The section shows
+the current bookmark, saved-order position, state, and status. Each entry
+applies its saved frequency, gain, mode, filter, and squelch; legacy entries
+without squelch use the live setting captured at Start. A fitting entry changes
+only listening frequency, while another entry safely retunes the hardware and
+waits for settling. Bookmark and normal scanners are mutually exclusive.
 
 Bookmarks use stable demodulator IDs. A bookmark for a mode unavailable in the
 current build remains intact and is marked **Unavailable**; it is not changed to

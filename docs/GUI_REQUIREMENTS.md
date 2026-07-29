@@ -310,7 +310,7 @@ bookmarks. Bookmark scanning snapshots checked bookmark UUIDs in saved list
 order when Start is pressed, so later bookmark edits or reordering apply only
 to a future scan.
 
-The Scan panel runs current-passband, wide-range, and bookmark scanners owned by the
+The Scan panel runs current-passband and wide-range scanners owned by the
 application model.
 Preset save/update accepts numeric ranges independently of the active receiver,
 and Load copies them without starting or clamping. Start requires active
@@ -358,15 +358,10 @@ wider filters also keep it when safe, otherwise the current channel is
 recentered without advancing or the next channel is retuned before visiting.
 Future blocks are replanned lazily. Pause and squelch hold never move the
 center, final-to-first wrapping may retune to the first block, and Stop leaves
-both frequencies unchanged. Bookmark mode hides its unused range and step
-fields, then applies every saved bookmark-owned receiver field to the snapped
-checked entries. It reuses complete-filter fit and settling rules: fitting
-bookmarks use listening tuning only, while others retune safely before dwell
-and squelch evaluation. Legacy bookmarks without squelch retain the live
-squelch captured when bookmark scanning starts.
+both frequencies unchanged.
 The Presets section is below the other Scan controls and keeps an ordered list
 of UUID-backed named snapshots of that configuration, including the
-selected scan type. Legacy presets without a type use Current passband. It uses
+selected Current passband or Wide range type. Legacy presets without a type use Current passband. It uses
 the bookmark list's compact rows, spacing,
 selected-row treatment, scrolling, and drag/reorder interaction, but has no
 bookmark scanner-inclusion checkbox. Save New, Load, Update (including an
@@ -398,6 +393,16 @@ starting a stopped receiver, invoking one-shot Automatic Squelch, or clearing
 waterfall history. Unknown demodulator bookmarks remain editable but cannot be
 tuned. Bookmark files may omit the squelch fields for legacy data; such
 bookmarks remain loadable and leave the current receiver squelch unchanged.
+The Bookmarks panel includes a compact Bookmark scanning section above the
+list. Its independent dwell and resume-delay values persist in application
+settings. Start availability is driven by active reception, scanner ownership,
+checked descendant bookmarks, and complete receiver reachability, and updates
+immediately after bookmark or group inclusion changes. Start snapshots checked
+UUIDs in saved tree order. The section exposes Start, Pause/Resume, Skip, Stop,
+current name, position, state, and status. Bookmark scanning shares scanner
+tuning ownership, filter-fit, hardware-retune, settling, squelch hold, timing,
+and bounded tuning paths with range scanning, but is mutually exclusive with
+it. Scanner presets never contain bookmark inclusion or a bookmark scan type.
 
 The spectrum and waterfall occupy a shared full-width display column separated
 by a subtle, hover-highlighted horizontal splitter. Dragging upward gives the

@@ -20,14 +20,14 @@ LSB. **DMR/P25** is experimental: it is a separate digital-decoder mode that
 sends discriminator audio to a separately installed DSD-FME executable.
 Decoding reliability may vary, and FEC errors or audio underruns may occur.
 Encrypted traffic is not decoded. The Scan pane supports fixed-center
-**Current passband** scans, hardware-retuning **Wide range** scans, and
-checked-bookmark **Bookmarks** scans. Wide
+**Current passband** scans and hardware-retuning **Wide range** scans. Wide
 range plans the fewest safe capture blocks for the active filter, retunes only
 between blocks, and owns center and listening-frequency tuning until Stop.
 Named Scan-pane presets store ordered scanner configurations, including scan
 type, without storing runtime scan state or position.
-Bookmarks scanning snapshots checked bookmark UUIDs in their saved order when
-it starts and applies each bookmark's saved receiver settings.
+The Bookmarks pane scans checked bookmarks in saved order with independently
+persisted dwell and resume-delay settings, applying each bookmark's saved
+receiver settings.
 
 RTL-SDR Blog V4 handling is documented in [device access](docs/DEVICE_ACCESS.md).
 Hardware is never opened and reception never starts until you explicitly press

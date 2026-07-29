@@ -534,15 +534,26 @@ void BookmarkTreeModelTest::snapshotsCheckedBookmarksInSavedOrder()
         -1, bookmark(QStringLiteral("Skipped"), QStringLiteral("am")));
     const QString last = model.addBookmark(
         -1, bookmark(QStringLiteral("Last"), QStringLiteral("usb"), true));
+    const QString group = model.addGroup(-1, QStringLiteral("Checked group"));
+    const QString groupedFirst = model.addBookmark(
+        model.visibleRowForUuid(group),
+        bookmark(QStringLiteral("Grouped first"), QStringLiteral("am")));
+    const QString groupedSecond = model.addBookmark(
+        model.visibleRowForUuid(group),
+        bookmark(QStringLiteral("Grouped second"), QStringLiteral("nfm")));
+    QVERIFY(model.toggleScannerInclusion(model.visibleRowForUuid(group)));
+    QVERIFY(model.setExpanded(model.visibleRowForUuid(group), false));
     QVERIFY(waitUntil([&model] { return !model.persistencePending(); }));
     QVERIFY(model.moveBookmark(last, first, QStringLiteral("before")));
 
     const auto snapshot = model.scannerBookmarks();
-    QCOMPARE(snapshot.size(), std::size_t{2});
+    QCOMPARE(snapshot.size(), std::size_t{4});
     QCOMPARE(snapshot.at(0).uuid, last);
     QCOMPARE(snapshot.at(0).bookmark.name, QStringLiteral("Last"));
     QCOMPARE(snapshot.at(1).uuid, first);
     QCOMPARE(snapshot.at(1).bookmark.name, QStringLiteral("First"));
+    QCOMPARE(snapshot.at(2).uuid, groupedFirst);
+    QCOMPARE(snapshot.at(3).uuid, groupedSecond);
     QVERIFY(std::none_of(snapshot.cbegin(), snapshot.cend(),
         [&skipped](const sdr::app::BookmarkSnapshot& entry) {
             return entry.uuid == skipped;
