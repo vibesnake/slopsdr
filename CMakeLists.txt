@@ -10,7 +10,7 @@ project(
     LANGUAGES CXX
 )
 
-set(SDR_RECEIVER_VERSION_SUFFIX "-alpha.2")
+set(SDR_RECEIVER_VERSION_SUFFIX "")
 set(SDR_RECEIVER_RELEASE_DATE "2026-07-29")
 
 include(GNUInstallDirs)
