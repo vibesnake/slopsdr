@@ -183,27 +183,39 @@ selecting the active button closes it. Only one pane is open at a time. Opening
 one reduces the spectrum and waterfall width. Drag its right edge to resize it;
 each pane keeps its own width, and the active pane is restored at startup.
 
-The **Scan** pane runs a **Current passband** scan. Its initial defaults come
-from the current usable captured passband, not the displayed zoom range, but
-saved and loaded ranges remain unchanged even when they are elsewhere. Set the
-bounds, step, dwell time, and resume delay, then select **Start** while reception
-is active. If the complete range fits the receiver's usable bandwidth, slopSDR
-tunes the hardware center once to its integer-Hz midpoint, waits for that tune,
-and scans with the center fixed. If it cannot fit, Start remains unavailable
-and the pane reports the required and available bandwidth without changing the
-bounds.
+The **Scan** pane offers **Current passband** and **Wide range** scans. Initial
+bounds come from the current usable captured passband, not the displayed zoom
+range, but saved and loaded ranges remain unchanged even when they are
+elsewhere. Set the type, bounds, step, dwell time, and resume delay, then select
+**Start** while reception is active. Current passband requires the complete
+range to fit at once, tunes the hardware center once to the integer-Hz midpoint,
+and keeps it fixed.
+
+Wide range builds the ordered channel sequence and groups it into the fewest
+safe capture blocks. Planning reserves a one-percent edge guard on each side
+and fits the complete active filter, including the true USB or LSB sideband,
+inside every block. The hardware center changes only between blocks; channels
+within a block use the focused listening-frequency path. Each retune has a
+short settling interval during which squelch activity is ignored. The status
+area shows the listening frequency, hardware center, **Retuning** state, and
+capture-block progress. Every generated channel and its filter must be inside
+a device tuning range, so a range crossing an unsupported gap is rejected
+rather than partially scanned.
 
 The scanner uses the receiver's active mode, filter, and live squelch setting;
 it holds when squelch opens and resumes after the configured delay once it
 closes. **Pause** stops scanner movement while reception continues, **Skip**
 advances once, and **Stop** leaves the receiver at its current center and
-listening frequencies. While centering, running, paused, or holding, manual
+listening frequencies. While centering or retuning, running, paused, or
+holding, manual
 center/listening entry, spectrum and waterfall tuning, bookmark tuning, and
 capture-bandwidth changes are unavailable; normal tuning returns immediately
 after Stop. Other Receiver Control settings and live display processing remain
-available. The bounds, step size, dwell time, and resume delay are saved and
-restored, but runtime scanner state and position are not. Bookmark scans and
-multi-passband hardware-retuning scans are not available.
+available. Wide range checks filter fit again after live mode or filter changes:
+narrowing keeps the current center, while a channel that no longer fits is
+recentered without advancing. The bounds, step size, dwell time, resume delay,
+and scan type are saved and restored, but runtime scanner state and position
+are not. Bookmark scans are not available.
 
 Use the **Presets** section at the bottom of the Scan pane to keep ordered,
 named snapshots of the current scan type, bounds, step, dwell time, and resume
@@ -248,7 +260,7 @@ history; a running receiver uses its live update paths.
 Groups expand independently and remember their state.
 The checkboxes store scanner-inclusion metadata: bookmark values are stored directly,
 while group checkboxes show unchecked, checked, or partial state and update all
-descendant bookmarks. They are not used by the current-passband scanner.
+descendant bookmarks. They are not used by the Scan-pane scanners.
 
 Bookmarks use stable demodulator IDs. A bookmark for a mode unavailable in the
 current build remains intact and is marked **Unavailable**; it is not changed to

@@ -142,6 +142,7 @@ public slots:
     void setCenterFrequency(quint64 frequency);
     void setListeningFrequency(quint64 frequency);
     void requestScannerListeningFrequency(quint64 frequency);
+    void requestScannerCenterFrequency(quint64 frequency);
     void cancelScannerListeningFrequencyRequests();
     void shiftCenterFrequency(qint64 requestedStep);
     void setSampleRate(quint64 sampleRate);
@@ -186,6 +187,12 @@ signals:
         quint64 frequency,
         bool succeeded,
         const QString& message);
+    void scannerCenterFrequencyChanged(
+        quint64 requestedFrequency,
+        quint64 appliedCenterFrequency,
+        quint64 appliedListeningFrequency,
+        bool succeeded,
+        const QString& message);
 
 signals:
     void initializeRequested();
@@ -201,6 +208,7 @@ signals:
     void setCenterFrequencyRequested(quint64 frequency);
     void setListeningFrequencyRequested(quint64 frequency);
     void setScannerListeningFrequencyRequested(quint64 frequency);
+    void setScannerCenterFrequencyRequested(quint64 frequency);
     void shiftCenterFrequencyRequested(qint64 requestedStep);
     void setSampleRateRequested(quint64 sampleRate);
     void setSpectrumFftSizeRequested(quint64 fftSize);

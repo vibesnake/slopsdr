@@ -257,8 +257,8 @@ selection with the first remaining device.
 The GUI offers conventional single-frequency **DMR/P25** decoding through the
 configured DSD-FME executable and reports its bounded runtime state near normal
 audio status. DSD-FME process management remains outside QML. Bookmark
-scanner-inclusion checkboxes are persisted metadata and are not used by the
-current-passband scanner.
+scanner-inclusion checkboxes are persisted metadata and are not used by either
+Scan-pane scan type.
 
 ## Layout and responsibility boundaries
 
@@ -285,9 +285,10 @@ and conditional auto-scrolling; it never exposes command entry or DSD-FME's
 binary stdout. The Bookmarks panel renders
 nested groups with independent expansion state and scanner-inclusion checkboxes.
 Group inclusion is derived as a tri-state value and updates all descendant
-bookmarks; that metadata is not used by the current-passband scanner.
+bookmarks; that metadata is not used by the Scan-pane scanners.
 
-The Scan panel runs a current-passband scanner owned by the application model.
+The Scan panel runs current-passband and wide-range scanners owned by the
+application model.
 Preset save/update accepts numeric ranges independently of the active receiver,
 and Load copies them without starting or clamping. Start requires active
 reception and validates whether the complete requested span fits the actual
@@ -320,10 +321,25 @@ persisted as integer-Hz scanner configuration. Running, paused, holding, and
 current-frequency state are transient and always reset to stopped on startup.
 Saved bounds remain visible rather than being silently replaced; Start is
 blocked only when the complete range cannot fit after one-time centering.
-Bookmark scans and multi-passband hardware-retuning scans are not provided.
+Wide range uses the same fields and controls but does not require the complete
+range to fit simultaneously. C++ builds its ordered channel sequence, rejects
+device tuning gaps, and greedily groups consecutive channels into the fewest
+capture blocks that preserve a one-percent capture-edge guard and the complete
+active filter. USB and LSB use their real asymmetric filter offsets. The
+hardware center changes once at each block boundary, then focused listening
+tuning handles every channel in the block. A short post-retune settling state
+is visible and suppresses squelch transients. The status area shows listening
+frequency, hardware center, scanner state, and block progress.
+Filter fit is checked on every step. Narrower filters keep the current center;
+wider filters also keep it when safe, otherwise the current channel is
+recentered without advancing or the next channel is retuned before visiting.
+Future blocks are replanned lazily. Pause and squelch hold never move the
+center, final-to-first wrapping may retune to the first block, and Stop leaves
+both frequencies unchanged. Bookmark scans are not provided.
 The Presets section is below the other Scan controls and keeps an ordered list
 of UUID-backed named snapshots of that configuration, including the
-current-passband scan type. It uses the bookmark list's compact rows, spacing,
+selected scan type. Legacy presets without a type use Current passband. It uses
+the bookmark list's compact rows, spacing,
 selected-row treatment, scrolling, and drag/reorder interaction, but has no
 bookmark scanner-inclusion checkbox. Save New, Load, Update (including an
 edited name), and confirmation-backed Delete operate on the selected preset

@@ -232,6 +232,8 @@ add_library(
     app/BookmarkTreeModel.hpp
     app/CurrentPassbandScanner.cpp
     app/CurrentPassbandScanner.hpp
+    app/WideRangeScanPlanner.cpp
+    app/WideRangeScanPlanner.hpp
     app/FrequencyDigitController.cpp
     app/FrequencyDigitController.hpp
     app/FrequencyViewport.cpp

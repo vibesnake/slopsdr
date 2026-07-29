@@ -302,8 +302,8 @@ void GainSliderBindingTest::
                             }
                             ComboBox {
                                 objectName: "scanTypeControl"
-                                enabled: false
-                                model: ["Current passband"]
+                                enabled: true
+                                model: ["Current passband", "Wide range"]
                             }
                             TextField { objectName: "scanLowerFrequencyField"; enabled: true }
                             TextField { objectName: "scanUpperFrequencyField"; enabled: true }
@@ -325,6 +325,9 @@ void GainSliderBindingTest::
                                 objectName: "scanCurrentFrequencyDisplay"
                                 text: "—"
                             }
+                            Text { objectName: "scanListeningFrequencyDisplay" }
+                            Text { objectName: "scanHardwareCenterFrequencyDisplay" }
+                            Text { objectName: "scanCaptureBlockProgressDisplay" }
                             Text {
                                 objectName: "scanStateDisplay"
                                 text: "Scanner not running"
@@ -469,9 +472,10 @@ void GainSliderBindingTest::
 
     const auto scanType = object->findChild<QObject*>("scanTypeControl");
     QVERIFY(scanType);
-    QCOMPARE(scanType->property("enabled").toBool(), false);
+    QCOMPARE(scanType->property("enabled").toBool(), true);
     QCOMPARE(scanType->property("currentText").toString(),
              QStringLiteral("Current passband"));
+    QCOMPARE(scanType->property("count").toInt(), 2);
     for (const char* objectName : {
              "scanPaneHeading",
              "scanLowerFrequencyField",
@@ -493,6 +497,9 @@ void GainSliderBindingTest::
              "scanSkipButton",
              "scanStopButton",
              "scanCurrentFrequencyDisplay",
+             "scanListeningFrequencyDisplay",
+             "scanHardwareCenterFrequencyDisplay",
+             "scanCaptureBlockProgressDisplay",
              "scanStateDisplay",
              "scanStatusMessage",
              "scanValidationError",

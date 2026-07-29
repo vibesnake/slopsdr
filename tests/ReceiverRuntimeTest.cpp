@@ -761,6 +761,7 @@ private slots:
     void keepsSpectrumCadenceStableAcrossVisibleHistoryChanges();
     void persistsAndRestoresReceiverAndSquelchControls();
     void scannerRetunesStayFocusedResponsiveAndBounded();
+    void wideRangeBlockRetunesAvoidGlobalReceiverReconfiguration();
     void migratesLegacyDemodulatorOrdinalToStableId();
     void rejectsInvalidPersistedReceiverControls();
     void defaultsGainToTwentyDbWithoutPersistingIt();
@@ -1641,6 +1642,63 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
     QVERIFY(heartbeatCount >= 5);
     QCOMPARE(model.scanState(), QStringLiteral("Paused"));
     QVERIFY(model.receiverRunning());
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::wideRangeBlockRetunesAvoidGlobalReceiverReconfiguration()
+{
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+
+    model.setScanTypeIndex(1);
+    model.setScanLowerFrequency(100'000'000);
+    model.setScanUpperFrequency(104'000'000);
+    model.setScanStepSize(1'000'000);
+    model.setScanDwellMilliseconds(100'000);
+    const auto centerRequests = trace->requestedCenterFrequencies.size();
+    const int audioFlushes = trace->audioFlushes;
+    const int filterApplications = trace->filterApplications;
+    const int modeApplications = trace->modeApplications;
+    QSignalSpy operationPending(
+        &runtime, &sdr::app::ReceiverRuntime::operationPending);
+    QSignalSpy runtimeBusyChanges(&model, &ApplicationModel::runtimeBusyChanged);
+
+    model.startScan();
+    QVERIFY(waitUntil([&model] {
+        return model.scanState() == QLatin1String("Running");
+    }));
+    QCOMPARE(trace->requestedCenterFrequencies.size(), centerRequests + 1);
+    QCOMPARE(operationPending.count(), 0);
+    QCOMPARE(runtimeBusyChanges.count(), 0);
+    QCOMPARE(trace->filterApplications, filterApplications);
+    QCOMPARE(trace->modeApplications, modeApplications);
+
+    model.pauseOrResumeScan();
+    const quint64 firstCenter = model.centerFrequency();
+    model.skipScanFrequency();
+    QTest::qWait(20);
+    QCOMPARE(model.centerFrequency(), firstCenter);
+    QCOMPARE(trace->requestedCenterFrequencies.size(), centerRequests + 1);
+
+    model.skipScanFrequency();
+    QVERIFY(waitUntil([&model] {
+        return model.scanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(trace->requestedCenterFrequencies.size(), centerRequests + 2);
+    QVERIFY(model.centerFrequency() != firstCenter);
+    QCOMPARE(model.listeningFrequency(), quint64{102'000'000});
+    QCOMPARE(operationPending.count(), 0);
+    QCOMPARE(runtimeBusyChanges.count(), 0);
+    QCOMPARE(trace->filterApplications, filterApplications);
+    QCOMPARE(trace->modeApplications, modeApplications);
+    QCOMPARE(trace->audioFlushes, audioFlushes + 2);
     runtime.shutdown();
 }
 

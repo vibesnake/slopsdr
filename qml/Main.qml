@@ -1322,7 +1322,7 @@ ApplicationWindow {
                 text: qsTr("Scan")
                 Accessible.name: qsTr("Show scan pane")
                 Accessible.description: qsTr(
-                    "Open or close the current-passband scan pane")
+                    "Open or close the scanner pane")
                 onClicked: root.applicationModel.setSidebarMode(
                                checked ? root.sidebarModeScan
                                        : root.sidebarModeNone)
@@ -2118,7 +2118,7 @@ ApplicationWindow {
 
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("Current passband scanner")
+                            text: qsTr("Frequency scanner")
                             color: root.primaryTextColor
                             font.bold: true
                             font.pixelSize: 12
@@ -2127,7 +2127,9 @@ ApplicationWindow {
                         Label {
                             objectName: "scanShellNotice"
                             Layout.fillWidth: true
-                            text: qsTr("Centers the SDR once on Start, then scans within that fixed usable capture passband.")
+                            text: root.applicationModel.scanTypeIndex === 0
+                                  ? qsTr("Centers the SDR once on Start, then scans within that fixed usable capture passband.")
+                                  : qsTr("Plans safe capture blocks and retunes the SDR only between blocks.")
                             color: root.secondaryTextColor
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
@@ -2143,9 +2145,10 @@ ApplicationWindow {
                             ComboBox {
                                 objectName: "scanTypeControl"
                                 Layout.fillWidth: true
-                                enabled: false
-                                model: [qsTr("Current passband")]
-                                currentIndex: 0
+                                enabled: !root.applicationModel.scannerOwnsTuning
+                                model: [qsTr("Current passband"), qsTr("Wide range")]
+                                currentIndex: root.applicationModel.scanTypeIndex
+                                onActivated: root.applicationModel.setScanTypeIndex(currentIndex)
                             }
 
                             Label { text: qsTr("Lower frequency"); color: root.secondaryTextColor }
@@ -2248,30 +2251,48 @@ ApplicationWindow {
                             }
                         }
 
-                        Label {
+                        GridLayout {
                             Layout.fillWidth: true
-                            text: qsTr("Current frequency")
-                            color: root.secondaryTextColor
-                            font.pixelSize: 10
-                        }
-                        Label {
-                            objectName: "scanCurrentFrequencyDisplay"
-                            Layout.fillWidth: true
-                            text: root.applicationModel.scanCurrentFrequency === 0
-                                  ? "—" : root.applicationModel.scanCurrentFrequency + qsTr(" Hz")
-                            color: root.primaryTextColor
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("State")
-                            color: root.secondaryTextColor
-                            font.pixelSize: 10
-                        }
-                        Label {
-                            objectName: "scanStateDisplay"
-                            Layout.fillWidth: true
-                            text: root.applicationModel.scanState
-                            color: root.primaryTextColor
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 3
+
+                            Label { text: qsTr("Scan frequency"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "scanCurrentFrequencyDisplay"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.scanCurrentFrequency === 0
+                                      ? "—" : root.applicationModel.scanCurrentFrequency + qsTr(" Hz")
+                                color: root.primaryTextColor
+                            }
+                            Label { text: qsTr("Listening"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "scanListeningFrequencyDisplay"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.listeningFrequency + qsTr(" Hz")
+                                color: root.primaryTextColor
+                            }
+                            Label { text: qsTr("Hardware center"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "scanHardwareCenterFrequencyDisplay"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.centerFrequency + qsTr(" Hz")
+                                color: root.primaryTextColor
+                            }
+                            Label { text: qsTr("Capture block"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "scanCaptureBlockProgressDisplay"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.scanCaptureBlockProgress
+                                color: root.primaryTextColor
+                            }
+                            Label { text: qsTr("State"); color: root.secondaryTextColor; font.pixelSize: 10 }
+                            Label {
+                                objectName: "scanStateDisplay"
+                                Layout.fillWidth: true
+                                text: root.applicationModel.scanState
+                                color: root.primaryTextColor
+                            }
                         }
                         Label {
                             Layout.fillWidth: true
@@ -2442,7 +2463,9 @@ ApplicationWindow {
 
                                                 Label {
                                                     Layout.fillWidth: true
-                                                    text: qsTr("Current passband")
+                                                    text: scanPresetDelegate.preset.scanType === "wideRange"
+                                                          ? qsTr("Wide range")
+                                                          : qsTr("Current passband")
                                                     color: root.secondaryTextColor
                                                     font.pixelSize: 9
                                                     elide: Text.ElideRight

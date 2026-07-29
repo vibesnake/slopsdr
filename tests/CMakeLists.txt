@@ -23,6 +23,17 @@ sdr_enable_warnings(current_passband_scanner_tests)
 
 add_test(NAME current_passband_scanner_tests COMMAND current_passband_scanner_tests)
 
+add_executable(wide_range_scan_planner_tests WideRangeScanPlannerTest.cpp)
+target_link_libraries(
+    wide_range_scan_planner_tests
+    PRIVATE
+        sdr_application_model
+        Qt6::Test
+)
+sdr_enable_warnings(wide_range_scan_planner_tests)
+
+add_test(NAME wide_range_scan_planner_tests COMMAND wide_range_scan_planner_tests)
+
 add_executable(application_log_model_tests ApplicationLogModelTest.cpp)
 target_link_libraries(
     application_log_model_tests

@@ -968,6 +968,51 @@ public slots:
             QString::fromStdString(result.message));
     }
 
+    void setScannerCenterFrequency(quint64 frequency)
+    {
+        if (!m_backend) {
+            emit scannerCenterFrequencyRequestCompleted(
+                frequency,
+                0,
+                0,
+                false,
+                QStringLiteral("Select a receiver backend before scanning"));
+            return;
+        }
+        try {
+            const auto result = m_backend->setCenterFrequency(frequency);
+            if (result.succeeded() && result.stateChanged) {
+                m_backend->clearAudioSamples();
+                flushDecoderAfterRetune();
+                if (m_audioOutput) {
+                    m_audioOutput->flush();
+                }
+            }
+            emit scannerCenterFrequencyRequestCompleted(
+                frequency,
+                m_backend->state().centerFrequency,
+                m_backend->state().listeningFrequency,
+                result.succeeded(),
+                QString::fromStdString(result.message));
+        } catch (const std::exception& error) {
+            emit scannerCenterFrequencyRequestCompleted(
+                frequency,
+                m_backend->state().centerFrequency,
+                m_backend->state().listeningFrequency,
+                false,
+                QStringLiteral("Receiver operation failed: %1")
+                    .arg(QString::fromUtf8(error.what())));
+        } catch (...) {
+            emit scannerCenterFrequencyRequestCompleted(
+                frequency,
+                m_backend->state().centerFrequency,
+                m_backend->state().listeningFrequency,
+                false,
+                QStringLiteral(
+                    "Receiver operation failed with an unknown error"));
+        }
+    }
+
     void shiftCenterFrequency(qint64 requestedStep)
     {
         static_cast<void>(applyTuningOperation(
@@ -1556,6 +1601,12 @@ signals:
     void scannerListeningFrequencyRequestCompleted(
         quint64 requestedFrequency,
         quint64 appliedFrequency,
+        bool succeeded,
+        const QString& message);
+    void scannerCenterFrequencyRequestCompleted(
+        quint64 requestedFrequency,
+        quint64 appliedCenterFrequency,
+        quint64 appliedListeningFrequency,
         bool succeeded,
         const QString& message);
     void spectrumFrameReady(
@@ -2863,6 +2914,12 @@ ReceiverRuntime::ReceiverRuntime(
         m_worker,
         &Worker::setScannerListeningFrequency,
         Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::setScannerCenterFrequencyRequested,
+        m_worker,
+        &Worker::setScannerCenterFrequency,
+        Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::shiftCenterFrequencyRequested, m_worker, &Worker::shiftCenterFrequency, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setSampleRateRequested, m_worker, &Worker::setSampleRate, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setSpectrumFftSizeRequested, m_worker, &Worker::setSpectrumFftSize, Qt::QueuedConnection);
@@ -2900,6 +2957,11 @@ ReceiverRuntime::ReceiverRuntime(
         &Worker::scannerListeningFrequencyRequestCompleted,
         this,
         &ReceiverRuntime::finishScannerListeningFrequencyRequest);
+    connect(
+        m_worker,
+        &Worker::scannerCenterFrequencyRequestCompleted,
+        this,
+        &ReceiverRuntime::scannerCenterFrequencyChanged);
     connect(m_worker, &Worker::spectrumFrameReady, this, &ReceiverRuntime::spectrumFrameReady);
     connect(m_worker, &Worker::waterfallFrameReady, this, &ReceiverRuntime::waterfallFrameReady);
     m_workerThread.setObjectName(QStringLiteral("SDR receiver runtime"));
@@ -3032,6 +3094,11 @@ void ReceiverRuntime::requestScannerListeningFrequency(quint64 frequency)
     }
     m_scannerListeningFrequencyRequestActive = true;
     emit setScannerListeningFrequencyRequested(frequency);
+}
+
+void ReceiverRuntime::requestScannerCenterFrequency(quint64 frequency)
+{
+    emit setScannerCenterFrequencyRequested(frequency);
 }
 
 void ReceiverRuntime::cancelScannerListeningFrequencyRequests()

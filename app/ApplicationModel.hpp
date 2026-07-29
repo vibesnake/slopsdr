@@ -9,6 +9,7 @@
 #include "FrequencyViewport.hpp"
 #include "ReceiverRuntime.hpp"
 #include "ReceiverBackend.hpp"
+#include "WideRangeScanPlanner.hpp"
 
 #include <QObject>
 #include <QString>
@@ -70,12 +71,14 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool consolePanelOpen READ consolePanelOpen NOTIFY sidebarModeChanged)
     Q_PROPERTY(double bookmarksPanelWidth READ bookmarksPanelWidth NOTIFY bookmarksPanelWidthChanged)
     Q_PROPERTY(double scanPanelWidth READ scanPanelWidth NOTIFY scanPanelWidthChanged)
+    Q_PROPERTY(int scanTypeIndex READ scanTypeIndex NOTIFY scannerChanged)
     Q_PROPERTY(quint64 scanLowerFrequency READ scanLowerFrequency NOTIFY scannerChanged)
     Q_PROPERTY(quint64 scanUpperFrequency READ scanUpperFrequency NOTIFY scannerChanged)
     Q_PROPERTY(quint64 scanStepSize READ scanStepSize NOTIFY scannerChanged)
     Q_PROPERTY(int scanDwellMilliseconds READ scanDwellMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(int scanResumeDelayMilliseconds READ scanResumeDelayMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(quint64 scanCurrentFrequency READ scanCurrentFrequency NOTIFY scanCurrentFrequencyChanged)
+    Q_PROPERTY(QString scanCaptureBlockProgress READ scanCaptureBlockProgress NOTIFY scannerChanged)
     Q_PROPERTY(QString scanState READ scanState NOTIFY scannerChanged)
     Q_PROPERTY(QString scanStatusMessage READ scanStatusMessage NOTIFY scannerChanged)
     Q_PROPERTY(QString scanValidationError READ scanValidationError NOTIFY scannerChanged)
@@ -188,12 +191,14 @@ public:
     [[nodiscard]] bool consolePanelOpen() const noexcept;
     [[nodiscard]] double bookmarksPanelWidth() const noexcept;
     [[nodiscard]] double scanPanelWidth() const noexcept;
+    [[nodiscard]] int scanTypeIndex() const noexcept;
     [[nodiscard]] quint64 scanLowerFrequency() const noexcept;
     [[nodiscard]] quint64 scanUpperFrequency() const noexcept;
     [[nodiscard]] quint64 scanStepSize() const noexcept;
     [[nodiscard]] int scanDwellMilliseconds() const noexcept;
     [[nodiscard]] int scanResumeDelayMilliseconds() const noexcept;
     [[nodiscard]] quint64 scanCurrentFrequency() const noexcept;
+    [[nodiscard]] QString scanCaptureBlockProgress() const;
     [[nodiscard]] QString scanState() const;
     [[nodiscard]] QString scanStatusMessage() const;
     [[nodiscard]] QString scanValidationError() const;
@@ -305,6 +310,7 @@ public slots:
     void commitBookmarksPanelWidth();
     void setScanPanelWidth(double width);
     void commitScanPanelWidth();
+    void setScanTypeIndex(int scanTypeIndex);
     void setScanLowerFrequency(quint64 frequency);
     void setScanUpperFrequency(quint64 frequency);
     void setScanStepSize(quint64 stepSize);
@@ -442,6 +448,12 @@ private:
         quint64 frequency,
         bool succeeded,
         const QString& message);
+    void applyScannerCenterFrequency(
+        quint64 requestedFrequency,
+        quint64 appliedCenterFrequency,
+        quint64 appliedListeningFrequency,
+        bool succeeded,
+        const QString& message);
     void finishCenterFrequencyRequest(quint64 frequency, bool succeeded);
     void notifyStateChanges(
         const sdr::radio::ReceiverState& previousState,
@@ -535,6 +547,7 @@ private:
         const QString& name,
         const QString& exceptPresetId = {}) const;
     void applyScanPresetConfiguration(
+        const QString& scanType,
         const sdr::app::CurrentPassbandScanSettings& settings);
     void setStatusText(QString statusText);
     [[nodiscard]] sdr::app::CurrentPassbandScanSettings scanSettings() const noexcept;
@@ -542,6 +555,27 @@ private:
     [[nodiscard]] std::optional<sdr::radio::FrequencyRange>
     centeredScanPassband(quint64 centerFrequency) const noexcept;
     [[nodiscard]] QString scanFitValidationError() const;
+    [[nodiscard]] sdr::app::ScanFilterOffsets scanFilterOffsets() const noexcept;
+    [[nodiscard]] sdr::app::WideRangeCaptureGeometry
+    wideRangeCaptureGeometry() const;
+    [[nodiscard]] sdr::app::WideRangePlanResult makeWideRangePlan() const;
+    [[nodiscard]] bool wideRangeScanActive() const noexcept;
+    [[nodiscard]] bool scannerRetuning() const noexcept;
+    [[nodiscard]] bool refreshWideRangePlan();
+    enum class WideTuneResult {
+        Tuned,
+        Retuning,
+        Failed,
+    };
+    [[nodiscard]] WideTuneResult tuneWideScannerTo(quint64 frequency);
+    void requestScannerCenter(
+        quint64 centerFrequency,
+        quint64 targetFrequency,
+        std::size_t blockIndex,
+        bool starting);
+    void scannerSettlingElapsed();
+    void continueWideScanAfterRetune();
+    void finishWideRangeRetune();
     [[nodiscard]] bool scannerSquelchOpen() const noexcept;
     void resetScanBoundsToCaptureRange();
     [[nodiscard]] bool updateScanValidation();
@@ -587,6 +621,7 @@ private:
     quint64 m_scanStepSize = 12'500;
     int m_scanDwellMilliseconds = 250;
     int m_scanResumeDelayMilliseconds = 1'000;
+    int m_scanTypeIndex = 0;
     QString m_scanValidationError;
     QString m_scanStatus = QStringLiteral("Scanner not running");
     struct ScanPreset {
@@ -604,8 +639,17 @@ private:
     struct PendingScanStart {
         quint64 centerFrequency = 0;
         quint64 previousListeningFrequency = 0;
+        quint64 targetFrequency = 0;
+        std::size_t blockIndex = 0;
+        bool wideRange = false;
+        bool starting = true;
     };
     std::optional<PendingScanStart> m_pendingScanStart;
+    bool m_stopScanAfterRetune = false;
+    std::optional<quint64> m_pendingWideListeningFrequency;
+    std::optional<sdr::app::WideRangeScanPlan> m_wideRangePlan;
+    std::size_t m_wideRangeBlockIndex = 0;
+    bool m_wideRangePlanDirty = false;
     std::optional<quint64> m_lastNotifiedScanCurrentFrequency;
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
@@ -618,6 +662,7 @@ private:
     QTimer m_scanPanelWidthPersistenceTimer;
     QTimer m_scanDwellTimer;
     QTimer m_scanResumeTimer;
+    QTimer m_scanSettlingTimer;
     QTimer m_scanActivityTimer;
     QTimer m_settingsPanelWidthPersistenceTimer;
     QTimer m_consolePanelWidthPersistenceTimer;

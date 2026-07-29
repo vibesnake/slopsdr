@@ -27,6 +27,18 @@ QVariantMap scanPresetAt(const ApplicationModel& model, qsizetype index)
     return model.scanPresets().at(index).toMap();
 }
 
+template <typename Predicate>
+bool waitFor(Predicate predicate, int timeoutMilliseconds = 1'000)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (!predicate() && timer.elapsed() < timeoutMilliseconds) {
+        QCoreApplication::processEvents();
+        QTest::qWait(5);
+    }
+    return predicate();
+}
+
 }  // namespace
 
 class ApplicationModelTest final : public QObject
@@ -53,6 +65,10 @@ private slots:
     void editsLoadedScanSettingsWithoutMutatingPreset();
     void ignoresMalformedStoredScanPresets();
     void loadsOutOfPassbandPresetWithoutStartingScanner();
+    void persistsWideRangeScanTypeAndLoadsLegacyPresets();
+    void retunesWideRangeOnlyBetweenCaptureBlocksAndWraps();
+    void recentersCurrentWideChannelAfterDynamicFilterWidening();
+    void suppressesSquelchWhileWideRangeTunerSettles();
     void rejectsScannerRangesThatCannotFitAfterCentering();
     void centersScannerRangeWithIntegerMidpoint();
     void givesActiveScannerExclusiveTuningControl();
@@ -761,6 +777,175 @@ void ApplicationModelTest::loadsOutOfPassbandPresetWithoutStartingScanner()
     QVERIFY(!model.scanValidationError().isEmpty());
     QVERIFY(!model.scanCanStart());
     QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+}
+
+void ApplicationModelTest::persistsWideRangeScanTypeAndLoadsLegacyPresets()
+{
+    ApplicationModel model;
+    model.setScanTypeIndex(1);
+    QCOMPARE(model.scanTypeIndex(), 1);
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Wide")));
+    QCOMPARE(
+        scanPresetAt(model, 0).value(QStringLiteral("scanType")).toString(),
+        QStringLiteral("wideRange"));
+
+    ApplicationModel restored;
+    QCOMPARE(restored.scanTypeIndex(), 1);
+    restored.selectScanPreset(
+        scanPresetAt(restored, 0).value(QStringLiteral("presetId")).toString());
+    QVERIFY(restored.loadSelectedScanPreset());
+    QCOMPARE(restored.scanTypeIndex(), 1);
+    QCOMPARE(restored.scanState(), QStringLiteral("Stopped"));
+
+    QVariantMap legacy;
+    legacy.insert(
+        QStringLiteral("id"),
+        QUuid::createUuid().toString(QUuid::WithoutBraces));
+    legacy.insert(QStringLiteral("name"), QStringLiteral("Legacy"));
+    legacy.insert(QStringLiteral("lowerFrequencyHz"), qulonglong{100'000'000});
+    legacy.insert(QStringLiteral("upperFrequencyHz"), qulonglong{101'000'000});
+    legacy.insert(QStringLiteral("stepSizeHz"), qulonglong{12'500});
+    legacy.insert(QStringLiteral("dwellMilliseconds"), 100);
+    legacy.insert(QStringLiteral("resumeDelayMilliseconds"), 200);
+    QSettings settings;
+    settings.setValue(QStringLiteral("scanner/presets"), QVariantList{legacy});
+    settings.setValue(QStringLiteral("scanner/scanType"), QStringLiteral("currentPassband"));
+    settings.sync();
+
+    ApplicationModel legacyRestored;
+    QCOMPARE(legacyRestored.scanPresets().size(), 1);
+    QCOMPARE(
+        scanPresetAt(legacyRestored, 0)
+            .value(QStringLiteral("scanType"))
+            .toString(),
+        QStringLiteral("currentPassband"));
+    legacyRestored.selectScanPreset(
+        scanPresetAt(legacyRestored, 0)
+            .value(QStringLiteral("presetId"))
+            .toString());
+    QVERIFY(legacyRestored.loadSelectedScanPreset());
+    QCOMPARE(legacyRestored.scanTypeIndex(), 0);
+}
+
+void ApplicationModelTest::retunesWideRangeOnlyBetweenCaptureBlocksAndWraps()
+{
+    ApplicationModel model;
+    model.startReception();
+    model.setScanTypeIndex(1);
+    model.setScanLowerFrequency(100'000'000);
+    model.setScanUpperFrequency(104'000'000);
+    model.setScanStepSize(1'000'000);
+    model.setScanDwellMilliseconds(100'000);
+    QVERIFY(model.scanValidationError().isEmpty());
+
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Retuning"));
+    QVERIFY(model.scannerOwnsTuning());
+    QVERIFY(waitFor([&model] {
+        return model.scanState() == QLatin1String("Running");
+    }));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{100'000'000});
+    QCOMPARE(model.listeningFrequency(), quint64{100'000'000});
+    QCOMPARE(model.scanCaptureBlockProgress(), QStringLiteral("1 of 3"));
+    const quint64 firstBlockCenter = model.centerFrequency();
+
+    model.pauseOrResumeScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+    model.skipScanFrequency();
+    QCOMPARE(model.scanCurrentFrequency(), quint64{101'000'000});
+    QCOMPARE(model.centerFrequency(), firstBlockCenter);
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+
+    model.skipScanFrequency();
+    QCOMPARE(model.scanCurrentFrequency(), quint64{102'000'000});
+    QCOMPARE(model.scanState(), QStringLiteral("Retuning"));
+    const quint64 secondBlockCenter = model.centerFrequency();
+    QVERIFY(secondBlockCenter != firstBlockCenter);
+    QVERIFY(waitFor([&model] {
+        return model.scanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(model.listeningFrequency(), quint64{102'000'000});
+    QCOMPARE(model.scanCaptureBlockProgress(), QStringLiteral("2 of 3"));
+
+    model.skipScanFrequency();
+    QCOMPARE(model.centerFrequency(), secondBlockCenter);
+    model.skipScanFrequency();
+    QCOMPARE(model.scanState(), QStringLiteral("Retuning"));
+    QVERIFY(waitFor([&model] {
+        return model.scanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{104'000'000});
+    QCOMPARE(model.scanCaptureBlockProgress(), QStringLiteral("3 of 3"));
+
+    model.skipScanFrequency();
+    QCOMPARE(model.scanState(), QStringLiteral("Retuning"));
+    QVERIFY(waitFor([&model] {
+        return model.scanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{100'000'000});
+    QCOMPARE(model.centerFrequency(), firstBlockCenter);
+    QCOMPARE(model.scanCaptureBlockProgress(), QStringLiteral("1 of 3"));
+}
+
+void ApplicationModelTest::recentersCurrentWideChannelAfterDynamicFilterWidening()
+{
+    ApplicationModel model;
+    model.startReception();
+    model.setScanTypeIndex(1);
+    model.setScanLowerFrequency(100'000'000);
+    model.setScanUpperFrequency(103'800'000);
+    model.setScanStepSize(1'900'000);
+    model.setScanDwellMilliseconds(100'000);
+    model.startScan();
+    QVERIFY(waitFor([&model] {
+        return model.scanState() == QLatin1String("Running");
+    }));
+    model.pauseOrResumeScan();
+    model.skipScanFrequency();
+    QCOMPARE(model.scanCurrentFrequency(), quint64{101'900'000});
+    const quint64 narrowCenter = model.centerFrequency();
+
+    model.setDemodulationModeIndex(
+        static_cast<int>(sdr::radio::DemodulationMode::Wfm));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{101'900'000});
+    QCOMPARE(model.scanState(), QStringLiteral("Retuning"));
+    QVERIFY(model.centerFrequency() != narrowCenter);
+    QVERIFY(waitFor([&model] {
+        return model.scanState() == QLatin1String("Paused");
+    }));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{101'900'000});
+    QCOMPARE(model.listeningFrequency(), quint64{101'900'000});
+    const quint64 wideCenter = model.centerFrequency();
+
+    model.setDemodulationModeIndex(
+        static_cast<int>(sdr::radio::DemodulationMode::Am));
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+    QCOMPARE(model.centerFrequency(), wideCenter);
+}
+
+void ApplicationModelTest::suppressesSquelchWhileWideRangeTunerSettles()
+{
+    auto backend = std::make_unique<sdr::radio::MockReceiverBackend>(
+        sdr::radio::MockReceiverConfiguration{
+            .ppmCorrectionSupported = true,
+            .startSucceeds = true,
+            .stopSucceeds = true,
+            .squelchOpen = true,
+        });
+    ApplicationModel model(std::move(backend));
+    model.startReception();
+    model.setScanTypeIndex(1);
+    model.setScanLowerFrequency(100'000'000);
+    model.setScanUpperFrequency(102'000'000);
+    model.setScanStepSize(1'000'000);
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Retuning"));
+    QVERIFY(!model.scanState().contains(QStringLiteral("Holding")));
+    QVERIFY(waitFor([&model] {
+        return model.scanState() ==
+               QLatin1String("Holding on squelch activity");
+    }));
+    QCOMPARE(model.scanCurrentFrequency(), quint64{100'000'000});
 }
 
 void ApplicationModelTest::rejectsScannerRangesThatCannotFitAfterCentering()
