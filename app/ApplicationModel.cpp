@@ -817,6 +817,12 @@ QAbstractItemModel* ApplicationModel::bookmarkModel() noexcept
     return &m_bookmarkModel;
 }
 
+bool ApplicationModel::bookmarkUpdateAvailable() const noexcept
+{
+    return !m_loadedBookmarkUuid.isEmpty() &&
+           m_bookmarkModel.visibleRowForUuid(m_loadedBookmarkUuid) >= 0;
+}
+
 sdr::app::ApplicationLogModel* ApplicationModel::applicationLog() noexcept
 {
     return &m_applicationLog;
@@ -1877,6 +1883,63 @@ void ApplicationModel::editBookmark(int visibleRow, const QVariantMap& fields)
     setStatusText(QStringLiteral("Bookmark updated"));
 }
 
+void ApplicationModel::updateCurrentBookmark(int selectedVisibleRow)
+{
+    QString targetUuid;
+    if (selectedVisibleRow >= 0) {
+        const QVariantMap selected = m_bookmarkModel.itemDetails(
+            selectedVisibleRow);
+        if (!selected.isEmpty() &&
+            !selected.value(QStringLiteral("isGroup")).toBool()) {
+            targetUuid = selected.value(QStringLiteral("uuid")).toString();
+        }
+    }
+    if (targetUuid.isEmpty()) {
+        targetUuid = m_loadedBookmarkUuid;
+    }
+    const int targetRow = m_bookmarkModel.visibleRowForUuid(targetUuid);
+    const auto currentDetails = m_bookmarkModel.itemDetails(targetRow);
+    if (targetRow < 0 || currentDetails.isEmpty() ||
+        currentDetails.value(QStringLiteral("isGroup")).toBool()) {
+        setStatusText(QStringLiteral("Select or tune a bookmark to update"));
+        return;
+    }
+
+    const auto* demodulator = sdr::radio::DemodulatorRegistry::findByMode(
+        receiverState().demodulationMode);
+    if (!demodulator) {
+        setStatusText(QStringLiteral(
+            "The current demodulator is unavailable for bookmarks"));
+        return;
+    }
+    const auto [filterLowHz, filterHighHz] = bookmarkFilterEdges(
+        receiverState().demodulationMode, filterWidth());
+    QVariantMap fields = currentDetails;
+    fields.insert(QStringLiteral("listeningFrequency"),
+        QVariant::fromValue<qulonglong>(listeningFrequency()));
+    fields.insert(QStringLiteral("requestedGain"), requestedGain());
+    fields.insert(QStringLiteral("demodulatorId"), QString::fromLatin1(
+        demodulator->id.data(),
+        static_cast<qsizetype>(demodulator->id.size())));
+    fields.insert(QStringLiteral("filterLowHz"),
+        QVariant::fromValue<qlonglong>(filterLowHz));
+    fields.insert(QStringLiteral("filterHighHz"),
+        QVariant::fromValue<qlonglong>(filterHighHz));
+    fields.insert(QStringLiteral("squelchThreshold"),
+        receiverState().squelchMode == sdr::radio::SquelchMode::Disabled
+            ? receiverState().manualSquelchLevelDb
+            : receiverState().squelchLevelDb);
+    fields.insert(QStringLiteral("squelchEnabled"),
+        receiverState().squelchMode != sdr::radio::SquelchMode::Disabled);
+    if (!m_bookmarkModel.updateBookmark(targetRow, fields)) {
+        setStatusText(QStringLiteral("Could not update the current bookmark"));
+        return;
+    }
+    m_loadedBookmarkUuid = targetUuid;
+    emit bookmarkUpdateAvailableChanged();
+    setStatusText(QStringLiteral("Bookmark updated"));
+}
+
 void ApplicationModel::renameBookmarkGroup(int visibleRow, const QString& name)
 {
     if (!m_bookmarkModel.renameGroup(visibleRow, name)) {
@@ -1907,6 +1970,9 @@ void ApplicationModel::tuneBookmark(int visibleRow)
             "Bookmark filter edges do not match its demodulator"));
         return;
     }
+    const bool applySquelch = bookmark->hasSavedSquelch;
+    const QString uuid = m_bookmarkModel.itemDetails(visibleRow)
+                             .value(QStringLiteral("uuid")).toString();
     if (m_runtime) {
         m_runtime->applyBookmark(
             bookmark->listeningFrequency,
@@ -1914,7 +1980,12 @@ void ApplicationModel::tuneBookmark(int visibleRow)
             static_cast<int>(*mode),
             *width,
             bookmark->squelchThresholdDb,
-            bookmark->squelchEnabled);
+            bookmark->squelchEnabled,
+            applySquelch);
+        if (m_loadedBookmarkUuid != uuid) {
+            m_loadedBookmarkUuid = uuid;
+            emit bookmarkUpdateAvailableChanged();
+        }
         return;
     }
     const auto previousState = m_receiver->state();
@@ -1929,13 +2000,18 @@ void ApplicationModel::tuneBookmark(int visibleRow)
         !apply(m_receiver->setGain(bookmark->requestedGainDb)) ||
         !apply(m_receiver->setDemodulationMode(*mode)) ||
         !apply(m_receiver->setFilterWidth(*width)) ||
-        !apply(m_receiver->setSquelchLevel(bookmark->squelchThresholdDb)) ||
-        (!bookmark->squelchEnabled && !apply(m_receiver->disableSquelch()))) {
+        (applySquelch &&
+         (!apply(m_receiver->setSquelchLevel(bookmark->squelchThresholdDb)) ||
+          (!bookmark->squelchEnabled && !apply(m_receiver->disableSquelch()))))) {
         notifyStateChanges(previousState, m_receiver->state(), false);
         return;
     }
     m_requestedGainDb = bookmark->requestedGainDb;
     notifyStateChanges(previousState, m_receiver->state(), true);
+    if (m_loadedBookmarkUuid != uuid) {
+        m_loadedBookmarkUuid = uuid;
+        emit bookmarkUpdateAvailableChanged();
+    }
     setStatusText(QStringLiteral("Bookmark tuned"));
 }
 

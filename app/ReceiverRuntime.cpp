@@ -1465,7 +1465,8 @@ public slots:
     }
 
     void applyBookmark(quint64 frequency, double requestedGainDb, int mode,
-        quint64 filterWidth, double squelchThresholdDb, bool squelchEnabled)
+        quint64 filterWidth, double squelchThresholdDb, bool squelchEnabled,
+        bool applySquelch)
     {
         if (!m_backend || mode < static_cast<int>(radio::DemodulationMode::Am) ||
             mode > static_cast<int>(
@@ -1491,8 +1492,9 @@ public slots:
                 !apply(m_backend->setGain(requestedGainDb)) ||
                 !apply(m_backend->setDemodulationMode(static_cast<radio::DemodulationMode>(mode))) ||
                 !apply(m_backend->setFilterWidth(filterWidth)) ||
-                !apply(m_backend->setSquelchLevel(squelchThresholdDb)) ||
-                (!squelchEnabled && !apply(m_backend->disableSquelch()))) {
+                (applySquelch &&
+                 (!apply(m_backend->setSquelchLevel(squelchThresholdDb)) ||
+                  (!squelchEnabled && !apply(m_backend->disableSquelch()))))) {
                 publishSnapshot(false);
                 return;
             }
@@ -3065,11 +3067,11 @@ void ReceiverRuntime::disableSquelch()
 
 void ReceiverRuntime::applyBookmark(quint64 frequency, double requestedGainDb,
     int demodulationMode, quint64 filterWidth,
-    double squelchThresholdDb, bool squelchEnabled)
+    double squelchThresholdDb, bool squelchEnabled, bool applySquelch)
 {
     markPending(QStringLiteral("Applying bookmark…"));
     emit applyBookmarkRequested(frequency, requestedGainDb, demodulationMode,
-        filterWidth, squelchThresholdDb, squelchEnabled);
+        filterWidth, squelchThresholdDb, squelchEnabled, applySquelch);
 }
 
 }  // namespace sdr::app

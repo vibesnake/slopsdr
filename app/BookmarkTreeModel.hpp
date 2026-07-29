@@ -29,6 +29,7 @@ struct BookmarkData {
     qint64 filterHighHz = 0;
     double squelchThresholdDb = -80.0;
     bool squelchEnabled = true;
+    bool hasSavedSquelch = true;
     QJsonObject modeSpecificSettings{{QStringLiteral("version"), 1}};
     bool scannerIncluded = false;
 };

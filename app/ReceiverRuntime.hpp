@@ -155,7 +155,8 @@ public slots:
     void disableSquelch();
     void applyBookmark(quint64 frequency, double requestedGainDb,
         int demodulationMode, quint64 filterWidth,
-        double squelchThresholdDb, bool squelchEnabled);
+        double squelchThresholdDb, bool squelchEnabled,
+        bool applySquelch = true);
 
 signals:
     void snapshotChanged(const sdr::app::ReceiverRuntimeSnapshot& snapshot);
@@ -207,7 +208,8 @@ signals:
     void disableSquelchRequested();
     void applyBookmarkRequested(quint64 frequency, double requestedGainDb,
         int demodulationMode, quint64 filterWidth,
-        double squelchThresholdDb, bool squelchEnabled);
+        double squelchThresholdDb, bool squelchEnabled,
+        bool applySquelch);
 
 private:
     class Worker;

@@ -60,6 +60,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(quint64 waterfallHistoryMemoryBudgetBytes READ waterfallHistoryMemoryBudgetBytes CONSTANT)
     Q_PROPERTY(double spectrumWaterfallSplitRatio READ spectrumWaterfallSplitRatio NOTIFY spectrumWaterfallSplitRatioChanged)
     Q_PROPERTY(QAbstractItemModel* bookmarkModel READ bookmarkModel CONSTANT)
+    Q_PROPERTY(bool bookmarkUpdateAvailable READ bookmarkUpdateAvailable NOTIFY bookmarkUpdateAvailableChanged)
     Q_PROPERTY(sdr::app::ApplicationLogModel* applicationLog READ applicationLog CONSTANT)
     Q_PROPERTY(QString sidebarMode READ sidebarMode NOTIFY sidebarModeChanged)
     Q_PROPERTY(bool bookmarksPanelOpen READ bookmarksPanelOpen NOTIFY sidebarModeChanged)
@@ -156,6 +157,7 @@ public:
     [[nodiscard]] quint64 waterfallHistoryMemoryBudgetBytes() const noexcept;
     [[nodiscard]] double spectrumWaterfallSplitRatio() const noexcept;
     [[nodiscard]] QAbstractItemModel* bookmarkModel() noexcept;
+    [[nodiscard]] bool bookmarkUpdateAvailable() const noexcept;
     [[nodiscard]] sdr::app::ApplicationLogModel* applicationLog() noexcept;
     [[nodiscard]] QString sidebarMode() const;
     [[nodiscard]] bool bookmarksPanelOpen() const noexcept;
@@ -269,6 +271,7 @@ public slots:
     bool confirmAddCurrentBookmark(const QString& name);
     void cancelAddCurrentBookmark();
     void editBookmark(int visibleRow, const QVariantMap& fields);
+    void updateCurrentBookmark(int selectedVisibleRow = -1);
     void renameBookmarkGroup(int visibleRow, const QString& name);
     void tuneBookmark(int visibleRow);
     void reportWaterfallHistoryMetrics(
@@ -317,6 +320,7 @@ signals:
     void waterfallSettingsChanged();
     void spectrumWaterfallSplitRatioChanged();
     void sidebarModeChanged();
+    void bookmarkUpdateAvailableChanged();
     void bookmarksPanelWidthChanged();
     void settingsPanelWidthChanged();
     void consolePanelWidthChanged();
@@ -468,6 +472,7 @@ private:
         sdr::app::BookmarkData bookmark;
     };
     std::optional<PendingBookmarkCreation> m_pendingBookmarkCreation;
+    QString m_loadedBookmarkUuid;
     QString m_sidebarMode = QStringLiteral("none");
     double m_bookmarksPanelWidth = 280.0;
     double m_settingsPanelWidth = 320.0;

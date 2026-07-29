@@ -94,6 +94,7 @@ private slots:
     void derivesAndUpdatesTriStateScannerInclusion();
     void editsItemsPreservesUuidsAndRemovesDescendants();
     void preservesUnknownJsonFieldsWhenEditing();
+    void loadsLegacyBookmarksWithoutSquelchFields();
     void recoversFromMissingMalformedAndUnsupportedFiles();
     void reordersAndMovesBookmarksWithoutChangingIdentityOrData();
     void rejectsInvalidBookmarkMovesWithoutSaving();
@@ -428,6 +429,52 @@ void BookmarkTreeModelTest::persistsNestedHierarchyExpansionAndUnknownModes()
     QCOMPARE(
         savedBookmark.value(QStringLiteral("filterHighHz")).toInt(),
         6'250);
+    QCOMPARE(
+        savedBookmark.value(QStringLiteral("squelchThresholdDb")).toDouble(),
+        -72.0);
+    QVERIFY(savedBookmark.value(QStringLiteral("squelchEnabled")).toBool());
+}
+
+void BookmarkTreeModelTest::loadsLegacyBookmarksWithoutSquelchFields()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("bookmarks.json"));
+    QString uuid;
+    {
+        BookmarkTreeModel seed(path);
+        QVERIFY(waitUntil([&seed] { return !seed.loading(); }));
+        uuid = seed.addBookmark(
+            -1, bookmark(QStringLiteral("Legacy"), QStringLiteral("am")));
+        QVERIFY(waitUntil([&seed] { return !seed.persistencePending(); }));
+    }
+
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QJsonObject document = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QJsonObject root = document.value(QStringLiteral("root")).toObject();
+    QJsonArray children = root.value(QStringLiteral("children")).toArray();
+    QJsonObject item = children.at(0).toObject();
+    item.remove(QStringLiteral("squelchThresholdDb"));
+    item.remove(QStringLiteral("squelchEnabled"));
+    children[0] = item;
+    root.insert(QStringLiteral("children"), children);
+    document.insert(QStringLiteral("root"), root);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(document).toJson());
+    file.close();
+
+    BookmarkTreeModel restored(path);
+    QVERIFY(waitUntil([&restored] { return !restored.loading(); }));
+    const int row = restored.visibleRowForUuid(uuid);
+    QVERIFY(row >= 0);
+    const auto loaded = restored.bookmarkAt(row);
+    QVERIFY(loaded.has_value());
+    QVERIFY(!loaded->hasSavedSquelch);
+    QCOMPARE(loaded->squelchThresholdDb, -80.0);
+    QVERIFY(loaded->squelchEnabled);
+    QVERIFY(restored.lastError().isEmpty());
 }
 
 void BookmarkTreeModelTest::derivesAndUpdatesTriStateScannerInclusion()

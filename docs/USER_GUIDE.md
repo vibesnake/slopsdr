@@ -198,9 +198,17 @@ it after a short pause, and Escape cancels the move.
 changing its UUID. **Remove** deletes the selected item and confirms before
 deleting a group with descendants.
 
+**Update Bookmark** overwrites the selected bookmark with the current
+frequency, requested gain, demodulator, filter, and squelch settings while
+preserving its name, group, and other saved metadata. After tuning a bookmark,
+the action keeps that bookmark's stable identity even if its frequency is
+shared with another bookmark. Add and update outcomes are shown in the
+application status line.
+
 Single-click an item to select it. Double-click a bookmark or select it and
 press **Tune** to restore its frequency, requested gain, mode, oriented filter,
-and manual/disabled squelch settings. Unavailable modes cannot be tuned. Tuning
+and saved manual/disabled squelch settings. Older bookmarks without saved
+squelch fields keep the receiver's current squelch settings. Unavailable modes cannot be tuned. Tuning
 does not start a stopped receiver, run Automatic Squelch, or clear waterfall
 history; a running receiver uses its live update paths.
 

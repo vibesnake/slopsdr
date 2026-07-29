@@ -32,6 +32,7 @@ private slots:
     void persistsAndClampsSidebarState();
     void persistsAndValidatesDsdFmeBinaryPath();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
+    void updatesBookmarksByStableIdentityAndPreservesMetadata();
     void supportsDigitTuning();
     void honorsDeviceSpecificDigitLimits();
     void enforcesFrequencyLimits();
@@ -427,6 +428,74 @@ void ApplicationModelTest::namesBookmarksBeforeCreatingCapturedReceiverState()
     model.cancelAddCurrentBookmark();
     QVERIFY(!model.confirmAddCurrentBookmark(QStringLiteral("Cancelled")));
     QCOMPARE(bookmarks->rowCount(), 3);
+}
+
+void ApplicationModelTest::updatesBookmarksByStableIdentityAndPreservesMetadata()
+{
+    ApplicationModel model;
+    auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(
+        model.bookmarkModel());
+    QVERIFY(bookmarks);
+
+    const auto add = [bookmarks](QString name, QString mode) {
+        sdr::app::BookmarkData data;
+        data.name = std::move(name);
+        data.listeningFrequency = 100'000'000;
+        data.requestedGainDb = 10.0;
+        data.demodulatorId = std::move(mode);
+        data.filterLowHz = 0;
+        data.filterHighHz = 2'700;
+        data.squelchThresholdDb = -70.0;
+        data.squelchEnabled = true;
+        data.modeSpecificSettings = {
+            {QStringLiteral("version"), 3},
+            {QStringLiteral("keep"), QStringLiteral("metadata")},
+        };
+        return bookmarks->addBookmark(-1, data);
+    };
+
+    const QString firstUuid = add(QStringLiteral("First"), QStringLiteral("am"));
+    const QString secondUuid = add(QStringLiteral("Second"), QStringLiteral("usb"));
+    const int secondRow = bookmarks->visibleRowForUuid(secondUuid);
+    model.tuneBookmark(secondRow);
+    QVERIFY(model.bookmarkUpdateAvailable());
+
+    model.setListeningFrequency(101'000'000);
+    model.setGain(24.0);
+    model.setFilterWidth(2'700);
+    model.setSquelchLevel(-55.0);
+    model.disableSquelch();
+    model.updateCurrentBookmark();
+    QCOMPARE(model.statusText(), QStringLiteral("Bookmark updated"));
+
+    const auto first = bookmarks->bookmarkAt(
+        bookmarks->visibleRowForUuid(firstUuid));
+    const auto second = bookmarks->bookmarkAt(
+        bookmarks->visibleRowForUuid(secondUuid));
+    QVERIFY(first.has_value());
+    QVERIFY(second.has_value());
+    QCOMPARE(first->name, QStringLiteral("First"));
+    QCOMPARE(first->listeningFrequency, quint64{100'000'000});
+    QCOMPARE(second->name, QStringLiteral("Second"));
+    QCOMPARE(second->listeningFrequency, quint64{101'000'000});
+    QCOMPARE(second->requestedGainDb, 24.0);
+    QCOMPARE(second->demodulatorId, QStringLiteral("usb"));
+    QCOMPARE(second->squelchThresholdDb, -55.0);
+    QVERIFY(!second->squelchEnabled);
+    QCOMPARE(
+        second->modeSpecificSettings.value(QStringLiteral("keep")).toString(),
+        QStringLiteral("metadata"));
+
+    sdr::app::BookmarkData legacy;
+    legacy.name = QStringLiteral("Legacy");
+    legacy.listeningFrequency = 102'000'000;
+    legacy.demodulatorId = QStringLiteral("am");
+    legacy.filterHighHz = 12'500;
+    legacy.hasSavedSquelch = false;
+    const QString legacyUuid = bookmarks->addBookmark(-1, legacy);
+    model.setSquelchLevel(-61.0);
+    model.tuneBookmark(bookmarks->visibleRowForUuid(legacyUuid));
+    QCOMPARE(model.squelchLevel(), -61.0);
 }
 
 void ApplicationModelTest::changesFftResolutionWithoutClearingHistoryAndRejectsOldSizeFrames()

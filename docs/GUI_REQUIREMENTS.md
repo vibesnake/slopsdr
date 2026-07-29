@@ -287,7 +287,11 @@ nested groups with independent expansion state and scanner-inclusion checkboxes.
 Group inclusion is derived as a tri-state value and updates all descendant
 bookmarks; no scan-execution control exists.
 
-The panel provides Add Group, Add Bookmark, Edit, Remove, and Tune actions.
+The panel provides Add Group, Add Bookmark, Update Bookmark, Edit, Remove, and
+Tune actions. Update Bookmark writes the current receiver-owned fields to the
+selected bookmark, or to the last bookmark loaded by stable UUID, while
+preserving its name, group, and other metadata. Its enabled state never relies
+on frequency matching.
 Actions follow selection validity, non-empty group removal requires
 confirmation, and a single click selects without tuning. Add Bookmark captures
 the current receiver fields when its modal name prompt opens, selects the
@@ -303,7 +307,8 @@ Double-click and Tune apply available bookmarks through asynchronous receiver
 controls without
 starting a stopped receiver, invoking one-shot Automatic Squelch, or clearing
 waterfall history. Unknown demodulator bookmarks remain editable but cannot be
-tuned.
+tuned. Bookmark files may omit the squelch fields for legacy data; such
+bookmarks remain loadable and leave the current receiver squelch unchanged.
 
 The spectrum and waterfall occupy a shared full-width display column separated
 by a subtle, hover-highlighted horizontal splitter. Dragging upward gives the

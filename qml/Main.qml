@@ -1506,10 +1506,27 @@ ApplicationWindow {
 
                     Button {
                         implicitHeight: 30
+                        objectName: "addBookmarkButton"
                         text: qsTr("Add Bookmark")
                         enabled: !root.applicationModel.bookmarkModel.loading
                         onClicked: bookmarkNameDialog.openForCurrentBookmark(
                                        bookmarkList.currentIndex)
+                    }
+
+                    Button {
+                        implicitHeight: 30
+                        objectName: "updateBookmarkButton"
+                        text: qsTr("Update Bookmark")
+                        enabled: !root.applicationModel.bookmarkModel.loading &&
+                                 ((bookmarkList.currentIndex >= 0 &&
+                                   bookmarkList.currentItem &&
+                                   !bookmarkList.currentItem.isGroup) ||
+                                  root.applicationModel.bookmarkUpdateAvailable)
+                        onClicked: root.applicationModel.updateCurrentBookmark(
+                                       bookmarkList.currentIndex)
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr(
+                            "Update the selected or last tuned bookmark")
                     }
 
                     Item { Layout.fillWidth: true }

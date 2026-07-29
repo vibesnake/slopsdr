@@ -358,6 +358,7 @@ bool BookmarkTreeModel::updateBookmark(int visibleRow, const QVariantMap& fields
     updated.filterHighHz = fields.value(QStringLiteral("filterHighHz")).toLongLong();
     updated.squelchThresholdDb = fields.value(QStringLiteral("squelchThreshold")).toDouble();
     updated.squelchEnabled = fields.value(QStringLiteral("squelchEnabled")).toBool();
+    updated.hasSavedSquelch = true;
     updated.modeSpecificSettings = QJsonObject::fromVariantMap(fields.value(QStringLiteral("modeSpecificSettings")).toMap());
     updated.scannerIncluded = fields.value(QStringLiteral("scannerIncluded")).toBool();
     if (updated.name.isEmpty() || updated.demodulatorId.isEmpty() ||
@@ -982,6 +983,12 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
         object.value(QStringLiteral("requestedGainDb"));
     const QJsonValue squelchThreshold =
         object.value(QStringLiteral("squelchThresholdDb"));
+    const QJsonValue squelchEnabled =
+        object.value(QStringLiteral("squelchEnabled"));
+    const bool hasSquelchThreshold = object.contains(
+        QStringLiteral("squelchThresholdDb"));
+    const bool hasSquelchEnabled = object.contains(
+        QStringLiteral("squelchEnabled"));
     if (!object.value(QStringLiteral("name")).isString() ||
         !strictUnsignedInteger(
             object.value(QStringLiteral("listeningFrequency")),
@@ -995,9 +1002,11 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
         !strictInteger(
             object.value(QStringLiteral("filterHighHz")), filterHighHz) ||
         filterLowHz > filterHighHz ||
-        !squelchThreshold.isDouble() ||
-        !std::isfinite(squelchThreshold.toDouble()) ||
-        !object.value(QStringLiteral("squelchEnabled")).isBool() ||
+        hasSquelchThreshold != hasSquelchEnabled ||
+        (hasSquelchThreshold &&
+         (!squelchThreshold.isDouble() ||
+          !std::isfinite(squelchThreshold.toDouble()) ||
+          !squelchEnabled.isBool())) ||
         !object.value(QStringLiteral("modeSpecificSettings")).isObject() ||
         !validModeSpecificSettings(
             object.value(QStringLiteral("modeSpecificSettings")).toObject()) ||
@@ -1014,9 +1023,13 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
         object.value(QStringLiteral("demodulatorId")).toString().trimmed();
     bookmark.filterLowHz = filterLowHz;
     bookmark.filterHighHz = filterHighHz;
-    bookmark.squelchThresholdDb = squelchThreshold.toDouble();
-    bookmark.squelchEnabled =
-        object.value(QStringLiteral("squelchEnabled")).toBool();
+    bookmark.squelchThresholdDb = hasSquelchThreshold
+        ? squelchThreshold.toDouble()
+        : bookmark.squelchThresholdDb;
+    bookmark.squelchEnabled = hasSquelchEnabled
+        ? squelchEnabled.toBool()
+        : bookmark.squelchEnabled;
+    bookmark.hasSavedSquelch = hasSquelchThreshold;
     bookmark.modeSpecificSettings =
         object.value(QStringLiteral("modeSpecificSettings")).toObject();
     bookmark.scannerIncluded =
