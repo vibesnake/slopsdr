@@ -266,7 +266,7 @@ ApplicationWindow {
                 Layout.minimumWidth: 95
                 Layout.preferredWidth: 95
                 Layout.maximumWidth: 95
-                implicitHeight: 28
+                Layout.preferredHeight: 28
                 text: qsTr("%1%").arg(pane.applicationModel.displayZoomPercentage)
                 color: "#d8e1f0"
                 horizontalAlignment: Text.AlignHCenter
