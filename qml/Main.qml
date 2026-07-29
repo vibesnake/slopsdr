@@ -261,12 +261,21 @@ ApplicationWindow {
             visible: pane.waterfallInteraction
             spacing: 5
 
-            Button {
+            Label {
+                id: zoomIndicator
+                Layout.minimumWidth: 95
+                Layout.preferredWidth: 95
+                Layout.maximumWidth: 95
                 implicitHeight: 28
-                text: qsTr("Reset zoom")
-                enabled: pane.applicationModel.displayZoomFactor > 1.0001
-                Accessible.name: qsTr("Reset spectrum and waterfall zoom")
-                onClicked: pane.applicationModel.resetDisplayZoom()
+                text: qsTr("%1%").arg(pane.applicationModel.displayZoomPercentage)
+                color: "#d8e1f0"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                Accessible.name: qsTr("Spectrum and waterfall zoom")
+
+                HoverHandler { id: zoomIndicatorHover }
+                ToolTip.visible: zoomIndicatorHover.hovered
+                ToolTip.text: qsTr("Spectrum and waterfall zoom")
             }
 
             Label {

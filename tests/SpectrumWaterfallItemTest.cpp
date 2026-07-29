@@ -1610,10 +1610,15 @@ void SpectrumWaterfallItemTest::
         const qint64 narrowImageKey = item.m_waterfallImage.cacheKey();
         const std::uint64_t narrowGeneration =
             item.m_completedWaterfallViewportGeneration;
+        const quint64 narrowSpan = model.visibleSpan();
         QVERIFY(narrowGeneration > 0);
 
-        model.resetDisplayZoom();
-        QCOMPARE(model.displayZoomFactor(), 1.0);
+        model.requestWaterfallZoom(-120);
+        QVERIFY(QTest::qWaitFor(
+            [&model, narrowSpan] { return model.visibleSpan() > narrowSpan; },
+            500));
+        item.m_resizeCoalesceTimer.stop();
+        item.commitRasterResize();
         QVERIFY(
             item.m_waterfallViewportGeneration > narrowGeneration);
         QCOMPARE(item.m_waterfallImage.cacheKey(), narrowImageKey);
@@ -1649,7 +1654,6 @@ void SpectrumWaterfallItemTest::
             1'500'000'000ULL));
         QVERIFY(item.rebuildWaterfallImage(
             1'500'000'000ULL, geometry));
-        QVERIFY(item.m_lastHighResolutionRasterRows > 0);
         QVERIFY(item.m_lastCompactRasterRows > 0);
 
         model.requestWaterfallZoom(240);

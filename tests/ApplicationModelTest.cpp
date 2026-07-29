@@ -36,8 +36,9 @@ private slots:
     void honorsDeviceSpecificDigitLimits();
     void enforcesFrequencyLimits();
     void keepsSpectrumTuningDistinctFromWaterfallZoom();
+    void reportsDisplayZoomPercentage();
     void anchorsWaterfallZoomAtListeningFrequency();
-    void clampsZoomAndResetsViewport();
+    void clampsZoomAndViewport();
     void supportsPartialPassbandAtDeviceRfLimit();
     void coalescesFractionalWaterfallZoomInput();
     void preservesOrClampsZoomAcrossCaptureAndFftChanges();
@@ -612,6 +613,59 @@ void ApplicationModelTest::keepsSpectrumTuningDistinctFromWaterfallZoom()
     QCOMPARE(model.listeningPosition(), 0.5);
 }
 
+void ApplicationModelTest::reportsDisplayZoomPercentage()
+{
+    ApplicationModel model;
+    QSignalSpy viewportChanges(
+        &model, &ApplicationModel::visibleRangeChanged);
+
+    QCOMPARE(model.displayZoomPercentage(), quint64{100});
+
+    model.requestWaterfallZoom(240);
+    QVERIFY(QTest::qWaitFor(
+        [&model] { return model.displayZoomPercentage() > 100; }, 500));
+    QCOMPARE(
+        model.displayZoomPercentage(),
+        static_cast<quint64>(std::llround(model.displayZoomFactor() * 100.0)));
+    const auto afterZoom = viewportChanges.count();
+
+    model.setSampleRate(1'000'000);
+    QVERIFY(viewportChanges.count() > afterZoom);
+    QCOMPARE(
+        model.displayZoomPercentage(),
+        static_cast<quint64>(std::llround(model.displayZoomFactor() * 100.0)));
+
+    const auto afterCaptureBandwidth = viewportChanges.count();
+    model.setCenterFrequencyText(QStringLiteral("101000000"));
+    QVERIFY(viewportChanges.count() > afterCaptureBandwidth);
+    QCOMPARE(
+        model.displayZoomPercentage(),
+        static_cast<quint64>(std::llround(model.displayZoomFactor() * 100.0)));
+
+    sdr::radio::ReceiverLimits limits;
+    limits.frequency = {500'000, 1'766'000'000};
+    limits.allowsPartialPassbandAtFrequencyEdges = true;
+    auto backend = std::make_unique<sdr::radio::MockReceiverBackend>(
+        sdr::radio::MockReceiverConfiguration{}, limits);
+    ApplicationModel limitedModel(std::move(backend));
+    limitedModel.setDeviceFrequencyRanges({limits.frequency});
+    limitedModel.setSampleRate(2'400'000);
+    limitedModel.setCenterFrequencyText(QStringLiteral("500000"));
+    limitedModel.requestWaterfallZoom(120);
+    QVERIFY(QTest::qWaitFor(
+        [&limitedModel] { return limitedModel.displayZoomPercentage() > 100; },
+        500));
+    QSignalSpy deviceLimitChanges(
+        &limitedModel, &ApplicationModel::visibleRangeChanged);
+    const auto beforeDeviceLimits = deviceLimitChanges.count();
+    limitedModel.setDeviceFrequencyRanges({{500'000, 1'200'000}});
+    QVERIFY(deviceLimitChanges.count() > beforeDeviceLimits);
+    QCOMPARE(
+        limitedModel.displayZoomPercentage(),
+        static_cast<quint64>(
+            std::llround(limitedModel.displayZoomFactor() * 100.0)));
+}
+
 void ApplicationModelTest::anchorsWaterfallZoomAtListeningFrequency()
 {
     sdr::app::FrequencyViewport viewport(
@@ -629,7 +683,7 @@ void ApplicationModelTest::anchorsWaterfallZoomAtListeningFrequency()
     QCOMPARE(viewport.visibleRange().maximum, quint64{101'000'000});
 }
 
-void ApplicationModelTest::clampsZoomAndResetsViewport()
+void ApplicationModelTest::clampsZoomAndViewport()
 {
     sdr::app::FrequencyViewport viewport(
         100'000'000, 2'000'000, 4'096, 12'500);
@@ -640,9 +694,6 @@ void ApplicationModelTest::clampsZoomAndResetsViewport()
     QVERIFY(viewport.zoomBySteps(99'000'000, -80.0));
     QCOMPARE(viewport.visibleSpan(), quint64{2'000'000});
     QVERIFY(!viewport.zoomBySteps(100'000'000, -1.0));
-    QVERIFY(viewport.zoomBySteps(100'000'000, 2.0));
-    QVERIFY(viewport.reset());
-    QCOMPARE(viewport.zoomFactor(), 1.0);
 
     sdr::app::FrequencyViewport upperEdgeViewport(
         100'000'000, 2'000'000, 4'096, 12'500);
@@ -1044,7 +1095,9 @@ void ApplicationModelTest::shiftWheelTunesListeningAndRecentersWhenZoomed()
     QCOMPARE(model.visibleSpan(), span);
     QCOMPARE(model.displayZoomFactor(), zoom);
 
-    model.resetDisplayZoom();
+    model.requestWaterfallZoom(-240);
+    QVERIFY(QTest::qWaitFor(
+        [&model] { return model.displayZoomPercentage() == 100; }, 500));
     viewportChanges.clear();
     model.handleFrequencyWheel(true, -120, Qt::ShiftModifier);
     QCOMPARE(model.listeningFrequency(), center);

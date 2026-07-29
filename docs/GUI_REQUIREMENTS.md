@@ -69,7 +69,9 @@ The spectrum and waterfall follow distinct interaction rules:
 The shared C++ viewport keeps hardware center/capture span separate from visible
 center/span and supplies one absolute-frequency mapping to the spectrum,
 waterfall, labels, filter gate markers, click tuning, and retained
-history reprojection. **Reset zoom** restores the full effective capture span.
+history reprojection. A read-only zoom indicator reports the rounded whole
+percentage of the full effective capture span relative to the current visible
+span, with a minimum of 100%.
 At a device RF limit, that effective span is the intersection of nominal FFT
 coverage and the device-advertised RF range; clipped FFT bins retain their
 original RF coordinates and are not redistributed across the visible width.

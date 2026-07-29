@@ -32,7 +32,8 @@ bool FrequencyViewport::configureCapture(
     if (!captureRange.has_value()) {
         return false;
     }
-    const auto previousRange = m_visibleRange;
+    const auto previousCaptureRange = m_captureRange;
+    const auto previousVisibleRange = m_visibleRange;
     const double previousZoomFactor = zoomFactor();
     m_captureRange = *captureRange;
     m_nominalCaptureSpan = captureSpan;
@@ -40,8 +41,10 @@ bool FrequencyViewport::configureCapture(
     updateMinimumSpan();
     if (previousZoomFactor <= 1.0) {
         m_visibleRange = m_captureRange;
-        return m_visibleRange.minimum != previousRange.minimum ||
-               m_visibleRange.maximum != previousRange.maximum;
+        return m_captureRange.minimum != previousCaptureRange.minimum ||
+               m_captureRange.maximum != previousCaptureRange.maximum ||
+               m_visibleRange.minimum != previousVisibleRange.minimum ||
+               m_visibleRange.maximum != previousVisibleRange.maximum;
     }
     const std::uint64_t preservedSpan = std::clamp(
         static_cast<std::uint64_t>(std::llround(
@@ -51,7 +54,9 @@ bool FrequencyViewport::configureCapture(
     const auto oldVisible = m_visibleRange;
     m_visibleRange = m_captureRange;
     (void)setVisibleSpanAnchored(preservedSpan, listeningFrequency, 0.5);
-    return m_visibleRange.minimum != oldVisible.minimum ||
+    return m_captureRange.minimum != previousCaptureRange.minimum ||
+           m_captureRange.maximum != previousCaptureRange.maximum ||
+           m_visibleRange.minimum != oldVisible.minimum ||
            m_visibleRange.maximum != oldVisible.maximum;
 }
 
@@ -119,17 +124,6 @@ bool FrequencyViewport::centerOn(std::uint64_t frequency) noexcept
         return false;
     }
     m_visibleRange = updated;
-    return true;
-}
-
-bool FrequencyViewport::reset() noexcept
-{
-    if (!m_valid ||
-        (m_visibleRange.minimum == m_captureRange.minimum &&
-         m_visibleRange.maximum == m_captureRange.maximum)) {
-        return false;
-    }
-    m_visibleRange = m_captureRange;
     return true;
 }
 

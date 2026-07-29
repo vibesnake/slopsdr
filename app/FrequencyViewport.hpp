@@ -47,7 +47,6 @@ public:
         std::uint64_t listeningFrequency,
         double wheelSteps) noexcept;
     [[nodiscard]] bool centerOn(std::uint64_t frequency) noexcept;
-    [[nodiscard]] bool reset() noexcept;
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] sdr::radio::FrequencyRange captureRange() const noexcept;

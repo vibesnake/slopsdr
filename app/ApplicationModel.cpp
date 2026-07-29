@@ -716,6 +716,20 @@ double ApplicationModel::displayZoomFactor() const noexcept
     return m_frequencyViewport.zoomFactor();
 }
 
+quint64 ApplicationModel::displayZoomPercentage() const noexcept
+{
+    const quint64 fullSpan = m_frequencyViewport.captureSpan();
+    const quint64 currentSpan = m_frequencyViewport.visibleSpan();
+    if (fullSpan == 0 || currentSpan == 0) {
+        return 100;
+    }
+    return static_cast<quint64>(std::max(
+        100.0,
+        std::round(
+            static_cast<double>(fullSpan) /
+            static_cast<double>(currentSpan) * 100.0)));
+}
+
 quint64 ApplicationModel::sampleRate() const noexcept
 {
     return receiverState().sampleRate;
@@ -1530,14 +1544,6 @@ void ApplicationModel::requestWaterfallZoom(int wheelDelta)
         ++m_coalescedWaterfallZoomEvents;
     }
     queueViewportWheelAction(PendingViewportWheelAction::Zoom, wheelDelta);
-}
-
-void ApplicationModel::resetDisplayZoom()
-{
-    discardPendingViewportWheelAction();
-    if (m_frequencyViewport.reset()) {
-        emitFrequencyViewportChanges();
-    }
 }
 
 void ApplicationModel::selectListeningFrequencyAt(

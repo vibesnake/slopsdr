@@ -346,9 +346,10 @@ A waterfall click maps its horizontal position in C++ and changes only the
 listening frequency. A waterfall wheel action changes only the visible span,
 using exponential steps and preserving the listening frequency's old normalized
 position. Capture-edge clamping moves that anchor only as far as required.
-Fractional wheel deltas accumulate before a viewport update, and **Reset zoom**
-restores the effective capture span. The event is consumed by the waterfall and
-cannot scroll a surrounding view.
+Fractional wheel deltas accumulate before a viewport update. The toolbar's
+read-only zoom indicator reports the rounded whole percentage of the effective
+capture span relative to the current visible span, with a minimum of 100%. The
+event is consumed by the waterfall and cannot scroll a surrounding view.
 
 Normal wheel movement over the spectrum retains hardware-center tuning. Its
 default step is 10 kHz and is configurable in the waterfall header. Upward
