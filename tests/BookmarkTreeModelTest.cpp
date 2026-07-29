@@ -92,6 +92,7 @@ private slots:
     void resolvesStableDemodulatorIdsWithoutOrdinals();
     void persistsNestedHierarchyExpansionAndUnknownModes();
     void derivesAndUpdatesTriStateScannerInclusion();
+    void snapshotsCheckedBookmarksInSavedOrder();
     void editsItemsPreservesUuidsAndRemovesDescendants();
     void preservesUnknownJsonFieldsWhenEditing();
     void loadsLegacyBookmarksWithoutSquelchFields();
@@ -520,6 +521,32 @@ void BookmarkTreeModelTest::derivesAndUpdatesTriStateScannerInclusion()
     QCOMPARE(
         checkState(restored, restored.visibleRowForUuid(groupUuid)),
         static_cast<int>(Qt::Unchecked));
+}
+
+void BookmarkTreeModelTest::snapshotsCheckedBookmarksInSavedOrder()
+{
+    QTemporaryDir directory;
+    BookmarkTreeModel model(directory.filePath(QStringLiteral("bookmarks.json")));
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+    const QString first = model.addBookmark(
+        -1, bookmark(QStringLiteral("First"), QStringLiteral("am"), true));
+    const QString skipped = model.addBookmark(
+        -1, bookmark(QStringLiteral("Skipped"), QStringLiteral("am")));
+    const QString last = model.addBookmark(
+        -1, bookmark(QStringLiteral("Last"), QStringLiteral("usb"), true));
+    QVERIFY(waitUntil([&model] { return !model.persistencePending(); }));
+    QVERIFY(model.moveBookmark(last, first, QStringLiteral("before")));
+
+    const auto snapshot = model.scannerBookmarks();
+    QCOMPARE(snapshot.size(), std::size_t{2});
+    QCOMPARE(snapshot.at(0).uuid, last);
+    QCOMPARE(snapshot.at(0).bookmark.name, QStringLiteral("Last"));
+    QCOMPARE(snapshot.at(1).uuid, first);
+    QCOMPARE(snapshot.at(1).bookmark.name, QStringLiteral("First"));
+    QVERIFY(std::none_of(snapshot.cbegin(), snapshot.cend(),
+        [&skipped](const sdr::app::BookmarkSnapshot& entry) {
+            return entry.uuid == skipped;
+        }));
 }
 
 void BookmarkTreeModelTest::recoversFromMissingMalformedAndUnsupportedFiles()

@@ -2307,7 +2307,9 @@ ApplicationWindow {
                             Layout.fillWidth: true
                             text: root.applicationModel.scanTypeIndex === 0
                                   ? qsTr("Centers the SDR once on Start, then scans within that fixed usable capture passband.")
-                                  : qsTr("Plans safe capture blocks and retunes the SDR only between blocks.")
+                                  : (root.applicationModel.scanTypeIndex === 1
+                                     ? qsTr("Plans safe capture blocks and retunes the SDR only between blocks.")
+                                     : qsTr("Scans checked bookmarks in their saved order."))
                             color: root.secondaryTextColor
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
@@ -2324,38 +2326,50 @@ ApplicationWindow {
                                 objectName: "scanTypeControl"
                                 Layout.fillWidth: true
                                 enabled: !root.applicationModel.scannerOwnsTuning
-                                model: [qsTr("Current passband"), qsTr("Wide range")]
+                                model: [qsTr("Current passband"), qsTr("Wide range"), qsTr("Bookmarks")]
                                 currentIndex: root.applicationModel.scanTypeIndex
                                 onActivated: root.applicationModel.setScanTypeIndex(currentIndex)
                             }
 
-                            Label { text: qsTr("Lower frequency"); color: root.secondaryTextColor }
+                            Label {
+                                visible: root.applicationModel.scanTypeIndex !== 2
+                                text: qsTr("Lower frequency"); color: root.secondaryTextColor
+                            }
                             TextField {
                                 objectName: "scanLowerFrequencyField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scannerOwnsTuning
+                                visible: root.applicationModel.scanTypeIndex !== 2
+                                enabled: visible && !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanLowerFrequency.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
                                 onEditingFinished: root.applicationModel.setScanLowerFrequency(Number(text))
                             }
 
-                            Label { text: qsTr("Upper frequency"); color: root.secondaryTextColor }
+                            Label {
+                                visible: root.applicationModel.scanTypeIndex !== 2
+                                text: qsTr("Upper frequency"); color: root.secondaryTextColor
+                            }
                             TextField {
                                 objectName: "scanUpperFrequencyField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scannerOwnsTuning
+                                visible: root.applicationModel.scanTypeIndex !== 2
+                                enabled: visible && !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanUpperFrequency.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
                                 onEditingFinished: root.applicationModel.setScanUpperFrequency(Number(text))
                             }
 
-                            Label { text: qsTr("Step size"); color: root.secondaryTextColor }
+                            Label {
+                                visible: root.applicationModel.scanTypeIndex !== 2
+                                text: qsTr("Step size"); color: root.secondaryTextColor
+                            }
                             TextField {
                                 objectName: "scanStepSizeField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scannerOwnsTuning
+                                visible: root.applicationModel.scanTypeIndex !== 2
+                                enabled: visible && !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanStepSize.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
@@ -2441,6 +2455,30 @@ ApplicationWindow {
                                 Layout.fillWidth: true
                                 text: root.applicationModel.scanCurrentFrequency === 0
                                       ? "—" : root.applicationModel.scanCurrentFrequency + qsTr(" Hz")
+                                color: root.primaryTextColor
+                            }
+                            Label {
+                                visible: root.applicationModel.scanTypeIndex === 2
+                                text: qsTr("Bookmark"); color: root.secondaryTextColor; font.pixelSize: 10
+                            }
+                            Label {
+                                objectName: "scanCurrentBookmarkDisplay"
+                                visible: root.applicationModel.scanTypeIndex === 2
+                                Layout.fillWidth: true
+                                text: root.applicationModel.scanCurrentBookmarkName.length === 0
+                                      ? "—" : root.applicationModel.scanCurrentBookmarkName
+                                color: root.primaryTextColor
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                visible: root.applicationModel.scanTypeIndex === 2
+                                text: qsTr("Position"); color: root.secondaryTextColor; font.pixelSize: 10
+                            }
+                            Label {
+                                objectName: "scanBookmarkPositionDisplay"
+                                visible: root.applicationModel.scanTypeIndex === 2
+                                Layout.fillWidth: true
+                                text: root.applicationModel.scanBookmarkPosition
                                 color: root.primaryTextColor
                             }
                             Label { text: qsTr("Listening"); color: root.secondaryTextColor; font.pixelSize: 10 }
@@ -2643,7 +2681,9 @@ ApplicationWindow {
                                                     Layout.fillWidth: true
                                                     text: scanPresetDelegate.preset.scanType === "wideRange"
                                                           ? qsTr("Wide range")
-                                                          : qsTr("Current passband")
+                                                          : (scanPresetDelegate.preset.scanType === "bookmarks"
+                                                             ? qsTr("Bookmarks")
+                                                             : qsTr("Current passband"))
                                                     color: root.secondaryTextColor
                                                     font.pixelSize: 9
                                                     elide: Text.ElideRight

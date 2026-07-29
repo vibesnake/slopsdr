@@ -81,6 +81,8 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(int scanDwellMilliseconds READ scanDwellMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(int scanResumeDelayMilliseconds READ scanResumeDelayMilliseconds NOTIFY scannerChanged)
     Q_PROPERTY(quint64 scanCurrentFrequency READ scanCurrentFrequency NOTIFY scanCurrentFrequencyChanged)
+    Q_PROPERTY(QString scanCurrentBookmarkName READ scanCurrentBookmarkName NOTIFY scannerChanged)
+    Q_PROPERTY(QString scanBookmarkPosition READ scanBookmarkPosition NOTIFY scannerChanged)
     Q_PROPERTY(QString scanCaptureBlockProgress READ scanCaptureBlockProgress NOTIFY scannerChanged)
     Q_PROPERTY(QString scanState READ scanState NOTIFY scannerChanged)
     Q_PROPERTY(QString scanStatusMessage READ scanStatusMessage NOTIFY scannerChanged)
@@ -204,6 +206,8 @@ public:
     [[nodiscard]] int scanDwellMilliseconds() const noexcept;
     [[nodiscard]] int scanResumeDelayMilliseconds() const noexcept;
     [[nodiscard]] quint64 scanCurrentFrequency() const noexcept;
+    [[nodiscard]] QString scanCurrentBookmarkName() const;
+    [[nodiscard]] QString scanBookmarkPosition() const;
     [[nodiscard]] QString scanCaptureBlockProgress() const;
     [[nodiscard]] QString scanState() const;
     [[nodiscard]] QString scanStatusMessage() const;
@@ -575,6 +579,7 @@ private:
     wideRangeCaptureGeometry() const;
     [[nodiscard]] sdr::app::WideRangePlanResult makeWideRangePlan() const;
     [[nodiscard]] bool wideRangeScanActive() const noexcept;
+    [[nodiscard]] bool bookmarkScanActive() const noexcept;
     [[nodiscard]] bool scannerRetuning() const noexcept;
     [[nodiscard]] bool refreshWideRangePlan();
     enum class WideTuneResult {
@@ -583,6 +588,15 @@ private:
         Failed,
     };
     [[nodiscard]] WideTuneResult tuneWideScannerTo(quint64 frequency);
+    [[nodiscard]] WideTuneResult tuneBookmarkScannerTo(std::size_t index);
+    void requestBookmarkScannerCenter(
+        quint64 centerFrequency, std::size_t bookmarkIndex, bool starting);
+    void applyBookmarkScannerEntry(std::size_t bookmarkIndex);
+    void finishBookmarkScannerEntry();
+    [[nodiscard]] QString bookmarkScanValidationError(
+        const std::vector<sdr::app::BookmarkSnapshot>& bookmarks) const;
+    [[nodiscard]] std::optional<sdr::app::BookmarkSnapshot>
+    bookmarkScanEntry() const;
     void requestScannerCenter(
         quint64 centerFrequency,
         quint64 targetFrequency,
@@ -657,11 +671,15 @@ private:
         quint64 targetFrequency = 0;
         std::size_t blockIndex = 0;
         bool wideRange = false;
+        bool bookmark = false;
         bool starting = true;
     };
     std::optional<PendingScanStart> m_pendingScanStart;
     bool m_stopScanAfterRetune = false;
     std::optional<quint64> m_pendingWideListeningFrequency;
+    std::optional<quint64> m_pendingBookmarkListeningFrequency;
+    std::vector<sdr::app::BookmarkSnapshot> m_bookmarkScanBookmarks;
+    bool m_bookmarkScannerAwaitingSettle = false;
     std::optional<sdr::app::WideRangeScanPlan> m_wideRangePlan;
     std::size_t m_wideRangeBlockIndex = 0;
     bool m_wideRangePlanDirty = false;

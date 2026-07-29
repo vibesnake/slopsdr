@@ -61,10 +61,23 @@ constexpr auto scanTypeSetting = "scanner/scanType";
 constexpr auto scanPresetsSetting = "scanner/presets";
 constexpr auto currentPassbandScanType = "currentPassband";
 constexpr auto wideRangeScanType = "wideRange";
+constexpr auto bookmarkScanType = "bookmarks";
 constexpr int currentPassbandScanTypeIndex = 0;
 constexpr int wideRangeScanTypeIndex = 1;
+constexpr int bookmarkScanTypeIndex = 2;
 constexpr int scannerTunerSettlingMilliseconds = 100;
 constexpr quint64 scannerCaptureEdgeGuardDivisor = 100;
+
+QString scanTypeName(int scanTypeIndex)
+{
+    if (scanTypeIndex == wideRangeScanTypeIndex) {
+        return QString::fromLatin1(wideRangeScanType);
+    }
+    if (scanTypeIndex == bookmarkScanTypeIndex) {
+        return QString::fromLatin1(bookmarkScanType);
+    }
+    return QString::fromLatin1(currentPassbandScanType);
+}
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
 constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
@@ -751,7 +764,9 @@ void ApplicationModel::restorePersistedScanSettings()
         scanTypeSetting, QString::fromLatin1(currentPassbandScanType)).toString();
     m_scanTypeIndex = storedScanType == QLatin1String(wideRangeScanType)
                           ? wideRangeScanTypeIndex
-                          : currentPassbandScanTypeIndex;
+                          : (storedScanType == QLatin1String(bookmarkScanType)
+                                 ? bookmarkScanTypeIndex
+                                 : currentPassbandScanTypeIndex);
     const auto passband = m_frequencyViewport.captureRange();
     const auto storedLower =
         persistedUnsignedInteger(settings, scanLowerFrequencySetting);
@@ -822,7 +837,8 @@ void ApplicationModel::restorePersistedScanPresets()
         const QString foldedName = name.toCaseFolded();
         if (uuid.isNull() || name.isEmpty() ||
             (scanType != QLatin1String(currentPassbandScanType) &&
-             scanType != QLatin1String(wideRangeScanType)) ||
+             scanType != QLatin1String(wideRangeScanType) &&
+             scanType != QLatin1String(bookmarkScanType)) ||
             !lower.has_value() || !upper.has_value() || !step.has_value() ||
             !dwell.has_value() || !resumeDelay.has_value() ||
             *lower > *upper || *step == 0 || *dwell <= 0 ||
@@ -924,7 +940,9 @@ void ApplicationModel::applyScanPresetConfiguration(
 {
     m_scanTypeIndex = scanType == QLatin1String(wideRangeScanType)
                           ? wideRangeScanTypeIndex
-                          : currentPassbandScanTypeIndex;
+                          : (scanType == QLatin1String(bookmarkScanType)
+                                 ? bookmarkScanTypeIndex
+                                 : currentPassbandScanTypeIndex);
     m_scanLowerFrequency = settings.lowerFrequency;
     m_scanUpperFrequency = settings.upperFrequency;
     m_scanStepSize = settings.stepSize;
@@ -935,12 +953,7 @@ void ApplicationModel::applyScanPresetConfiguration(
     m_wideRangePlanDirty = true;
 
     QSettings persistedSettings;
-    persistedSettings.setValue(
-        scanTypeSetting,
-        QString::fromLatin1(
-            m_scanTypeIndex == wideRangeScanTypeIndex
-                ? wideRangeScanType
-                : currentPassbandScanType));
+    persistedSettings.setValue(scanTypeSetting, scanTypeName(m_scanTypeIndex));
     persistedSettings.setValue(scanLowerFrequencySetting, m_scanLowerFrequency);
     persistedSettings.setValue(scanUpperFrequencySetting, m_scanUpperFrequency);
     persistedSettings.setValue(scanStepSizeSetting, m_scanStepSize);
@@ -1254,7 +1267,28 @@ int ApplicationModel::scanResumeDelayMilliseconds() const noexcept
 
 quint64 ApplicationModel::scanCurrentFrequency() const noexcept
 {
+    if (const auto bookmark = bookmarkScanEntry()) {
+        return bookmark->bookmark.listeningFrequency;
+    }
     return m_scanner.currentFrequency();
+}
+
+QString ApplicationModel::scanCurrentBookmarkName() const
+{
+    if (const auto bookmark = bookmarkScanEntry()) {
+        return bookmark->bookmark.name;
+    }
+    return {};
+}
+
+QString ApplicationModel::scanBookmarkPosition() const
+{
+    if (!bookmarkScanActive() || m_bookmarkScanBookmarks.empty()) {
+        return QStringLiteral("—");
+    }
+    return QStringLiteral("%1 of %2")
+        .arg(static_cast<qulonglong>(m_scanner.currentFrequency() + 1))
+        .arg(static_cast<qulonglong>(m_bookmarkScanBookmarks.size()));
 }
 
 QString ApplicationModel::scanCaptureBlockProgress() const
@@ -2402,7 +2436,8 @@ void ApplicationModel::commitScanPanelWidth()
 void ApplicationModel::setScanTypeIndex(int scanTypeIndex)
 {
     if (scanTypeIndex != currentPassbandScanTypeIndex &&
-        scanTypeIndex != wideRangeScanTypeIndex) {
+        scanTypeIndex != wideRangeScanTypeIndex &&
+        scanTypeIndex != bookmarkScanTypeIndex) {
         return;
     }
     if (m_scanTypeIndex == scanTypeIndex) {
@@ -2416,12 +2451,7 @@ void ApplicationModel::setScanTypeIndex(int scanTypeIndex)
     m_scanTypeIndex = scanTypeIndex;
     m_wideRangePlan.reset();
     m_wideRangePlanDirty = true;
-    QSettings().setValue(
-        scanTypeSetting,
-        QString::fromLatin1(
-            scanTypeIndex == wideRangeScanTypeIndex
-                ? wideRangeScanType
-                : currentPassbandScanType));
+    QSettings().setValue(scanTypeSetting, scanTypeName(scanTypeIndex));
     static_cast<void>(updateScanValidation());
     emit scannerChanged();
 }
@@ -2543,10 +2573,7 @@ bool ApplicationModel::saveNewScanPreset(const QString& name)
     m_scanPresets.push_back({
         id,
         trimmedName,
-        QString::fromLatin1(
-            m_scanTypeIndex == wideRangeScanTypeIndex
-                ? wideRangeScanType
-                : currentPassbandScanType),
+        scanTypeName(m_scanTypeIndex),
         scanSettings(),
     });
     m_selectedScanPresetId = id;
@@ -2606,10 +2633,7 @@ bool ApplicationModel::updateSelectedScanPreset(const QString& name)
     const auto previousPresets = m_scanPresets;
     ScanPreset& preset = m_scanPresets.at(static_cast<std::size_t>(index));
     preset.name = trimmedName;
-    preset.scanType = QString::fromLatin1(
-        m_scanTypeIndex == wideRangeScanTypeIndex
-            ? wideRangeScanType
-            : currentPassbandScanType);
+    preset.scanType = scanTypeName(m_scanTypeIndex);
     preset.settings = scanSettings();
     if (!persistScanPresets()) {
         m_scanPresets = previousPresets;
@@ -2700,6 +2724,39 @@ void ApplicationModel::startScan()
     }
 
     cancelPendingManualTuning();
+    if (m_scanTypeIndex == bookmarkScanTypeIndex) {
+        auto bookmarks = m_bookmarkModel.scannerBookmarks();
+        const bool legacySquelchEnabled = !squelchDisabled();
+        const double legacySquelchLevel = legacySquelchEnabled
+                                              ? receiverState().squelchLevelDb
+                                              : receiverState().manualSquelchLevelDb;
+        for (auto& entry : bookmarks) {
+            if (!entry.bookmark.hasSavedSquelch) {
+                entry.bookmark.squelchEnabled = legacySquelchEnabled;
+                entry.bookmark.squelchThresholdDb = legacySquelchLevel;
+                entry.bookmark.hasSavedSquelch = true;
+            }
+        }
+        const QString bookmarkError = bookmarkScanValidationError(bookmarks);
+        if (!bookmarkError.isEmpty()) {
+            m_scanStatus = QStringLiteral("Scanner not started: %1").arg(bookmarkError);
+            emit scannerChanged();
+            return;
+        }
+        m_bookmarkScanBookmarks = bookmarks;
+        const quint64 upper = static_cast<quint64>(bookmarks.size() - 1);
+        const sdr::app::CurrentPassbandScanSettings bookmarkSettings{
+            0, upper, 1, m_scanDwellMilliseconds, m_scanResumeDelayMilliseconds};
+        if (!m_scanner.start(bookmarkSettings, {0, upper}, 0, false)) {
+            m_bookmarkScanBookmarks.clear();
+            m_scanStatus = QStringLiteral("Scanner not started: invalid bookmark selection");
+            emit scannerChanged();
+            return;
+        }
+        notifyScanCurrentFrequencyChanged();
+        static_cast<void>(tuneBookmarkScannerTo(0));
+        return;
+    }
     if (m_scanTypeIndex == wideRangeScanTypeIndex) {
         if (!refreshWideRangePlan() || !m_wideRangePlan.has_value() ||
             m_wideRangePlan->blocks.empty() ||
@@ -2732,6 +2789,7 @@ void ApplicationModel::startScan()
         0,
         0,
         false,
+        false,
         true,
     };
     m_scanStatus = QStringLiteral("Centering receiver for scanner range");
@@ -2760,7 +2818,9 @@ void ApplicationModel::pauseOrResumeScan()
         } else {
             m_scanStatus = m_scanTypeIndex == wideRangeScanTypeIndex
                                ? QStringLiteral("Scanning wide range")
-                               : QStringLiteral("Scanning current capture passband");
+                               : (m_scanTypeIndex == bookmarkScanTypeIndex
+                                      ? QStringLiteral("Scanning bookmarks")
+                                      : QStringLiteral("Scanning current capture passband"));
             scheduleScanDwell();
         }
     } else {
@@ -2786,7 +2846,9 @@ void ApplicationModel::skipScanFrequency()
     const WideTuneResult tuneResult =
         m_scanTypeIndex == wideRangeScanTypeIndex
             ? tuneWideScannerTo(*frequency)
-            : (tuneScannerTo(*frequency), WideTuneResult::Tuned);
+            : (m_scanTypeIndex == bookmarkScanTypeIndex
+                   ? tuneBookmarkScannerTo(static_cast<std::size_t>(*frequency))
+                   : (tuneScannerTo(*frequency), WideTuneResult::Tuned));
     if (tuneResult != WideTuneResult::Tuned) {
         return;
     }
@@ -2795,7 +2857,9 @@ void ApplicationModel::skipScanFrequency()
     } else {
         m_scanStatus = m_scanTypeIndex == wideRangeScanTypeIndex
                            ? QStringLiteral("Scanning wide range")
-                           : QStringLiteral("Scanning current capture passband");
+                           : (m_scanTypeIndex == bookmarkScanTypeIndex
+                                  ? QStringLiteral("Scanning bookmarks")
+                                  : QStringLiteral("Scanning current capture passband"));
         scheduleScanDwell();
     }
     emit scannerChanged();
@@ -2803,7 +2867,8 @@ void ApplicationModel::skipScanFrequency()
 
 void ApplicationModel::stopScan()
 {
-    if (m_pendingScanStart.has_value() && m_pendingScanStart->wideRange &&
+    if (m_pendingScanStart.has_value() &&
+        (m_pendingScanStart->wideRange || m_pendingScanStart->bookmark) &&
         !m_scanSettlingTimer.isActive()) {
         m_stopScanAfterRetune = true;
         m_scanStatus = QStringLiteral(
@@ -3657,6 +3722,14 @@ void ApplicationModel::applyScannerListeningFrequency(
         return;
     }
     if (m_runtimeState.listeningFrequency == frequency) {
+        if (m_pendingBookmarkListeningFrequency == frequency) {
+            m_pendingBookmarkListeningFrequency.reset();
+            m_bookmarkScannerAwaitingSettle = true;
+            m_scanStatus = QStringLiteral("Applying bookmark settings");
+            m_scanSettlingTimer.start(scannerTunerSettlingMilliseconds);
+            emit scannerChanged();
+            return;
+        }
         if (m_pendingWideListeningFrequency == frequency) {
             m_pendingWideListeningFrequency.reset();
             if (m_stopScanAfterRetune) {
@@ -3670,6 +3743,14 @@ void ApplicationModel::applyScannerListeningFrequency(
     const auto previousState = m_runtimeState;
     m_runtimeState.listeningFrequency = frequency;
     notifyStateChanges(previousState, m_runtimeState, true);
+    if (m_pendingBookmarkListeningFrequency == frequency) {
+        m_pendingBookmarkListeningFrequency.reset();
+        m_bookmarkScannerAwaitingSettle = true;
+        m_scanStatus = QStringLiteral("Applying bookmark settings");
+        m_scanSettlingTimer.start(scannerTunerSettlingMilliseconds);
+        emit scannerChanged();
+        return;
+    }
     if (m_pendingWideListeningFrequency == frequency) {
         m_pendingWideListeningFrequency.reset();
         if (m_stopScanAfterRetune) {
@@ -4451,6 +4532,9 @@ ApplicationModel::centeredScanPassband(quint64 centerFrequency) const noexcept
 
 QString ApplicationModel::scanFitValidationError() const
 {
+    if (m_scanTypeIndex == bookmarkScanTypeIndex) {
+        return {};
+    }
     if (const auto validation =
             sdr::app::CurrentPassbandScanner::validateSettings(scanSettings());
         validation.has_value()) {
@@ -4513,11 +4597,66 @@ bool ApplicationModel::wideRangeScanActive() const noexcept
     return m_scanTypeIndex == wideRangeScanTypeIndex && scannerOwnsTuning();
 }
 
+bool ApplicationModel::bookmarkScanActive() const noexcept
+{
+    return m_scanTypeIndex == bookmarkScanTypeIndex &&
+           m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+}
+
 bool ApplicationModel::scannerRetuning() const noexcept
 {
     return (m_pendingScanStart.has_value() && m_pendingScanStart->wideRange) ||
+           (m_pendingScanStart.has_value() && m_pendingScanStart->bookmark) ||
            m_scanSettlingTimer.isActive() ||
-           m_pendingWideListeningFrequency.has_value();
+           m_pendingWideListeningFrequency.has_value() ||
+           m_pendingBookmarkListeningFrequency.has_value() ||
+           m_bookmarkScannerAwaitingSettle;
+}
+
+std::optional<sdr::app::BookmarkSnapshot>
+ApplicationModel::bookmarkScanEntry() const
+{
+    if (!bookmarkScanActive()) {
+        return std::nullopt;
+    }
+    const quint64 index = m_scanner.currentFrequency();
+    if (index >= m_bookmarkScanBookmarks.size()) {
+        return std::nullopt;
+    }
+    return m_bookmarkScanBookmarks.at(static_cast<std::size_t>(index));
+}
+
+QString ApplicationModel::bookmarkScanValidationError(
+    const std::vector<sdr::app::BookmarkSnapshot>& bookmarks) const
+{
+    if (bookmarks.empty()) {
+        return QStringLiteral("Select at least one bookmark for scanning");
+    }
+    for (const auto& entry : bookmarks) {
+        const auto mode = sdr::radio::DemodulatorRegistry::resolve(
+            entry.bookmark.demodulatorId.toStdString());
+        if (!mode) {
+            return QStringLiteral("Bookmark “%1” uses an unavailable demodulator")
+                .arg(entry.bookmark.name);
+        }
+        const auto width = bookmarkFilterWidth(
+            *mode, entry.bookmark.filterLowHz, entry.bookmark.filterHighHz);
+        if (!width) {
+            return QStringLiteral("Bookmark “%1” has invalid filter edges")
+                .arg(entry.bookmark.name);
+        }
+        const auto geometry = wideRangeCaptureGeometry();
+        const auto oneBookmarkPlan = sdr::app::WideRangeScanPlanner::plan(
+            {entry.bookmark.listeningFrequency, entry.bookmark.listeningFrequency,
+             1, m_scanDwellMilliseconds, m_scanResumeDelayMilliseconds},
+            sdr::app::WideRangeScanPlanner::filterOffsets(*mode, *width), geometry);
+        if (!oneBookmarkPlan.succeeded()) {
+            return QStringLiteral("Bookmark “%1” is unsupported: %2")
+                .arg(entry.bookmark.name,
+                     QString::fromStdString(oneBookmarkPlan.error));
+        }
+    }
+    return {};
 }
 
 bool ApplicationModel::refreshWideRangePlan()
@@ -4588,6 +4727,140 @@ ApplicationModel::WideTuneResult ApplicationModel::tuneWideScannerTo(
     return WideTuneResult::Retuning;
 }
 
+ApplicationModel::WideTuneResult ApplicationModel::tuneBookmarkScannerTo(
+    std::size_t index)
+{
+    if (index >= m_bookmarkScanBookmarks.size()) {
+        stopScanner(QStringLiteral("Scanner stopped: bookmark snapshot is invalid"));
+        return WideTuneResult::Failed;
+    }
+    notifyScanCurrentFrequencyChanged();
+    const auto& entry = m_bookmarkScanBookmarks.at(index).bookmark;
+    const auto mode = sdr::radio::DemodulatorRegistry::resolve(
+        entry.demodulatorId.toStdString());
+    const auto width = mode ? bookmarkFilterWidth(
+                                  *mode, entry.filterLowHz, entry.filterHighHz)
+                            : std::nullopt;
+    if (!mode || !width) {
+        stopScanner(QStringLiteral("Scanner stopped: current bookmark is invalid"));
+        return WideTuneResult::Failed;
+    }
+    const auto offsets = sdr::app::WideRangeScanPlanner::filterOffsets(
+        *mode, *width);
+    if (sdr::app::WideRangeScanPlanner::frequencyFits(
+            centerFrequency(), entry.listeningFrequency, offsets,
+            wideRangeCaptureGeometry())) {
+        applyBookmarkScannerEntry(index);
+        return WideTuneResult::Retuning;
+    }
+    const auto plan = sdr::app::WideRangeScanPlanner::plan(
+        {entry.listeningFrequency, entry.listeningFrequency, 1,
+         m_scanDwellMilliseconds, m_scanResumeDelayMilliseconds},
+        offsets, wideRangeCaptureGeometry());
+    if (!plan.succeeded() || plan.plan->blocks.empty()) {
+        stopScanner(QStringLiteral("Scanner stopped: bookmark cannot fit receiver capture bandwidth"));
+        return WideTuneResult::Failed;
+    }
+    requestBookmarkScannerCenter(
+        plan.plan->blocks.front().centerFrequency, index, false);
+    return WideTuneResult::Retuning;
+}
+
+void ApplicationModel::requestBookmarkScannerCenter(
+    quint64 centerFrequency, std::size_t bookmarkIndex, bool starting)
+{
+    m_scanDwellTimer.stop();
+    m_scanResumeTimer.stop();
+    if (m_runtime) {
+        m_runtime->cancelScannerListeningFrequencyRequests();
+    }
+    m_pendingScanStart = PendingScanStart{
+        centerFrequency, listeningFrequency(),
+        static_cast<quint64>(bookmarkIndex), bookmarkIndex,
+        false, true, starting};
+    m_scanStatus = QStringLiteral("Retuning hardware for bookmark %1")
+                       .arg(static_cast<qulonglong>(bookmarkIndex + 1));
+    emit scannerChanged();
+    if (m_runtime) {
+        m_runtime->requestScannerCenterFrequency(centerFrequency);
+        return;
+    }
+    const auto previousState = m_receiver->state();
+    const auto operation = m_receiver->setCenterFrequency(centerFrequency);
+    applyOperation(previousState, operation);
+    finishScannerCentering(centerFrequency, operation.succeeded());
+}
+
+void ApplicationModel::applyBookmarkScannerEntry(std::size_t index)
+{
+    if (index >= m_bookmarkScanBookmarks.size()) {
+        stopScanner(QStringLiteral("Scanner stopped: bookmark snapshot is invalid"));
+        return;
+    }
+    const auto& bookmark = m_bookmarkScanBookmarks.at(index).bookmark;
+    const auto mode = sdr::radio::DemodulatorRegistry::resolve(
+        bookmark.demodulatorId.toStdString());
+    const auto width = mode ? bookmarkFilterWidth(
+                                  *mode, bookmark.filterLowHz, bookmark.filterHighHz)
+                            : std::nullopt;
+    if (!mode || !width) {
+        stopScanner(QStringLiteral("Scanner stopped: current bookmark is invalid"));
+        return;
+    }
+    m_pendingBookmarkListeningFrequency = bookmark.listeningFrequency;
+    if (m_runtime) {
+        m_runtime->setGain(bookmark.requestedGainDb);
+        m_runtime->setDemodulationMode(static_cast<int>(*mode));
+        m_runtime->setFilterWidth(*width);
+        m_runtime->setSquelchLevel(bookmark.squelchThresholdDb);
+        if (!bookmark.squelchEnabled) {
+            m_runtime->disableSquelch();
+        }
+        tuneScannerTo(bookmark.listeningFrequency);
+        return;
+    }
+    const auto previousState = m_receiver->state();
+    const auto apply = [this](sdr::radio::OperationResult result) {
+        if (result.succeeded()) return true;
+        stopScanner(QStringLiteral("Scanner stopped: %1")
+                        .arg(QString::fromStdString(result.message)));
+        return false;
+    };
+    if (!apply(m_receiver->setGain(bookmark.requestedGainDb)) ||
+        !apply(m_receiver->setDemodulationMode(*mode)) ||
+        !apply(m_receiver->setFilterWidth(*width)) ||
+        !apply(m_receiver->setSquelchLevel(bookmark.squelchThresholdDb)) ||
+        (!bookmark.squelchEnabled && !apply(m_receiver->disableSquelch()))) {
+        notifyStateChanges(previousState, m_receiver->state(), false);
+        return;
+    }
+    m_requestedGainDb = bookmark.requestedGainDb;
+    notifyStateChanges(previousState, m_receiver->state(), true);
+    tuneScannerTo(bookmark.listeningFrequency);
+    if (m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped) {
+        m_pendingBookmarkListeningFrequency.reset();
+        m_bookmarkScannerAwaitingSettle = true;
+        m_scanStatus = QStringLiteral("Applying bookmark settings");
+        m_scanSettlingTimer.start(scannerTunerSettlingMilliseconds);
+        emit scannerChanged();
+    }
+}
+
+void ApplicationModel::finishBookmarkScannerEntry()
+{
+    m_bookmarkScannerAwaitingSettle = false;
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Paused) {
+        m_scanStatus = QStringLiteral("Scanner paused");
+    } else if (scannerSquelchOpen()) {
+        m_scanner.setSquelchOpen(true);
+        m_scanStatus = QStringLiteral("Holding on squelch activity");
+    } else {
+        m_scanStatus = QStringLiteral("Scanning bookmarks");
+        scheduleScanDwell();
+    }
+    emit scannerChanged();
+}
+
 void ApplicationModel::requestScannerCenter(
     quint64 center,
     quint64 targetFrequency,
@@ -4605,6 +4878,7 @@ void ApplicationModel::requestScannerCenter(
         targetFrequency,
         blockIndex,
         true,
+        false,
         starting,
     };
     m_scanStatus = QStringLiteral("Retuning hardware for capture block %1")
@@ -4658,6 +4932,17 @@ void ApplicationModel::validateActiveScanRange()
     }
     const bool scannerActive =
         m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+    if (scannerActive && m_scanTypeIndex == bookmarkScanTypeIndex) {
+        if (scannerRetuning()) {
+            return;
+        }
+        const QString error = bookmarkScanValidationError(m_bookmarkScanBookmarks);
+        if (!error.isEmpty()) {
+            stopScanner(QStringLiteral("Scanner stopped: %1").arg(error));
+            return;
+        }
+        return;
+    }
     if (scannerActive && m_scanTypeIndex == wideRangeScanTypeIndex) {
         if (scannerRetuning()) {
             return;
@@ -4764,7 +5049,7 @@ void ApplicationModel::tuneScannerTo(quint64 frequency)
 
 void ApplicationModel::notifyScanCurrentFrequencyChanged()
 {
-    const quint64 frequency = m_scanner.currentFrequency();
+    const quint64 frequency = scanCurrentFrequency();
     if (m_lastNotifiedScanCurrentFrequency == frequency) {
         return;
     }
@@ -4782,7 +5067,9 @@ void ApplicationModel::scannerDwellElapsed()
     const WideTuneResult tuneResult =
         m_scanTypeIndex == wideRangeScanTypeIndex
             ? tuneWideScannerTo(*frequency)
-            : (tuneScannerTo(*frequency), WideTuneResult::Tuned);
+            : (m_scanTypeIndex == bookmarkScanTypeIndex
+                   ? tuneBookmarkScannerTo(static_cast<std::size_t>(*frequency))
+                   : (tuneScannerTo(*frequency), WideTuneResult::Tuned));
     if (tuneResult == WideTuneResult::Tuned) {
         scheduleScanDwell();
     }
@@ -4798,13 +5085,17 @@ void ApplicationModel::scannerResumeDelayElapsed()
     const WideTuneResult tuneResult =
         m_scanTypeIndex == wideRangeScanTypeIndex
             ? tuneWideScannerTo(*frequency)
-            : (tuneScannerTo(*frequency), WideTuneResult::Tuned);
+            : (m_scanTypeIndex == bookmarkScanTypeIndex
+                   ? tuneBookmarkScannerTo(static_cast<std::size_t>(*frequency))
+                   : (tuneScannerTo(*frequency), WideTuneResult::Tuned));
     if (tuneResult != WideTuneResult::Tuned) {
         return;
     }
     m_scanStatus = m_scanTypeIndex == wideRangeScanTypeIndex
                        ? QStringLiteral("Scanning wide range")
-                       : QStringLiteral("Scanning current capture passband");
+                       : (m_scanTypeIndex == bookmarkScanTypeIndex
+                              ? QStringLiteral("Scanning bookmarks")
+                              : QStringLiteral("Scanning current capture passband"));
     scheduleScanDwell();
     emit scannerChanged();
 }
@@ -4816,7 +5107,7 @@ void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
         return;
     }
     const PendingScanStart pending = *m_pendingScanStart;
-    if (pending.wideRange && m_stopScanAfterRetune) {
+    if ((pending.wideRange || pending.bookmark) && m_stopScanAfterRetune) {
         m_stopScanAfterRetune = false;
         m_pendingScanStart.reset();
         m_scanner.stop();
@@ -4829,7 +5120,7 @@ void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
     }
     if (!succeeded) {
         m_pendingScanStart.reset();
-        if (pending.wideRange) {
+        if (pending.wideRange || pending.bookmark) {
             m_scanner.stop();
         }
         m_scanStatus = pending.starting
@@ -4842,7 +5133,7 @@ void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
     }
     if (!receiverRunning()) {
         m_pendingScanStart.reset();
-        if (pending.wideRange) {
+        if (pending.wideRange || pending.bookmark) {
             m_scanner.stop();
         }
         m_scanStatus = QStringLiteral(
@@ -4852,7 +5143,7 @@ void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
     }
     if (centerFrequency() != pending.centerFrequency) {
         m_pendingScanStart.reset();
-        if (pending.wideRange) {
+        if (pending.wideRange || pending.bookmark) {
             m_scanner.stop();
         }
         m_scanStatus = QStringLiteral(
@@ -4867,6 +5158,12 @@ void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
         emit scannerChanged();
         return;
     }
+    if (pending.bookmark) {
+        m_scanStatus = QStringLiteral("Retuning: waiting for tuner settling");
+        m_scanSettlingTimer.start(scannerTunerSettlingMilliseconds);
+        emit scannerChanged();
+        return;
+    }
     m_pendingScanStart.reset();
     m_stopScanAfterRetune = false;
     beginScannerAfterCentering(pending.previousListeningFrequency);
@@ -4874,8 +5171,20 @@ void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
 
 void ApplicationModel::scannerSettlingElapsed()
 {
-    if (!m_pendingScanStart.has_value() ||
-        !m_pendingScanStart->wideRange) {
+    if (m_bookmarkScannerAwaitingSettle) {
+        finishBookmarkScannerEntry();
+        return;
+    }
+    if (!m_pendingScanStart.has_value()) {
+        return;
+    }
+    if (m_pendingScanStart->bookmark) {
+        const std::size_t index = m_pendingScanStart->blockIndex;
+        m_pendingScanStart.reset();
+        applyBookmarkScannerEntry(index);
+        return;
+    }
+    if (!m_pendingScanStart->wideRange) {
         return;
     }
     continueWideScanAfterRetune();
@@ -4984,6 +5293,9 @@ void ApplicationModel::stopScanner(const QString& status)
     m_pendingScanStart.reset();
     m_stopScanAfterRetune = false;
     m_pendingWideListeningFrequency.reset();
+    m_pendingBookmarkListeningFrequency.reset();
+    m_bookmarkScannerAwaitingSettle = false;
+    m_bookmarkScanBookmarks.clear();
     m_wideRangePlan.reset();
     m_wideRangePlanDirty = false;
     m_scanner.stop();

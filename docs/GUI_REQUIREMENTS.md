@@ -306,9 +306,11 @@ and conditional auto-scrolling; it never exposes command entry or DSD-FME's
 binary stdout. The Bookmarks panel renders
 nested groups with independent expansion state and scanner-inclusion checkboxes.
 Group inclusion is derived as a tri-state value and updates all descendant
-bookmarks; that metadata is not used by the Scan-pane scanners.
+bookmarks. Bookmark scanning snapshots checked bookmark UUIDs in saved list
+order when Start is pressed, so later bookmark edits or reordering apply only
+to a future scan.
 
-The Scan panel runs current-passband and wide-range scanners owned by the
+The Scan panel runs current-passband, wide-range, and bookmark scanners owned by the
 application model.
 Preset save/update accepts numeric ranges independently of the active receiver,
 and Load copies them without starting or clamping. Start requires active
@@ -356,7 +358,12 @@ wider filters also keep it when safe, otherwise the current channel is
 recentered without advancing or the next channel is retuned before visiting.
 Future blocks are replanned lazily. Pause and squelch hold never move the
 center, final-to-first wrapping may retune to the first block, and Stop leaves
-both frequencies unchanged. Bookmark scans are not provided.
+both frequencies unchanged. Bookmark mode hides its unused range and step
+fields, then applies every saved bookmark-owned receiver field to the snapped
+checked entries. It reuses complete-filter fit and settling rules: fitting
+bookmarks use listening tuning only, while others retune safely before dwell
+and squelch evaluation. Legacy bookmarks without squelch retain the live
+squelch captured when bookmark scanning starts.
 The Presets section is below the other Scan controls and keeps an ordered list
 of UUID-backed named snapshots of that configuration, including the
 selected scan type. Legacy presets without a type use Current passband. It uses

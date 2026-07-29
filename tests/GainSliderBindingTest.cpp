@@ -304,7 +304,7 @@ void GainSliderBindingTest::
                             ComboBox {
                                 objectName: "scanTypeControl"
                                 enabled: true
-                                model: ["Current passband", "Wide range"]
+                                model: ["Current passband", "Wide range", "Bookmarks"]
                             }
                             TextField { objectName: "scanLowerFrequencyField"; enabled: true }
                             TextField { objectName: "scanUpperFrequencyField"; enabled: true }
@@ -326,6 +326,8 @@ void GainSliderBindingTest::
                                 objectName: "scanCurrentFrequencyDisplay"
                                 text: "—"
                             }
+                            Text { objectName: "scanCurrentBookmarkDisplay" }
+                            Text { objectName: "scanBookmarkPositionDisplay" }
                             Text { objectName: "scanListeningFrequencyDisplay" }
                             Text { objectName: "scanHardwareCenterFrequencyDisplay" }
                             Text { objectName: "scanCaptureBlockProgressDisplay" }
@@ -476,7 +478,7 @@ void GainSliderBindingTest::
     QCOMPARE(scanType->property("enabled").toBool(), true);
     QCOMPARE(scanType->property("currentText").toString(),
              QStringLiteral("Current passband"));
-    QCOMPARE(scanType->property("count").toInt(), 2);
+    QCOMPARE(scanType->property("count").toInt(), 3);
     for (const char* objectName : {
              "scanPaneHeading",
              "scanLowerFrequencyField",
@@ -498,6 +500,8 @@ void GainSliderBindingTest::
              "scanSkipButton",
              "scanStopButton",
              "scanCurrentFrequencyDisplay",
+             "scanCurrentBookmarkDisplay",
+             "scanBookmarkPositionDisplay",
              "scanListeningFrequencyDisplay",
              "scanHardwareCenterFrequencyDisplay",
              "scanCaptureBlockProgressDisplay",

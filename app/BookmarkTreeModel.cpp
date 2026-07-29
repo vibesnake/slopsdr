@@ -375,6 +375,13 @@ std::optional<BookmarkData> BookmarkTreeModel::bookmarkAt(int visibleRow) const
     return m_visibleNodes.at(visibleRow)->bookmark;
 }
 
+std::vector<BookmarkSnapshot> BookmarkTreeModel::scannerBookmarks() const
+{
+    std::vector<BookmarkSnapshot> bookmarks;
+    appendScannerBookmarks(*m_root, bookmarks);
+    return bookmarks;
+}
+
 bool BookmarkTreeModel::removeItem(int visibleRow)
 {
     if (visibleRow < 0 || visibleRow >= m_visibleNodes.size()) {
@@ -845,6 +852,22 @@ void BookmarkTreeModel::appendVisibleChildren(Node& parent, int depth)
         m_visibleDepths.push_back(depth);
         if (child->group && child->expanded) {
             appendVisibleChildren(*child, depth + 1);
+        }
+    }
+}
+
+void BookmarkTreeModel::appendScannerBookmarks(
+    const Node& parent,
+    std::vector<BookmarkSnapshot>& bookmarks) const
+{
+    for (const auto& child : parent.children) {
+        if (child->group) {
+            appendScannerBookmarks(*child, bookmarks);
+        } else if (child->bookmark.scannerIncluded) {
+            bookmarks.push_back({
+                child->uuid.toString(QUuid::WithoutBraces),
+                child->bookmark,
+            });
         }
     }
 }

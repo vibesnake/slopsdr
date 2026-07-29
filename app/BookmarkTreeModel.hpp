@@ -34,6 +34,11 @@ struct BookmarkData {
     bool scannerIncluded = false;
 };
 
+struct BookmarkSnapshot {
+    QString uuid;
+    BookmarkData bookmark;
+};
+
 class BookmarkTreeModel final : public QAbstractListModel
 {
     Q_OBJECT
@@ -92,6 +97,7 @@ public:
     Q_INVOKABLE bool renameGroup(int visibleRow, const QString& name);
     Q_INVOKABLE bool updateBookmark(int visibleRow, const QVariantMap& fields);
     [[nodiscard]] std::optional<BookmarkData> bookmarkAt(int visibleRow) const;
+    [[nodiscard]] std::vector<BookmarkSnapshot> scannerBookmarks() const;
     Q_INVOKABLE bool removeItem(int visibleRow);
     Q_INVOKABLE int visibleRowForUuid(const QString& uuid) const;
     Q_INVOKABLE bool expandGroupForDrop(int visibleRow);
@@ -120,6 +126,9 @@ private:
     void setScannerIncludedRecursively(Node& node, bool included);
     void rebuildVisibleNodes();
     void appendVisibleChildren(Node& parent, int depth);
+    void appendScannerBookmarks(
+        const Node& parent,
+        std::vector<BookmarkSnapshot>& bookmarks) const;
     void resetToEmpty();
     void setLastError(QString error);
     [[nodiscard]] QJsonObject serializeNode(const Node& node) const;
