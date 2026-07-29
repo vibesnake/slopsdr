@@ -157,6 +157,7 @@ private slots:
     void keepsSpectrumAndHoldsUpdatingAcrossVisibleHistoryChanges();
     void rendersSpectrumHoldsAbovePaletteAndLiveTrace();
     void retainsSpectrumFrameAcrossCenterRetunes();
+    void pausesSpectrumAndWaterfallIndependently();
     void exposesMajorTicksAndCustomRange();
     void estimatesAndSmoothsNoiseFloor();
     void calculatesHighDpiScaleMargin();
@@ -929,6 +930,57 @@ void SpectrumWaterfallItemTest::retainsSpectrumFrameAcrossCenterRetunes()
         trace->geometry()->vertexDataAsPoint2D()[99].y < item.height());
 
     delete root;
+}
+
+void SpectrumWaterfallItemTest::pausesSpectrumAndWaterfallIndependently()
+{
+    SpectrumWaterfallItem spectrum;
+    SpectrumWaterfallItem waterfall;
+    waterfall.setWaterfall(true);
+
+    const QVector<float> first{0.1F, 0.8F, 0.2F, 0.4F};
+    QVERIFY(deliverSpectrumFrame(
+        spectrum, first, 100'000'000, 2'000'000, 1, 100));
+    QVERIFY(deliverWaterfallFrame(
+        waterfall, first, 100'000'000, 2'000'000, 1, 100));
+    QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{1});
+    QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{1});
+
+    spectrum.setPaused(true);
+    QVERIFY(spectrum.paused());
+    QVERIFY(!waterfall.paused());
+    const QVector<float> pausedSpectrumFrame{0.9F, 0.2F, 0.7F, 0.3F};
+    QVERIFY(deliverSpectrumFrame(
+        spectrum, pausedSpectrumFrame, 100'000'000, 2'000'000, 2, 200));
+    QVERIFY(deliverWaterfallFrame(
+        waterfall, pausedSpectrumFrame, 100'000'000, 2'000'000, 2, 200));
+    QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{1});
+    QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{2});
+
+    spectrum.setPaused(false);
+    QVERIFY(!spectrum.paused());
+    const QVector<float> resumedSpectrumFrame{0.6F, 0.3F, 0.9F, 0.1F};
+    QVERIFY(deliverSpectrumFrame(
+        spectrum, resumedSpectrumFrame, 100'000'000, 2'000'000, 3, 300));
+    QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{3});
+
+    waterfall.setPaused(true);
+    QVERIFY(waterfall.paused());
+    QVERIFY(!spectrum.paused());
+    QVERIFY(deliverWaterfallFrame(
+        waterfall, resumedSpectrumFrame, 100'000'000, 2'000'000, 3, 300));
+    QCOMPARE(waterfall.m_latestFrame.sequence, std::uint64_t{2});
+    QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{2});
+    QVERIFY(deliverSpectrumFrame(
+        spectrum, first, 100'000'000, 2'000'000, 4, 400));
+    QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{4});
+
+    waterfall.setPaused(false);
+    QVERIFY(!waterfall.paused());
+    QVERIFY(deliverWaterfallFrame(
+        waterfall, first, 100'000'000, 2'000'000, 4, 400));
+    QCOMPARE(waterfall.m_latestFrame.sequence, std::uint64_t{4});
+    QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{3});
 }
 
 void SpectrumWaterfallItemTest::exposesMajorTicksAndCustomRange()

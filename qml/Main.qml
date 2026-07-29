@@ -52,6 +52,7 @@ ApplicationWindow {
         required property string heading
         required property string detail
         property bool waterfallInteraction: false
+        property var spectrumDisplay: null
         readonly property bool historyFitsMemoryBudget:
             displaySurface.historyConfigurationFitsMemoryBudget
         readonly property real retainedHistoryCapacitySeconds:
@@ -137,7 +138,7 @@ ApplicationWindow {
         RowLayout {
             id: waterfallRangeControls
             anchors.left: waterfallTitle.right
-            anchors.right: waterfallHeaderControls.left
+            anchors.right: displayPauseControls.left
             anchors.verticalCenter: waterfallTitle.verticalCenter
             anchors.leftMargin: 10
             anchors.rightMargin: 8
@@ -294,6 +295,61 @@ ApplicationWindow {
                 editable: true
                 Accessible.description: qsTr("Normal spectrum wheel center-frequency step")
                 onValueModified: pane.applicationModel.setTuningWheelStep(value)
+            }
+        }
+
+        RowLayout {
+            id: displayPauseControls
+            anchors.right: waterfallHeaderControls.left
+            anchors.top: parent.top
+            anchors.rightMargin: 8
+            anchors.topMargin: 4
+            visible: pane.waterfallInteraction
+            spacing: 3
+
+            ToolButton {
+                id: spectrumPauseButton
+                objectName: "spectrumPauseButton"
+                Layout.preferredWidth: 28
+                Layout.minimumWidth: 28
+                Layout.maximumWidth: 28
+                implicitHeight: 28
+                checkable: true
+                checked: pane.spectrumDisplay
+                         ? pane.spectrumDisplay.paused : false
+                text: checked ? "▶" : "⏸"
+                Accessible.name: checked
+                                 ? qsTr("Resume spectrum")
+                                 : qsTr("Pause spectrum")
+                Accessible.description: qsTr(
+                    "Pause or resume the spectrum display")
+                onToggled: pane.spectrumDisplay.paused = checked
+                ToolTip.visible: hovered
+                ToolTip.text: checked
+                               ? qsTr("Resume spectrum")
+                               : qsTr("Pause spectrum")
+            }
+
+            ToolButton {
+                id: waterfallPauseButton
+                objectName: "waterfallPauseButton"
+                Layout.preferredWidth: 28
+                Layout.minimumWidth: 28
+                Layout.maximumWidth: 28
+                implicitHeight: 28
+                checkable: true
+                checked: displaySurface.paused
+                text: checked ? "▶" : "⏸"
+                Accessible.name: checked
+                                 ? qsTr("Resume waterfall")
+                                 : qsTr("Pause waterfall")
+                Accessible.description: qsTr(
+                    "Pause or resume the waterfall display")
+                onToggled: displaySurface.paused = checked
+                ToolTip.visible: hovered
+                ToolTip.text: checked
+                               ? qsTr("Resume waterfall")
+                               : qsTr("Pause waterfall")
             }
         }
 
@@ -2418,6 +2474,7 @@ ApplicationWindow {
                 heading: qsTr("Waterfall")
                 detail: qsTr("Wheel: zoom · Ctrl: filter · Shift: listen")
                 waterfallInteraction: true
+                spectrumDisplay: spectrumPane.displaySurface
             }
         }
 

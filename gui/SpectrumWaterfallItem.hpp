@@ -28,6 +28,7 @@ class SpectrumWaterfallItem : public QQuickItem
     QML_NAMED_ELEMENT(SpectrumWaterfallView)
     Q_PROPERTY(QObject* applicationModel READ applicationModel WRITE setApplicationModel NOTIFY applicationModelChanged)
     Q_PROPERTY(bool waterfall READ waterfall WRITE setWaterfall NOTIFY waterfallChanged)
+    Q_PROPERTY(bool paused READ paused WRITE setPaused NOTIFY pausedChanged)
     Q_PROPERTY(QString waterfallPaletteName READ waterfallPaletteName CONSTANT)
     Q_PROPERTY(quint64 historyMemoryBudgetBytes READ historyMemoryBudgetBytes WRITE setHistoryMemoryBudgetBytes NOTIFY historyMetricsChanged)
     Q_PROPERTY(quint64 viewportHistoryMemoryBudgetBytes READ viewportHistoryMemoryBudgetBytes WRITE setViewportHistoryMemoryBudgetBytes NOTIFY historyMetricsChanged)
@@ -59,6 +60,8 @@ public:
 
     [[nodiscard]] bool waterfall() const noexcept;
     void setWaterfall(bool waterfall);
+    [[nodiscard]] bool paused() const noexcept;
+    void setPaused(bool paused);
     [[nodiscard]] QString waterfallPaletteName() const;
 
     [[nodiscard]] quint64 historyMemoryBudgetBytes() const noexcept;
@@ -111,6 +114,7 @@ public:
 signals:
     void applicationModelChanged();
     void waterfallChanged();
+    void pausedChanged();
     void historyMetricsChanged();
     void waterfallRangeChanged();
     void spectrumRangeChanged();
@@ -234,6 +238,7 @@ private:
     QVector<float> m_projectedMaximumHoldDbfs;
     QImage m_waterfallImage;
     bool m_waterfall = false;
+    bool m_paused = false;
     bool m_frameDirty = false;
     bool m_projectionDirty = false;
     int m_pendingWaterfallRows = 0;

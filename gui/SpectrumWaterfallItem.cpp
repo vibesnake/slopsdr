@@ -510,7 +510,7 @@ SpectrumWaterfallItem::SpectrumWaterfallItem(QQuickItem* parent)
     m_scrollTimer.setInterval(16);
     m_scrollTimer.setTimerType(Qt::PreciseTimer);
     connect(&m_scrollTimer, &QTimer::timeout, this, [this] {
-        if (m_waterfall && m_waterfallHistory.size() > 0) {
+        if (m_waterfall && !m_paused && m_waterfallHistory.size() > 0) {
             m_scrollRasterDirty = true;
             update();
         }
@@ -723,12 +723,35 @@ void SpectrumWaterfallItem::setWaterfall(bool waterfall)
     if (m_waterfall) {
         updateHistoryConfiguration(m_historySourceBins);
         scheduleRasterResize();
-        m_scrollTimer.start();
+        if (!m_paused) {
+            m_scrollTimer.start();
+        }
     } else {
         m_scrollTimer.stop();
     }
     update();
     emit waterfallChanged();
+}
+
+bool SpectrumWaterfallItem::paused() const noexcept
+{
+    return m_paused;
+}
+
+void SpectrumWaterfallItem::setPaused(bool paused)
+{
+    if (m_paused == paused) {
+        return;
+    }
+    m_paused = paused;
+    if (m_waterfall) {
+        if (m_paused) {
+            m_scrollTimer.stop();
+        } else {
+            m_scrollTimer.start();
+        }
+    }
+    emit pausedChanged();
 }
 
 float SpectrumWaterfallItem::spectrumMinimumDbfs() const noexcept
@@ -1199,7 +1222,7 @@ void SpectrumWaterfallItem::receiveFrame(
     const quint64 sampleRate = m_applicationModel
                                    ? m_applicationModel->effectiveSampleRate()
                                    : 2'000'000;
-    if (m_waterfall) {
+    if (m_waterfall && !m_paused) {
         receiveWaterfallFrame(
             normalizedMagnitudes,
             centerFrequency,
@@ -1229,7 +1252,7 @@ void SpectrumWaterfallItem::receiveSpectrumFrame(
     quint64 timestampNanoseconds,
     quint64 tuningGeneration)
 {
-    if (!m_waterfall) {
+    if (!m_waterfall && !m_paused) {
         updateSpectrumHolds(
             normalizedMagnitudes,
             centerFrequency,
@@ -1263,7 +1286,7 @@ void SpectrumWaterfallItem::receiveWaterfallFrame(
     quint64 timestampNanoseconds,
     quint64 tuningGeneration)
 {
-    if (m_waterfall) {
+    if (m_waterfall && !m_paused) {
         setLatestFrame(
             normalizedMagnitudes,
             centerFrequency,

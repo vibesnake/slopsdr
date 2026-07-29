@@ -60,6 +60,9 @@ The spectrum and waterfall follow distinct interaction rules:
   listening frequency according to the receiver rule.
 * A primary click or touchscreen tap selects the listening frequency represented
   by that horizontal point in the zoomed waterfall.
+* The display toolbar provides independent compact pause/resume toggles for the
+  spectrum and waterfall. Each toggle freezes only its renderer, drops frames
+  received while paused, and resumes with the next live frame.
 * Spectrum and waterfall pointer handlers consume wheel input. They must not
   cause ordinary scroll-view movement or vertical page scrolling.
 * Frequency-to-pixel conversion and tuning calculations belong in C++. QML may

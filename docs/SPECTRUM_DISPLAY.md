@@ -350,6 +350,10 @@ Fractional wheel deltas accumulate before a viewport update. The toolbar's
 read-only zoom indicator reports the rounded whole percentage of the effective
 capture span relative to the current visible span, with a minimum of 100%. The
 event is consumed by the waterfall and cannot scroll a surrounding view.
+The adjacent **Pause spectrum** and **Pause waterfall** controls stop rendering
+new frames for only their selected display. They do not stop receiver DSP,
+tuning, audio, recording, or frame production; frames arriving while paused
+are dropped, and resuming renders the next live frame without replaying them.
 
 Normal wheel movement over the spectrum retains hardware-center tuning. Its
 default step is 10 kHz and is configurable in the waterfall header. Upward
