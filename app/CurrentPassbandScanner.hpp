@@ -29,6 +29,8 @@ struct CurrentPassbandScanSettings {
 class CurrentPassbandScanner final
 {
 public:
+    [[nodiscard]] static std::optional<std::string> validateSettings(
+        const CurrentPassbandScanSettings& settings) noexcept;
     [[nodiscard]] static std::optional<std::string> validate(
         const CurrentPassbandScanSettings& settings,
         radio::FrequencyRange usablePassband) noexcept;

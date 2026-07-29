@@ -569,7 +569,7 @@ ApplicationModel::ApplicationModel(
         &runtime,
         &sdr::app::ReceiverRuntime::centerFrequencyRequestCompleted,
         this,
-        &ApplicationModel::finishCenterWheelRequest);
+        &ApplicationModel::finishCenterFrequencyRequest);
     connect(
         &runtime,
         &sdr::app::ReceiverRuntime::operationPending,
@@ -1223,7 +1223,7 @@ QString ApplicationModel::scanValidationError() const
 
 bool ApplicationModel::scanCanStart() const noexcept
 {
-    return m_scanner.state() == sdr::app::CurrentPassbandScanState::Stopped &&
+    return !scannerOwnsTuning() && receiverRunning() &&
            m_scanValidationError.isEmpty();
 }
 
@@ -1245,6 +1245,12 @@ bool ApplicationModel::scanCanSkip() const noexcept
 bool ApplicationModel::scanCanStop() const noexcept
 {
     return m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+}
+
+bool ApplicationModel::scannerOwnsTuning() const noexcept
+{
+    return m_pendingScanStart.has_value() ||
+           m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
 }
 
 QVariantList ApplicationModel::scanPresets() const
@@ -1624,6 +1630,10 @@ void ApplicationModel::setDeviceFrequencyRanges(
         return;
     }
     if (edit.adjustedToLimit) {
+        if (scannerOwnsTuning()) {
+            stopScanner(QStringLiteral(
+                "Scanner stopped: device frequency limits changed"));
+        }
         applyCenterFrequencyEdit(edit);
         return;
     }
@@ -1666,6 +1676,9 @@ void ApplicationModel::refreshDevices()
 
 void ApplicationModel::selectDeviceIndex(int index)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     if (!m_runtime || index < 0 || index >= m_deviceIdentifiers.size()) {
         setStatusText(QStringLiteral("Select an available SDR device"));
         return;
@@ -1675,6 +1688,9 @@ void ApplicationModel::selectDeviceIndex(int index)
 
 void ApplicationModel::clearDeviceSelection()
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     if (!m_runtime) {
         setStatusText(QStringLiteral("No hardware device is selected in mock mode"));
         return;
@@ -1726,6 +1742,9 @@ void ApplicationModel::stopReception()
 
 void ApplicationModel::setCenterFrequencyText(const QString& frequencyText)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     bool conversionSucceeded = false;
     const quint64 requestedFrequency =
         frequencyText.trimmed().toULongLong(&conversionSucceeded);
@@ -1741,6 +1760,9 @@ void ApplicationModel::setCenterFrequencyText(const QString& frequencyText)
 
 void ApplicationModel::setListeningFrequency(quint64 frequency)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     if (m_pendingTuningWheelAction == PendingTuningWheelAction::Listening) {
         m_pendingTuningWheelAction = PendingTuningWheelAction::None;
         m_pendingWheelTuningShift = 0;
@@ -1762,6 +1784,9 @@ void ApplicationModel::setListeningFrequency(quint64 frequency)
 
 void ApplicationModel::adjustCenterFrequencyDigit(int digitIndex, int direction)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     applyCenterFrequencyEdit(sdr::app::FrequencyDigitController::adjustDigit(
         centerFrequency(),
         digitIndex,
@@ -1771,6 +1796,9 @@ void ApplicationModel::adjustCenterFrequencyDigit(int digitIndex, int direction)
 
 void ApplicationModel::zeroCenterFrequencyFromDigit(int digitIndex)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     applyCenterFrequencyEdit(sdr::app::FrequencyDigitController::zeroFromDigit(
         centerFrequency(), digitIndex, effectiveCenterFrequencyRanges()));
 }
@@ -1864,7 +1892,7 @@ void ApplicationModel::handleSpectrumWheelDeltas(
 void ApplicationModel::shiftCenterFromSpectrumWithMultiplier(
     qint64 wheelDelta, int accelerationMultiplier)
 {
-    if (wheelDelta == 0) {
+    if (wheelDelta == 0 || rejectManualTuningWhileScanning()) {
         return;
     }
 
@@ -1952,7 +1980,7 @@ void ApplicationModel::setWheelClockForTests(
 
 void ApplicationModel::shiftListeningFromWheel(int wheelDelta)
 {
-    if (wheelDelta == 0) {
+    if (wheelDelta == 0 || rejectManualTuningWhileScanning()) {
         return;
     }
     const qint64 requestedStep = wheelDelta > 0
@@ -2026,6 +2054,9 @@ void ApplicationModel::setTuningWheelStep(quint64 step)
 
 void ApplicationModel::setSampleRate(quint64 newSampleRate)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     if (m_runtime) {
         m_runtime->setSampleRate(newSampleRate);
         return;
@@ -2316,7 +2347,7 @@ bool ApplicationModel::saveNewScanPreset(const QString& name)
 
 bool ApplicationModel::loadSelectedScanPreset()
 {
-    if (scanCanStop()) {
+    if (scannerOwnsTuning()) {
         setScanPresetStatusMessage(
             QStringLiteral("Stop scanning before loading a preset"));
         return false;
@@ -2431,29 +2462,37 @@ bool ApplicationModel::moveScanPreset(
 
 void ApplicationModel::startScan()
 {
+    if (scannerOwnsTuning()) {
+        return;
+    }
     static_cast<void>(updateScanValidation());
+    if (!receiverRunning()) {
+        m_scanStatus = QStringLiteral(
+            "Scanner not started: start reception before scanning");
+        emit scannerChanged();
+        return;
+    }
     if (!m_scanValidationError.isEmpty()) {
         m_scanStatus = QStringLiteral("Scanner not started: %1").arg(m_scanValidationError);
         emit scannerChanged();
         return;
     }
-    if (!m_scanner.start(
-            scanSettings(),
-            m_frequencyViewport.captureRange(),
-            listeningFrequency(),
-            scannerSquelchOpen())) {
-        m_scanStatus = QStringLiteral("Scanner not started: invalid settings");
-        emit scannerChanged();
+
+    cancelPendingManualTuning();
+    const quint64 midpoint = scanMidpoint();
+    m_pendingScanStart = PendingScanStart{midpoint, listeningFrequency()};
+    m_scanStatus = QStringLiteral("Centering receiver for scanner range");
+    emit scannerChanged();
+
+    if (m_runtime) {
+        m_runtime->setCenterFrequency(midpoint);
         return;
     }
-    tuneScannerTo(m_scanner.currentFrequency());
-    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Holding) {
-        m_scanStatus = QStringLiteral("Holding on squelch activity");
-    } else {
-        m_scanStatus = QStringLiteral("Scanning current capture passband");
-        scheduleScanDwell();
-    }
-    emit scannerChanged();
+
+    const auto previousState = m_receiver->state();
+    const auto operation = m_receiver->setCenterFrequency(midpoint);
+    applyOperation(previousState, operation);
+    finishScannerCentering(midpoint, operation.succeeded());
 }
 
 void ApplicationModel::pauseOrResumeScan()
@@ -2733,6 +2772,9 @@ void ApplicationModel::renameBookmarkGroup(int visibleRow, const QString& name)
 
 void ApplicationModel::tuneBookmark(int visibleRow)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     const auto bookmark = m_bookmarkModel.bookmarkAt(visibleRow);
     if (!bookmark) {
         setStatusText(QStringLiteral("Select a bookmark to tune"));
@@ -3344,11 +3386,21 @@ void ApplicationModel::applyScannerListeningFrequency(
     notifyStateChanges(previousState, m_runtimeState, true);
 }
 
+void ApplicationModel::finishCenterFrequencyRequest(
+    quint64 frequency, bool succeeded)
+{
+    finishCenterWheelRequest(frequency, succeeded);
+    finishScannerCentering(frequency, succeeded);
+}
+
 void ApplicationModel::notifyStateChanges(
     const sdr::radio::ReceiverState& previousState,
     const sdr::radio::ReceiverState& state,
     bool operationSucceeded)
 {
+    if (previousState.running && !state.running && scannerOwnsTuning()) {
+        stopScanner(QStringLiteral("Scanner stopped: reception stopped"));
+    }
     bool viewportChanged = false;
     if (state.centerFrequency != previousState.centerFrequency ||
         state.sampleRate != previousState.sampleRate) {
@@ -3431,6 +3483,7 @@ void ApplicationModel::notifyStateChanges(
             emit waterfallReset();
         }
         emit receiverRunningChanged();
+        emit scannerChanged();
     }
 
     if (!operationSucceeded) {
@@ -3573,6 +3626,9 @@ ApplicationModel::effectiveCenterFrequencyRanges() const
 void ApplicationModel::applyCenterFrequencyEdit(
     const sdr::app::FrequencyEditResult& edit)
 {
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
     if (!edit.succeeded()) {
         setStatusText(QString::fromStdString(edit.message));
         return;
@@ -3616,6 +3672,26 @@ void ApplicationModel::applyCenterFrequencyEdit(
     setStatusText(std::move(message));
 }
 
+bool ApplicationModel::rejectManualTuningWhileScanning()
+{
+    if (!scannerOwnsTuning()) {
+        return false;
+    }
+    setStatusText(QStringLiteral(
+        "Scanner has exclusive tuning control; stop scanning before tuning manually"));
+    return true;
+}
+
+void ApplicationModel::cancelPendingManualTuning()
+{
+    m_pendingTuningWheelAction = PendingTuningWheelAction::None;
+    m_pendingWheelTuningShift = 0;
+    m_wheelTuningTimer.stop();
+    m_pendingListeningWheelFrequency.reset();
+    clearCenterWheelPreview(true);
+    resetCenterWheelAcceleration();
+}
+
 void ApplicationModel::initializeWheelTuningCoalescing()
 {
     m_wheelTuningTimer.setInterval(wheelTuningCoalescingMilliseconds);
@@ -3651,6 +3727,10 @@ void ApplicationModel::flushPendingWheelTuning()
             m_pendingTuningWheelAction, PendingTuningWheelAction::None);
     const qint64 requestedShift =
         std::exchange(m_pendingWheelTuningShift, 0);
+    if (scannerOwnsTuning()) {
+        m_pendingListeningWheelFrequency.reset();
+        return;
+    }
     if (!m_runtime) {
         return;
     }
@@ -3988,6 +4068,57 @@ sdr::app::CurrentPassbandScanSettings ApplicationModel::scanSettings() const noe
     };
 }
 
+quint64 ApplicationModel::scanMidpoint() const noexcept
+{
+    return m_scanLowerFrequency +
+           (m_scanUpperFrequency - m_scanLowerFrequency) / 2;
+}
+
+std::optional<sdr::radio::FrequencyRange>
+ApplicationModel::centeredScanPassband(quint64 centerFrequency) const noexcept
+{
+    const auto centerRanges = effectiveCenterFrequencyRanges();
+    const bool centerSupported = std::any_of(
+        centerRanges.cbegin(),
+        centerRanges.cend(),
+        [centerFrequency](const sdr::radio::FrequencyRange range) {
+            return range.contains(centerFrequency);
+        });
+    if (!centerSupported) {
+        return std::nullopt;
+    }
+    return sdr::radio::visibleCaptureRange(
+        centerFrequency,
+        effectiveSampleRate(),
+        advertisedRfRangeForCenter(centerFrequency));
+}
+
+QString ApplicationModel::scanFitValidationError() const
+{
+    if (const auto validation =
+            sdr::app::CurrentPassbandScanner::validateSettings(scanSettings());
+        validation.has_value()) {
+        return QString::fromStdString(*validation);
+    }
+
+    const quint64 requiredBandwidth =
+        m_scanUpperFrequency - m_scanLowerFrequency;
+    const auto centeredPassband = centeredScanPassband(scanMidpoint());
+    const quint64 availableBandwidth = centeredPassband.has_value()
+                                           ? centeredPassband->maximum -
+                                                 centeredPassband->minimum
+                                           : 0;
+    if (!centeredPassband.has_value() ||
+        !centeredPassband->contains(m_scanLowerFrequency) ||
+        !centeredPassband->contains(m_scanUpperFrequency)) {
+        return QStringLiteral(
+                   "Scan range requires %1 Hz; receiver provides %2 Hz of usable capture bandwidth")
+            .arg(static_cast<qulonglong>(requiredBandwidth))
+            .arg(static_cast<qulonglong>(availableBandwidth));
+    }
+    return {};
+}
+
 bool ApplicationModel::scannerSquelchOpen() const noexcept
 {
     if (squelchDisabled()) {
@@ -4008,11 +4139,7 @@ void ApplicationModel::resetScanBoundsToCaptureRange()
 
 bool ApplicationModel::updateScanValidation()
 {
-    const auto validation = sdr::app::CurrentPassbandScanner::validate(
-        scanSettings(), m_frequencyViewport.captureRange());
-    const QString error = validation.has_value()
-                              ? QString::fromStdString(*validation)
-                              : QString();
+    const QString error = scanFitValidationError();
     if (m_scanValidationError == error) {
         return false;
     }
@@ -4027,9 +4154,20 @@ void ApplicationModel::validateActiveScanRange()
         resetScanBoundsToCaptureRange();
         return;
     }
-    const bool validationChanged = updateScanValidation();
-    if (m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped &&
-        !m_scanValidationError.isEmpty()) {
+    const bool scannerActive =
+        m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+    QString activeError;
+    if (scannerActive) {
+        const auto validation = sdr::app::CurrentPassbandScanner::validate(
+            scanSettings(), m_frequencyViewport.captureRange());
+        activeError = validation.has_value()
+                          ? QString::fromStdString(*validation)
+                          : QString();
+    }
+    const QString error = scannerActive ? activeError : scanFitValidationError();
+    const bool validationChanged = m_scanValidationError != error;
+    m_scanValidationError = error;
+    if (scannerActive && !m_scanValidationError.isEmpty()) {
         stopScanner(
             QStringLiteral("Scanner stopped: scan range is outside the current usable capture passband"));
     } else if (validationChanged) {
@@ -4130,6 +4268,61 @@ void ApplicationModel::scannerResumeDelayElapsed()
     emit scannerChanged();
 }
 
+void ApplicationModel::finishScannerCentering(quint64 frequency, bool succeeded)
+{
+    if (!m_pendingScanStart.has_value() ||
+        frequency != m_pendingScanStart->centerFrequency) {
+        return;
+    }
+    const PendingScanStart pending = *m_pendingScanStart;
+    m_pendingScanStart.reset();
+    if (!succeeded) {
+        m_scanStatus = QStringLiteral(
+            "Scanner not started: receiver center-frequency tuning failed");
+        emit scannerChanged();
+        return;
+    }
+    if (!receiverRunning()) {
+        m_scanStatus = QStringLiteral(
+            "Scanner not started: reception stopped while centering");
+        emit scannerChanged();
+        return;
+    }
+    if (centerFrequency() != pending.centerFrequency) {
+        m_scanStatus = QStringLiteral(
+            "Scanner not started: receiver did not apply the requested midpoint");
+        emit scannerChanged();
+        return;
+    }
+    beginScannerAfterCentering(pending.previousListeningFrequency);
+}
+
+void ApplicationModel::beginScannerAfterCentering(
+    quint64 previousListeningFrequency)
+{
+    if (!m_scanner.start(
+            scanSettings(),
+            m_frequencyViewport.captureRange(),
+            previousListeningFrequency,
+            scannerSquelchOpen())) {
+        static_cast<void>(updateScanValidation());
+        m_scanStatus = QStringLiteral("Scanner not started: invalid centered range");
+        emit scannerChanged();
+        return;
+    }
+    tuneScannerTo(m_scanner.currentFrequency());
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Stopped) {
+        return;
+    }
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Holding) {
+        m_scanStatus = QStringLiteral("Holding on squelch activity");
+    } else {
+        m_scanStatus = QStringLiteral("Scanning current capture passband");
+        scheduleScanDwell();
+    }
+    emit scannerChanged();
+}
+
 void ApplicationModel::stopScanner(const QString& status)
 {
     m_scanDwellTimer.stop();
@@ -4137,6 +4330,7 @@ void ApplicationModel::stopScanner(const QString& status)
     if (m_runtime) {
         m_runtime->cancelScannerListeningFrequencyRequests();
     }
+    m_pendingScanStart.reset();
     m_scanner.stop();
     m_scanStatus = status;
     emit scannerChanged();

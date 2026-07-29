@@ -19,8 +19,9 @@ console. Its five built-in analog demodulation modes are AM, NFM, WFM, USB, and
 LSB. **DMR/P25** is experimental: it is a separate digital-decoder mode that
 sends discriminator audio to a separately installed DSD-FME executable.
 Decoding reliability may vary, and FEC errors or audio underruns may occur.
-Encrypted traffic is not decoded. The Scan pane can step only within the SDR's
-current usable capture passband without retuning the hardware center frequency.
+Encrypted traffic is not decoded. On Start, the Scan pane centers the SDR once
+on a fitting requested range, then steps only within that fixed usable capture
+passband while owning center and listening-frequency tuning until Stop.
 Named Scan-pane presets store ordered current-passband scanner configurations
 without storing runtime scan state or position.
 Bookmark scanner-inclusion checkboxes remain persisted metadata and are not

@@ -33,6 +33,7 @@ void CurrentPassbandScannerTest::validatesSettingsAgainstUsablePassband()
 {
     auto invalid = settings;
     invalid.lowerFrequency = 99;
+    QVERIFY(!sdr::app::CurrentPassbandScanner::validateSettings(invalid));
     QVERIFY(sdr::app::CurrentPassbandScanner::validate(invalid, passband));
     invalid = settings;
     invalid.lowerFrequency = 201;

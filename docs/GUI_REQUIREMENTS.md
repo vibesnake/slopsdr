@@ -288,11 +288,18 @@ Group inclusion is derived as a tri-state value and updates all descendant
 bookmarks; that metadata is not used by the current-passband scanner.
 
 The Scan panel runs a current-passband scanner owned by the application model.
-It validates lower and upper bounds against the usable captured passband, steps
-only through the existing in-passband listening-frequency path, and never
-retunes the SDR center frequency. It wraps at the upper bound, holds on live
-squelch activity, resumes after the configured delay, and stops safely if a
-center-frequency, sample-rate, or device-limit change invalidates its range.
+Preset save/update accepts numeric ranges independently of the active receiver,
+and Load copies them without starting or clamping. Start requires active
+reception and validates whether the complete requested span fits the actual
+usable capture bandwidth after centering, including advertised RF-edge
+clipping. A fitting range tunes the hardware center exactly once to the
+integer-Hz midpoint, waits for normal tuner confirmation, and then steps only
+through the focused in-passband listening-frequency path. The center remains
+fixed while running, paused, holding, skipping, and wrapping. A range that
+cannot fit remains editable and reports required versus available bandwidth.
+It wraps at the upper bound, holds on live squelch activity, resumes after the
+configured delay, and stops safely if a sample-rate or device-limit change
+invalidates its centered range.
 Each step changes only the active channel translation on the receiver worker;
 it does not mark the complete runtime busy, flush audio or decoder output,
 persist receiver settings, or publish a full receiver snapshot. Rapid requests
@@ -301,12 +308,19 @@ the focused confirmation updates listening-frequency presentation without
 renotifying unchanged Receiver Control properties. Per-step current-frequency
 updates use a dedicated notification; scanner state and status are not
 republished when they have not changed.
+While centering or active, the scanner exclusively owns center and listening
+frequency tuning. Center/listening entry, digit operations, spectrum tuning,
+waterfall listening selection, bookmark tuning, direct application-model
+tuning calls, and capture-bandwidth changes are disabled or rejected. Skip is
+the only non-dwell tuning action retained. Stop leaves both frequencies where
+they are and immediately restores normal tuning; gain, mode, filter, squelch,
+audio, decoder, recording, and display controls remain independent.
 Its lower and upper bounds, step size, dwell time, and resume delay are
 persisted as integer-Hz scanner configuration. Running, paused, holding, and
 current-frequency state are transient and always reset to stopped on startup.
-Saved bounds remain visible and invalid rather than being silently replaced if
-the current usable passband no longer contains them. Bookmark scans and
-hardware-retuning scans are not provided.
+Saved bounds remain visible rather than being silently replaced; Start is
+blocked only when the complete range cannot fit after one-time centering.
+Bookmark scans and multi-passband hardware-retuning scans are not provided.
 The Presets section is below the other Scan controls and keeps an ordered list
 of UUID-backed named snapshots of that configuration, including the
 current-passband scan type. It uses the bookmark list's compact rows, spacing,

@@ -53,7 +53,9 @@ private slots:
     void editsLoadedScanSettingsWithoutMutatingPreset();
     void ignoresMalformedStoredScanPresets();
     void loadsOutOfPassbandPresetWithoutStartingScanner();
-    void scansOnlyInsideTheCurrentCapturePassband();
+    void rejectsScannerRangesThatCannotFitAfterCentering();
+    void centersScannerRangeWithIntegerMidpoint();
+    void givesActiveScannerExclusiveTuningControl();
     void persistsAndValidatesDsdFmeBinaryPath();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
     void updatesBookmarksByStableIdentityAndPreservesMetadata();
@@ -401,6 +403,7 @@ void ApplicationModelTest::persistsScanConfigurationAcrossApplicationModels()
         model.setScanStepSize(25'000);
         model.setScanDwellMilliseconds(75);
         model.setScanResumeDelayMilliseconds(325);
+        model.startReception();
         model.startScan();
         QCOMPARE(model.scanState(), QStringLiteral("Running"));
     }
@@ -478,6 +481,8 @@ void ApplicationModelTest::fallsBackFromMalformedScanSettings()
     QCOMPARE(model.scanDwellMilliseconds(), 250);
     QCOMPARE(model.scanResumeDelayMilliseconds(), 1'000);
     QVERIFY(model.scanValidationError().isEmpty());
+    QVERIFY(!model.scanCanStart());
+    model.startReception();
     QVERIFY(model.scanCanStart());
 }
 
@@ -495,7 +500,9 @@ void ApplicationModelTest::preservesRestoredInvalidScanBoundsWithoutStarting()
     QCOMPARE(model.scanLowerFrequency(), lower - 1);
     QCOMPARE(model.scanUpperFrequency(), upper + 1);
     QVERIFY(model.scanValidationError().contains(
-        QStringLiteral("inside the usable capture passband")));
+        QStringLiteral("requires 2000002 Hz")));
+    QVERIFY(model.scanValidationError().contains(
+        QStringLiteral("provides 2000000 Hz")));
     QVERIFY(!model.scanCanStart());
     model.startScan();
     QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
@@ -739,6 +746,9 @@ void ApplicationModelTest::loadsOutOfPassbandPresetWithoutStartingScanner()
     const QString presetId = scanPresetAt(model, 0)
                                  .value(QStringLiteral("presetId"))
                                  .toString();
+    model.selectScanPreset(presetId);
+    model.setScanDwellMilliseconds(321);
+    QVERIFY(model.updateSelectedScanPreset(QStringLiteral("Out of passband")));
 
     const quint64 center = model.centerFrequency();
     model.setScanLowerFrequency(center - 100'000);
@@ -747,44 +757,130 @@ void ApplicationModelTest::loadsOutOfPassbandPresetWithoutStartingScanner()
     QVERIFY(model.loadSelectedScanPreset());
     QCOMPARE(model.scanLowerFrequency(), lower);
     QCOMPARE(model.scanUpperFrequency(), upper);
+    QCOMPARE(model.scanDwellMilliseconds(), 321);
     QVERIFY(!model.scanValidationError().isEmpty());
     QVERIFY(!model.scanCanStart());
     QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
 }
 
-void ApplicationModelTest::scansOnlyInsideTheCurrentCapturePassband()
+void ApplicationModelTest::rejectsScannerRangesThatCannotFitAfterCentering()
 {
     ApplicationModel model;
+    model.startReception();
     const quint64 center = model.centerFrequency();
-    const quint64 lower = center;
-    const quint64 upper = center + 20'000;
+    const quint64 lower = center - model.sampleRate() / 2;
+    const quint64 upper = center + model.sampleRate() / 2 + 1;
 
-    QCOMPARE(model.scanLowerFrequency(), center - model.sampleRate() / 2);
-    QCOMPARE(model.scanUpperFrequency(), center + model.sampleRate() / 2);
+    model.setScanLowerFrequency(lower);
+    model.setScanUpperFrequency(upper);
+    QCOMPARE(model.scanLowerFrequency(), lower);
+    QCOMPARE(model.scanUpperFrequency(), upper);
+    QVERIFY(model.scanValidationError().contains(
+        QStringLiteral("requires 2000001 Hz")));
+    QVERIFY(model.scanValidationError().contains(
+        QStringLiteral("provides 2000000 Hz")));
+    QVERIFY(!model.scanCanStart());
+
+    const quint64 originalCenter = model.centerFrequency();
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+    QCOMPARE(model.centerFrequency(), originalCenter);
+    QCOMPARE(model.scanLowerFrequency(), lower);
+    QCOMPARE(model.scanUpperFrequency(), upper);
+}
+
+void ApplicationModelTest::centersScannerRangeWithIntegerMidpoint()
+{
+    ApplicationModel model;
+    const quint64 originalCenter = model.centerFrequency();
+    const quint64 lower = originalCenter + 5'000'000;
+    const quint64 upper = lower + 3;
+
+    model.setScanLowerFrequency(lower);
+    model.setScanUpperFrequency(upper);
+    model.setScanStepSize(1);
+    model.setScanDwellMilliseconds(100'000);
+    QVERIFY(model.scanValidationError().isEmpty());
+    QVERIFY(!model.scanCanStart());
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+    QVERIFY(model.scanStatusMessage().contains(
+        QStringLiteral("start reception")));
+
+    model.startReception();
+    QVERIFY(model.scanCanStart());
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Running"));
+    QCOMPARE(model.centerFrequency(), lower + 1);
+    QCOMPARE(model.scanLowerFrequency(), lower);
+    QCOMPARE(model.scanUpperFrequency(), upper);
+    QCOMPARE(model.scanCurrentFrequency(), lower);
+    QCOMPARE(model.listeningFrequency(), lower);
+}
+
+void ApplicationModelTest::givesActiveScannerExclusiveTuningControl()
+{
+    ApplicationModel model;
+    model.startReception();
+    const quint64 originalCenter = model.centerFrequency();
+    QVERIFY(!model.beginAddCurrentBookmark().isEmpty());
+    QVERIFY(model.confirmAddCurrentBookmark(QStringLiteral("Before scan")));
+
+    const quint64 lower = originalCenter + 4'000'000;
+    const quint64 upper = lower + 20'000;
+
     model.setScanLowerFrequency(lower);
     model.setScanUpperFrequency(upper);
     model.setScanStepSize(10'000);
-    model.setScanDwellMilliseconds(20);
+    model.setScanDwellMilliseconds(100'000);
     model.setScanResumeDelayMilliseconds(10);
     QVERIFY(model.scanValidationError().isEmpty());
     QVERIFY(model.scanCanStart());
 
     model.startScan();
     QCOMPARE(model.scanState(), QStringLiteral("Running"));
-    QCOMPARE(model.scanCurrentFrequency(), center);
+    QVERIFY(model.scannerOwnsTuning());
+    const quint64 scannerCenter = lower + 10'000;
+    QCOMPARE(model.centerFrequency(), scannerCenter);
+    QCOMPARE(model.scanCurrentFrequency(), lower);
+    QCOMPARE(model.listeningFrequency(), lower);
+
+    model.setCenterFrequencyText(QString::number(scannerCenter + 1'000'000));
+    model.adjustCenterFrequencyDigit(9, 1);
+    model.zeroCenterFrequencyFromDigit(9);
+    model.shiftCenterFromSpectrum(120);
+    model.handleFrequencyWheel(false, 120);
+    model.setListeningFrequency(lower + 5'000);
+    model.selectListeningFrequencyAt(10.0, 100.0);
+    model.handleFrequencyWheel(true, 120, Qt::ShiftModifier);
+    model.tuneBookmark(0);
+    QCoreApplication::processEvents();
+    QCOMPARE(model.centerFrequency(), scannerCenter);
+    QCOMPARE(model.listeningFrequency(), lower);
+
     model.pauseOrResumeScan();
     QCOMPARE(model.scanState(), QStringLiteral("Paused"));
     model.skipScanFrequency();
-    QCOMPARE(model.scanCurrentFrequency(), center + 10'000);
-    QCOMPARE(model.listeningFrequency(), center + 10'000);
+    QCOMPARE(model.scanCurrentFrequency(), lower + 10'000);
+    QCOMPARE(model.listeningFrequency(), lower + 10'000);
     QCOMPARE(model.scanState(), QStringLiteral("Paused"));
 
-    model.pauseOrResumeScan();
-    QCOMPARE(model.scanState(), QStringLiteral("Running"));
-    model.setCenterFrequencyText(QString::number(center + model.sampleRate()));
-    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
-    QVERIFY(model.scanStatusMessage().contains(
-        QStringLiteral("outside the current usable capture passband")));
+    model.setCenterFrequencyText(QString::number(scannerCenter + 1'000'000));
+    model.setListeningFrequency(lower + 5'000);
+    QCOMPARE(model.centerFrequency(), scannerCenter);
+    QCOMPARE(model.listeningFrequency(), lower + 10'000);
+
+    const quint64 stoppedCenter = model.centerFrequency();
+    const quint64 stoppedListening = model.listeningFrequency();
+    model.stopScan();
+    QVERIFY(!model.scannerOwnsTuning());
+    QCOMPARE(model.centerFrequency(), stoppedCenter);
+    QCOMPARE(model.listeningFrequency(), stoppedListening);
+
+    model.setCenterFrequencyText(QString::number(originalCenter));
+    QCOMPARE(model.centerFrequency(), originalCenter);
+    model.setListeningFrequency(originalCenter + 5'000);
+    QCOMPARE(model.listeningFrequency(), originalCenter + 5'000);
 }
 
 void ApplicationModelTest::persistsAndValidatesDsdFmeBinaryPath()

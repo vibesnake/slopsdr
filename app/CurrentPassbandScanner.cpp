@@ -11,10 +11,19 @@ std::optional<std::string> CurrentPassbandScanner::validate(
     const CurrentPassbandScanSettings& settings,
     radio::FrequencyRange usablePassband) noexcept
 {
+    if (const auto error = validateSettings(settings); error.has_value()) {
+        return error;
+    }
     if (!usablePassband.contains(settings.lowerFrequency) ||
         !usablePassband.contains(settings.upperFrequency)) {
         return "Scan bounds must remain inside the usable capture passband";
     }
+    return std::nullopt;
+}
+
+std::optional<std::string> CurrentPassbandScanner::validateSettings(
+    const CurrentPassbandScanSettings& settings) noexcept
+{
     if (settings.lowerFrequency > settings.upperFrequency) {
         return "Lower frequency must not exceed upper frequency";
     }

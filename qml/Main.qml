@@ -616,9 +616,13 @@ ApplicationWindow {
         MouseArea {
             anchors.fill: displaySurface
             enabled: true
-            acceptedButtons: pane.waterfallInteraction ? Qt.LeftButton : Qt.NoButton
+            acceptedButtons: pane.waterfallInteraction
+                             && !pane.applicationModel.scannerOwnsTuning
+                             ? Qt.LeftButton : Qt.NoButton
             preventStealing: true
-            cursorShape: pane.waterfallInteraction ? Qt.CrossCursor : Qt.ArrowCursor
+            cursorShape: pane.waterfallInteraction
+                         && !pane.applicationModel.scannerOwnsTuning
+                         ? Qt.CrossCursor : Qt.ArrowCursor
 
             onClicked: function(mouse) {
                 if (pane.waterfallInteraction)
@@ -626,11 +630,18 @@ ApplicationWindow {
             }
 
             onWheel: function(wheel) {
-                pane.applicationModel.handleFrequencyWheelWithDeltas(
-                    pane.waterfallInteraction,
-                    wheel.angleDelta.y,
-                    wheel.pixelDelta.y,
-                    wheel.modifiers)
+                const scannerBlocksTuning =
+                        pane.applicationModel.scannerOwnsTuning
+                        && ((wheel.modifiers & Qt.ShiftModifier)
+                            || (!pane.waterfallInteraction
+                                && !(wheel.modifiers & Qt.ControlModifier)))
+                if (!scannerBlocksTuning) {
+                    pane.applicationModel.handleFrequencyWheelWithDeltas(
+                        pane.waterfallInteraction,
+                        wheel.angleDelta.y,
+                        wheel.pixelDelta.y,
+                        wheel.modifiers)
+                }
                 wheel.accepted = true
             }
         }
@@ -651,6 +662,8 @@ ApplicationWindow {
 
         implicitWidth: dense ? 25 : 31
         implicitHeight: dense ? 36 : 42
+        enabled: !applicationModel.scannerOwnsTuning
+        opacity: enabled ? 1.0 : 0.55
         radius: 4
         color: activeFocus ? "#29425f" : "#0a1020"
         border.color: activeFocus ? digitColor : outlineColor
@@ -762,6 +775,8 @@ ApplicationWindow {
         id: completeFrequencyDialog
 
         function openForEntry() {
+            if (root.applicationModel.scannerOwnsTuning)
+                return
             completeFrequencyField.text = String(root.applicationModel.centerFrequency)
             open()
         }
@@ -1639,6 +1654,7 @@ ApplicationWindow {
                                  && bookmarkList.currentItem
                                  && !bookmarkList.currentItem.isGroup
                                  && bookmarkList.currentItem.demodulatorAvailable
+                                 && !root.applicationModel.scannerOwnsTuning
                         onClicked: root.applicationModel.tuneBookmark(
                                        bookmarkList.currentIndex)
                     }
@@ -1806,7 +1822,8 @@ ApplicationWindow {
                                 bookmarkList.currentIndex = bookmarkDelegate.index
                                 if (!bookmarkDelegate.dragOccurred
                                         && !bookmarkDelegate.isGroup
-                                        && bookmarkDelegate.demodulatorAvailable) {
+                                        && bookmarkDelegate.demodulatorAvailable
+                                        && !root.applicationModel.scannerOwnsTuning) {
                                     root.applicationModel.tuneBookmark(
                                         bookmarkDelegate.index)
                                 }
@@ -2110,7 +2127,7 @@ ApplicationWindow {
                         Label {
                             objectName: "scanShellNotice"
                             Layout.fillWidth: true
-                            text: qsTr("Scans only the SDR's current usable capture passband. It never retunes the SDR center frequency.")
+                            text: qsTr("Centers the SDR once on Start, then scans within that fixed usable capture passband.")
                             color: root.secondaryTextColor
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
@@ -2135,7 +2152,7 @@ ApplicationWindow {
                             TextField {
                                 objectName: "scanLowerFrequencyField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scanCanStop
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanLowerFrequency.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
@@ -2146,7 +2163,7 @@ ApplicationWindow {
                             TextField {
                                 objectName: "scanUpperFrequencyField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scanCanStop
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanUpperFrequency.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
@@ -2157,7 +2174,7 @@ ApplicationWindow {
                             TextField {
                                 objectName: "scanStepSizeField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scanCanStop
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanStepSize.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
@@ -2168,7 +2185,7 @@ ApplicationWindow {
                             TextField {
                                 objectName: "scanDwellTimeField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scanCanStop
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanDwellMilliseconds.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 1 }
@@ -2179,7 +2196,7 @@ ApplicationWindow {
                             TextField {
                                 objectName: "scanResumeDelayField"
                                 Layout.fillWidth: true
-                                enabled: !root.applicationModel.scanCanStop
+                                enabled: !root.applicationModel.scannerOwnsTuning
                                 text: root.applicationModel.scanResumeDelayMilliseconds.toString()
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator { bottom: 0 }
@@ -2331,7 +2348,7 @@ ApplicationWindow {
                                         objectName: "loadScanPresetButton"
                                         Layout.fillWidth: true
                                         enabled: root.applicationModel.selectedScanPresetId.length > 0
-                                                 && !root.applicationModel.scanCanStop
+                                                 && !root.applicationModel.scannerOwnsTuning
                                         text: qsTr("Load")
                                         Accessible.name: text
                                         onClicked: root.applicationModel.loadSelectedScanPreset()
@@ -3514,6 +3531,7 @@ ApplicationWindow {
                                       / 1000000).toFixed(3) + qsTr(" MS/s")
                         enabled: root.applicationModel.backendReady &&
                                  !root.applicationModel.runtimeBusy &&
+                                 !root.applicationModel.scannerOwnsTuning &&
                                  count > 0
                         Accessible.name: qsTr("SDR capture bandwidth")
                         Accessible.description: qsTr(

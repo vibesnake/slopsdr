@@ -517,6 +517,7 @@ public:
     [[nodiscard]] radio::OperationResult setListeningFrequency(
         std::uint64_t value) override
     {
+        m_trace->receiverOperationOrder.push_back("listen");
         m_trace->requestedListeningFrequencies.push_back(value);
         return m_delegate.setListeningFrequency(value);
     }
@@ -1537,12 +1538,13 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
     model.setScanResumeDelayMilliseconds(20);
     scannerChanges.clear();
     scanFrequencyChanges.clear();
+    trace->receiverOperationOrder.clear();
     model.startScan();
     QVERIFY(waitUntil([&trace, listeningRequestsBeforeScan] {
         return trace->requestedListeningFrequencies.size() >=
                listeningRequestsBeforeScan + 4;
     }));
-    QCOMPARE(scannerChanges.count(), 1);
+    QCOMPARE(scannerChanges.count(), 2);
     QVERIFY(scanFrequencyChanges.count() >= 3);
     model.pauseOrResumeScan();
     QCOMPARE(model.scanState(), QStringLiteral("Paused"));
@@ -1550,7 +1552,13 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
     QVERIFY(spectrumFrames.count() >= normalSpectrumFrameCount / 2);
     QVERIFY(waterfallFrames.count() >= normalWaterfallFrameCount / 2);
 
-    QCOMPARE(trace->requestedCenterFrequencies.size(), centerRequestsBeforeScan);
+    QCOMPARE(
+        trace->requestedCenterFrequencies.size(),
+        centerRequestsBeforeScan + 1);
+    QCOMPARE(trace->requestedCenterFrequencies.back(), quint64{100'100'000});
+    QVERIFY(!trace->receiverOperationOrder.empty());
+    QCOMPARE(trace->receiverOperationOrder.front(), std::string("tune"));
+    QCOMPARE(model.centerFrequency(), quint64{100'100'000});
     QCOMPARE(trace->requestedSampleRates.size(), sampleRateRequestsBeforeScan);
     QCOMPARE(trace->requestedGains.size(), gainRequestsBeforeScan);
     QCOMPARE(trace->requestedPpmCorrections.size(), ppmRequestsBeforeScan);
@@ -1566,9 +1574,9 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
     QCOMPARE(
         trace->disabledSquelchApplications,
         disabledSquelchApplicationsBeforeScan);
-    QCOMPARE(trace->audioFlushes, audioFlushesBeforeScan);
-    QCOMPARE(operationPending.count(), 0);
-    QCOMPARE(runtimeBusyChanges.count(), 0);
+    QCOMPARE(trace->audioFlushes, audioFlushesBeforeScan + 1);
+    QCOMPARE(operationPending.count(), 1);
+    QCOMPARE(runtimeBusyChanges.count(), 2);
     QCOMPARE(filterChanges.count(), 0);
     QCOMPARE(gainChanges.count(), 0);
     QCOMPARE(requestedGainChanges.count(), 0);
@@ -1577,13 +1585,29 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
     QCOMPARE(deviceChanges.count(), 0);
     QCOMPARE(capabilityChanges.count(), 0);
     QCOMPARE(audioChanges.count(), 0);
-    QCOMPARE(statusChanges.count(), 0);
+    QVERIFY(statusChanges.count() <= 3);
+
+    const auto centerRequestsWhilePaused =
+        trace->requestedCenterFrequencies.size();
+    const auto listeningRequestsWhilePaused =
+        trace->requestedListeningFrequencies.size();
+    model.setCenterFrequencyText(QStringLiteral("101000000"));
+    model.shiftCenterFromSpectrum(120);
+    model.setListeningFrequency(100'150'000);
+    model.selectListeningFrequencyAt(25.0, 100.0);
+    QTest::qWait(50);
+    QCOMPARE(
+        trace->requestedCenterFrequencies.size(), centerRequestsWhilePaused);
+    QCOMPARE(
+        trace->requestedListeningFrequencies.size(),
+        listeningRequestsWhilePaused);
+    QCOMPARE(model.centerFrequency(), quint64{100'100'000});
 
     settings.sync();
     QCOMPARE(
         settings.value(QStringLiteral("receiver/listeningFrequencyHz"))
             .toULongLong(),
-        qulonglong{manuallySelectedFrequency});
+        qulonglong{100'100'000});
 
     model.stopScan();
     QTest::qWait(20);

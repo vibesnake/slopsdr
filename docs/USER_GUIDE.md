@@ -183,23 +183,27 @@ selecting the active button closes it. Only one pane is open at a time. Opening
 one reduces the spectrum and waterfall width. Drag its right edge to resize it;
 each pane keeps its own width, and the active pane is restored at startup.
 
-The **Scan** pane runs a **Current passband** scan without retuning the SDR's
-hardware center frequency. Its default lower and upper bounds are the current
-usable captured passband, not the displayed zoom range. Set the bounds, step,
-dwell time, and resume delay, then select **Start**. The scanner uses the
-receiver's active mode, filter, and live squelch setting; it holds when
-squelch opens and resumes after the configured delay once it closes. **Pause**
-stops scanner movement while reception continues, **Skip** advances once, and
-**Stop** leaves the receiver on its current frequency. A center-frequency,
-capture-bandwidth, or device-limit change that places either bound outside the
-usable passband stops the scanner. The bounds, step size, dwell time, and
-resume delay are saved and restored as scanner configuration; running, paused,
-holding, and current-frequency state are not saved, so scanning always starts
-stopped. If saved bounds no longer fit the current passband, they remain
-visible with a validation error until corrected. Bookmark or hardware-retuning
-scans are not available. Scanning does not disable or reset the Receiver
-Control settings, and the spectrum and waterfall continue at their normal live
-display cadence.
+The **Scan** pane runs a **Current passband** scan. Its initial defaults come
+from the current usable captured passband, not the displayed zoom range, but
+saved and loaded ranges remain unchanged even when they are elsewhere. Set the
+bounds, step, dwell time, and resume delay, then select **Start** while reception
+is active. If the complete range fits the receiver's usable bandwidth, slopSDR
+tunes the hardware center once to its integer-Hz midpoint, waits for that tune,
+and scans with the center fixed. If it cannot fit, Start remains unavailable
+and the pane reports the required and available bandwidth without changing the
+bounds.
+
+The scanner uses the receiver's active mode, filter, and live squelch setting;
+it holds when squelch opens and resumes after the configured delay once it
+closes. **Pause** stops scanner movement while reception continues, **Skip**
+advances once, and **Stop** leaves the receiver at its current center and
+listening frequencies. While centering, running, paused, or holding, manual
+center/listening entry, spectrum and waterfall tuning, bookmark tuning, and
+capture-bandwidth changes are unavailable; normal tuning returns immediately
+after Stop. Other Receiver Control settings and live display processing remain
+available. The bounds, step size, dwell time, and resume delay are saved and
+restored, but runtime scanner state and position are not. Bookmark scans and
+multi-passband hardware-retuning scans are not available.
 
 Use the **Presets** section at the bottom of the Scan pane to keep ordered,
 named snapshots of the current scan type, bounds, step, dwell time, and resume

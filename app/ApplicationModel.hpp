@@ -84,6 +84,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool scanPaused READ scanPaused NOTIFY scannerChanged)
     Q_PROPERTY(bool scanCanSkip READ scanCanSkip NOTIFY scannerChanged)
     Q_PROPERTY(bool scanCanStop READ scanCanStop NOTIFY scannerChanged)
+    Q_PROPERTY(bool scannerOwnsTuning READ scannerOwnsTuning NOTIFY scannerChanged)
     Q_PROPERTY(QVariantList scanPresets READ scanPresets NOTIFY scanPresetsChanged)
     Q_PROPERTY(QString selectedScanPresetId READ selectedScanPresetId NOTIFY scanPresetSelectionChanged)
     Q_PROPERTY(QString selectedScanPresetName READ selectedScanPresetName NOTIFY scanPresetSelectionChanged)
@@ -201,6 +202,7 @@ public:
     [[nodiscard]] bool scanPaused() const noexcept;
     [[nodiscard]] bool scanCanSkip() const noexcept;
     [[nodiscard]] bool scanCanStop() const noexcept;
+    [[nodiscard]] bool scannerOwnsTuning() const noexcept;
     [[nodiscard]] QVariantList scanPresets() const;
     [[nodiscard]] QString selectedScanPresetId() const;
     [[nodiscard]] QString selectedScanPresetName() const;
@@ -440,6 +442,7 @@ private:
         quint64 frequency,
         bool succeeded,
         const QString& message);
+    void finishCenterFrequencyRequest(quint64 frequency, bool succeeded);
     void notifyStateChanges(
         const sdr::radio::ReceiverState& previousState,
         const sdr::radio::ReceiverState& state,
@@ -479,6 +482,8 @@ private:
         Zoom,
     };
     void applyCenterFrequencyEdit(const sdr::app::FrequencyEditResult& edit);
+    [[nodiscard]] bool rejectManualTuningWhileScanning();
+    void cancelPendingManualTuning();
     void initializeWheelTuningCoalescing();
     void handleSpectrumWheelDeltas(
         int angleDelta, int pixelDelta, quint64 timestampNanoseconds);
@@ -533,6 +538,10 @@ private:
         const sdr::app::CurrentPassbandScanSettings& settings);
     void setStatusText(QString statusText);
     [[nodiscard]] sdr::app::CurrentPassbandScanSettings scanSettings() const noexcept;
+    [[nodiscard]] quint64 scanMidpoint() const noexcept;
+    [[nodiscard]] std::optional<sdr::radio::FrequencyRange>
+    centeredScanPassband(quint64 centerFrequency) const noexcept;
+    [[nodiscard]] QString scanFitValidationError() const;
     [[nodiscard]] bool scannerSquelchOpen() const noexcept;
     void resetScanBoundsToCaptureRange();
     [[nodiscard]] bool updateScanValidation();
@@ -544,6 +553,8 @@ private:
     void notifyScanCurrentFrequencyChanged();
     void scannerDwellElapsed();
     void scannerResumeDelayElapsed();
+    void finishScannerCentering(quint64 frequency, bool succeeded);
+    void beginScannerAfterCentering(quint64 previousListeningFrequency);
     void stopScanner(const QString& status);
 
     std::unique_ptr<sdr::radio::ReceiverBackend> m_receiver;
@@ -590,6 +601,11 @@ private:
     bool m_scanBoundsFollowCapture = true;
     bool m_runtimeSquelchOpen = false;
     sdr::app::CurrentPassbandScanner m_scanner;
+    struct PendingScanStart {
+        quint64 centerFrequency = 0;
+        quint64 previousListeningFrequency = 0;
+    };
+    std::optional<PendingScanStart> m_pendingScanStart;
     std::optional<quint64> m_lastNotifiedScanCurrentFrequency;
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
