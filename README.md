@@ -6,6 +6,44 @@ GNU Radio DSP, SoapySDR device access, and platform services remain separate.
 
 ![slopSDR main receiver window](docs/images/slopsdr-main-window.png)
 
+## Designed for everyday use
+
+slopSDR uses a responsive Qt 6 desktop interface with synchronized Spectrum
+and Waterfall views. Each display has its own pause control, while zooming and
+horizontal viewport panning move the visible data without retuning the
+receiver. The center-frequency digits can be edited directly, and the Scan
+pane supports Current passband and Wide range scanning with persistent named
+presets.
+
+The Bookmarks pane supports updating bookmarks, saved squelch, and scanning
+bookmarks in their saved order. Receiver Controls keep a stable layout with
+reduced flicker, while configurable Waterfall aggregation and persistent
+receiver and scanner settings retain the choices that matter between sessions.
+Analog reception is supported in AM, NFM, WFM, USB, and LSB. DMR/P25 remains
+experimental and requires a separately installed DSD-FME executable; it is not
+the focus of this stable release.
+
+## Center-frequency selector
+
+The center frequency is the center of the hardware capture window. The
+listening frequency is the demodulated frequency selected inside that window.
+Display panning moves only the visible Spectrum/Waterfall viewport; it does
+not change either receiver frequency.
+
+The decimal selector supports these direct interactions:
+
+* Hover a digit and press `0`–`9` to replace that digit and tune immediately.
+* Hover a digit and press Up or Down to adjust that digit outside edit mode.
+* Right-click a digit to zero it and every digit to its right.
+* Left-click a digit to begin sequential editing. Entered digits replace from
+  the selected position and advance to the right.
+* Left-click within the editable span to move back for corrections.
+* Press Enter to accept the pending frequency, or Escape to cancel and restore
+  the original frequency.
+
+When the scanner owns tuning, these center-frequency interactions are disabled
+until scanning stops.
+
 ## Platform and capabilities
 
 slopSDR targets Debian-family desktop Linux. It is developed and hardware-tested
