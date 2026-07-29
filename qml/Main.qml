@@ -27,6 +27,7 @@ ApplicationWindow {
     property real bookmarkDragListY: -1
     readonly property string sidebarModeNone: "none"
     readonly property string sidebarModeBookmarks: "bookmarks"
+    readonly property string sidebarModeScan: "scan"
     readonly property string sidebarModeSettings: "settings"
     readonly property string sidebarModeConsole: "console"
 
@@ -1276,6 +1277,40 @@ ApplicationWindow {
             }
 
             Button {
+                id: scanSidebarButton
+                objectName: "scanSidebarButton"
+                Layout.alignment: Qt.AlignVCenter
+                implicitHeight: root.controlHeight
+                checkable: true
+                checked: root.applicationModel.sidebarMode
+                         === root.sidebarModeScan
+                text: qsTr("Scan")
+                Accessible.name: qsTr("Show scan pane")
+                Accessible.description: qsTr(
+                    "Open or close the non-operational scan pane")
+                onClicked: root.applicationModel.setSidebarMode(
+                               checked ? root.sidebarModeScan
+                                       : root.sidebarModeNone)
+                background: Rectangle {
+                    radius: 4
+                    color: scanSidebarButton.checked ? "#29425f"
+                                                     : (scanSidebarButton.pressed
+                                                        ? "#22324b" : "#172033")
+                    border.color: scanSidebarButton.checked
+                                      ? root.centerColor : root.panelBorderColor
+                    border.width: scanSidebarButton.activeFocus ? 2 : 1
+                }
+                contentItem: Text {
+                    text: scanSidebarButton.text
+                    color: root.primaryTextColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideRight
+                    font: scanSidebarButton.font
+                }
+            }
+
+            Button {
                 id: settingsSidebarButton
                 objectName: "settingsSidebarButton"
                 Layout.alignment: Qt.AlignVCenter
@@ -1446,12 +1481,15 @@ ApplicationWindow {
             visible: root.applicationModel.sidebarMode !== root.sidebarModeNone
             Layout.fillHeight: true
             Layout.preferredWidth: root.applicationModel.sidebarMode
-                                 === root.sidebarModeSettings
-                                 ? root.applicationModel.settingsPanelWidth
+                                 === root.sidebarModeScan
+                                 ? root.applicationModel.scanPanelWidth
                                  : (root.applicationModel.sidebarMode
-                                    === root.sidebarModeConsole
-                                    ? root.applicationModel.consolePanelWidth
-                                    : root.applicationModel.bookmarksPanelWidth)
+                                    === root.sidebarModeSettings
+                                    ? root.applicationModel.settingsPanelWidth
+                                    : (root.applicationModel.sidebarMode
+                                       === root.sidebarModeConsole
+                                       ? root.applicationModel.consolePanelWidth
+                                       : root.applicationModel.bookmarksPanelWidth))
             Layout.minimumWidth: 220
             Layout.maximumWidth: Math.max(
                                      220,
@@ -2001,6 +2039,208 @@ ApplicationWindow {
             }
 
             ColumnLayout {
+                id: scanSidebarContent
+                objectName: "scanSidebarContent"
+                visible: root.applicationModel.sidebarMode
+                         === root.sidebarModeScan
+                anchors.fill: parent
+                anchors.leftMargin: 10
+                anchors.rightMargin: 12
+                anchors.topMargin: 10
+                anchors.bottomMargin: 10
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    Label {
+                        objectName: "scanPaneHeading"
+                        text: qsTr("Scan")
+                        color: root.primaryTextColor
+                        font.bold: true
+                        font.pixelSize: 16
+                    }
+
+                    Item { Layout.fillWidth: true }
+
+                    Button {
+                        objectName: "closeScanPaneButton"
+                        implicitHeight: 28
+                        text: qsTr("Close")
+                        onClicked: root.applicationModel.setSidebarMode(
+                                       root.sidebarModeNone)
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: scanShellContent.implicitHeight + 20
+                    radius: 5
+                    color: "#111a2b"
+                    border.color: root.panelBorderColor
+
+                    ColumnLayout {
+                        id: scanShellContent
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 7
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Current passband scanner")
+                            color: root.primaryTextColor
+                            font.bold: true
+                            font.pixelSize: 12
+                        }
+
+                        Label {
+                            objectName: "scanShellNotice"
+                            Layout.fillWidth: true
+                            text: qsTr("Scanning is not implemented yet. These controls are a preview only.")
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                            font.pixelSize: 10
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 5
+
+                            Label { text: qsTr("Scan type"); color: root.secondaryTextColor }
+                            ComboBox {
+                                objectName: "scanTypeControl"
+                                Layout.fillWidth: true
+                                enabled: false
+                                model: [qsTr("Current passband")]
+                                currentIndex: 0
+                            }
+
+                            Label { text: qsTr("Lower frequency"); color: root.secondaryTextColor }
+                            TextField {
+                                objectName: "scanLowerFrequencyField"
+                                Layout.fillWidth: true
+                                enabled: false
+                                placeholderText: qsTr("Not available")
+                            }
+
+                            Label { text: qsTr("Upper frequency"); color: root.secondaryTextColor }
+                            TextField {
+                                objectName: "scanUpperFrequencyField"
+                                Layout.fillWidth: true
+                                enabled: false
+                                placeholderText: qsTr("Not available")
+                            }
+
+                            Label { text: qsTr("Step size"); color: root.secondaryTextColor }
+                            TextField {
+                                objectName: "scanStepSizeField"
+                                Layout.fillWidth: true
+                                enabled: false
+                                placeholderText: qsTr("Not available")
+                            }
+
+                            Label { text: qsTr("Dwell time"); color: root.secondaryTextColor }
+                            TextField {
+                                objectName: "scanDwellTimeField"
+                                Layout.fillWidth: true
+                                enabled: false
+                                placeholderText: qsTr("Not available")
+                            }
+
+                            Label { text: qsTr("Resume delay"); color: root.secondaryTextColor }
+                            TextField {
+                                objectName: "scanResumeDelayField"
+                                Layout.fillWidth: true
+                                enabled: false
+                                placeholderText: qsTr("Not available")
+                            }
+
+                            Label { text: qsTr("Squelch source"); color: root.secondaryTextColor }
+                            ComboBox {
+                                objectName: "scanSquelchSourceControl"
+                                Layout.fillWidth: true
+                                enabled: false
+                                model: [qsTr("Live receiver squelch")]
+                                currentIndex: 0
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Button {
+                                objectName: "scanStartButton"
+                                Layout.fillWidth: true
+                                enabled: false
+                                text: qsTr("Start")
+                            }
+                            Button {
+                                objectName: "scanPauseResumeButton"
+                                Layout.fillWidth: true
+                                enabled: false
+                                text: qsTr("Pause")
+                            }
+                            Button {
+                                objectName: "scanSkipButton"
+                                Layout.fillWidth: true
+                                enabled: false
+                                text: qsTr("Skip")
+                            }
+                            Button {
+                                objectName: "scanStopButton"
+                                Layout.fillWidth: true
+                                enabled: false
+                                text: qsTr("Stop")
+                            }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Current frequency")
+                            color: root.secondaryTextColor
+                            font.pixelSize: 10
+                        }
+                        Label {
+                            objectName: "scanCurrentFrequencyDisplay"
+                            Layout.fillWidth: true
+                            text: "—"
+                            color: root.primaryTextColor
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("State")
+                            color: root.secondaryTextColor
+                            font.pixelSize: 10
+                        }
+                        Label {
+                            objectName: "scanStateDisplay"
+                            Layout.fillWidth: true
+                            text: qsTr("Scanner not running")
+                            color: root.primaryTextColor
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Status")
+                            color: root.secondaryTextColor
+                            font.pixelSize: 10
+                        }
+                        Label {
+                            objectName: "scanStatusMessage"
+                            Layout.fillWidth: true
+                            text: qsTr("Scanner not running")
+                            color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: true }
+            }
+
+            ColumnLayout {
                 id: settingsSidebarContent
                 visible: root.applicationModel.sidebarMode
                          === root.sidebarModeSettings
@@ -2405,6 +2645,10 @@ ApplicationWindow {
                             root.applicationModel.setBookmarksPanelWidth(
                                 dragStartWidth + pointer.x - dragStartX)
                         } else if (root.applicationModel.sidebarMode
+                                   === root.sidebarModeScan) {
+                            root.applicationModel.setScanPanelWidth(
+                                dragStartWidth + pointer.x - dragStartX)
+                        } else if (root.applicationModel.sidebarMode
                                    === root.sidebarModeSettings) {
                             root.applicationModel.setSettingsPanelWidth(
                                 dragStartWidth + pointer.x - dragStartX)
@@ -2419,6 +2663,9 @@ ApplicationWindow {
                         if (root.applicationModel.sidebarMode
                                 === root.sidebarModeBookmarks) {
                             root.applicationModel.commitBookmarksPanelWidth()
+                        } else if (root.applicationModel.sidebarMode
+                                   === root.sidebarModeScan) {
+                            root.applicationModel.commitScanPanelWidth()
                         } else if (root.applicationModel.sidebarMode
                                    === root.sidebarModeSettings) {
                             root.applicationModel.commitSettingsPanelWidth()

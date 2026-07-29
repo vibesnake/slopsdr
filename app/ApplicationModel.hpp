@@ -64,9 +64,11 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(sdr::app::ApplicationLogModel* applicationLog READ applicationLog CONSTANT)
     Q_PROPERTY(QString sidebarMode READ sidebarMode NOTIFY sidebarModeChanged)
     Q_PROPERTY(bool bookmarksPanelOpen READ bookmarksPanelOpen NOTIFY sidebarModeChanged)
+    Q_PROPERTY(bool scanPanelOpen READ scanPanelOpen NOTIFY sidebarModeChanged)
     Q_PROPERTY(bool settingsPanelOpen READ settingsPanelOpen NOTIFY sidebarModeChanged)
     Q_PROPERTY(bool consolePanelOpen READ consolePanelOpen NOTIFY sidebarModeChanged)
     Q_PROPERTY(double bookmarksPanelWidth READ bookmarksPanelWidth NOTIFY bookmarksPanelWidthChanged)
+    Q_PROPERTY(double scanPanelWidth READ scanPanelWidth NOTIFY scanPanelWidthChanged)
     Q_PROPERTY(double settingsPanelWidth READ settingsPanelWidth NOTIFY settingsPanelWidthChanged)
     Q_PROPERTY(double consolePanelWidth READ consolePanelWidth NOTIFY consolePanelWidthChanged)
     Q_PROPERTY(QString dsdFmeBinaryPath READ dsdFmeBinaryPath NOTIFY dsdFmeBinaryPathChanged)
@@ -161,9 +163,11 @@ public:
     [[nodiscard]] sdr::app::ApplicationLogModel* applicationLog() noexcept;
     [[nodiscard]] QString sidebarMode() const;
     [[nodiscard]] bool bookmarksPanelOpen() const noexcept;
+    [[nodiscard]] bool scanPanelOpen() const noexcept;
     [[nodiscard]] bool settingsPanelOpen() const noexcept;
     [[nodiscard]] bool consolePanelOpen() const noexcept;
     [[nodiscard]] double bookmarksPanelWidth() const noexcept;
+    [[nodiscard]] double scanPanelWidth() const noexcept;
     [[nodiscard]] double settingsPanelWidth() const noexcept;
     [[nodiscard]] double consolePanelWidth() const noexcept;
     [[nodiscard]] QString dsdFmeBinaryPath() const;
@@ -260,6 +264,8 @@ public slots:
     void setBookmarksPanelOpen(bool open);
     void setBookmarksPanelWidth(double width);
     void commitBookmarksPanelWidth();
+    void setScanPanelWidth(double width);
+    void commitScanPanelWidth();
     void setSettingsPanelWidth(double width);
     void commitSettingsPanelWidth();
     void setConsolePanelWidth(double width);
@@ -322,6 +328,7 @@ signals:
     void sidebarModeChanged();
     void bookmarkUpdateAvailableChanged();
     void bookmarksPanelWidthChanged();
+    void scanPanelWidthChanged();
     void settingsPanelWidthChanged();
     void consolePanelWidthChanged();
     void dsdFmeBinaryPathChanged();
@@ -447,6 +454,7 @@ private:
     void restorePersistedDisplaySettings();
     void persistSpectrumWaterfallSplitRatio();
     void persistBookmarksPanelWidth();
+    void persistScanPanelWidth();
     void persistSettingsPanelWidth();
     void persistConsolePanelWidth();
     void setStatusText(QString statusText);
@@ -475,6 +483,7 @@ private:
     QString m_loadedBookmarkUuid;
     QString m_sidebarMode = QStringLiteral("none");
     double m_bookmarksPanelWidth = 280.0;
+    double m_scanPanelWidth = 320.0;
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
     QString m_dsdFmeBinaryPath;
@@ -483,6 +492,7 @@ private:
     QTimer m_spectrumTimer;
     QTimer m_splitRatioPersistenceTimer;
     QTimer m_bookmarksPanelWidthPersistenceTimer;
+    QTimer m_scanPanelWidthPersistenceTimer;
     QTimer m_settingsPanelWidthPersistenceTimer;
     QTimer m_consolePanelWidthPersistenceTimer;
     QTimer m_wheelTuningTimer;

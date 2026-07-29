@@ -46,10 +46,12 @@ constexpr int splitRatioPersistenceDelayMilliseconds = 150;
 constexpr auto sidebarModeSetting = "display/sidebarMode";
 constexpr auto legacyBookmarksPanelOpenSetting = "display/bookmarksPanelOpen";
 constexpr auto bookmarksPanelWidthSetting = "display/bookmarksPanelWidth";
+constexpr auto scanPanelWidthSetting = "display/scanPanelWidth";
 constexpr auto settingsPanelWidthSetting = "display/settingsPanelWidth";
 constexpr auto consolePanelWidthSetting = "display/consolePanelWidth";
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
 constexpr double defaultBookmarksPanelWidth = 280.0;
+constexpr double defaultScanPanelWidth = 320.0;
 constexpr double defaultSettingsPanelWidth = 320.0;
 constexpr double defaultConsolePanelWidth = 420.0;
 constexpr double minimumBookmarksPanelWidth = 220.0;
@@ -85,6 +87,15 @@ double normalizedSettingsPanelWidth(double width) noexcept
         width, minimumBookmarksPanelWidth, maximumBookmarksPanelWidth);
 }
 
+double normalizedScanPanelWidth(double width) noexcept
+{
+    if (!std::isfinite(width)) {
+        return defaultScanPanelWidth;
+    }
+    return std::clamp(
+        width, minimumBookmarksPanelWidth, maximumBookmarksPanelWidth);
+}
+
 double normalizedConsolePanelWidth(double width) noexcept
 {
     if (!std::isfinite(width)) {
@@ -98,6 +109,7 @@ QString normalizedSidebarMode(const QString& mode)
 {
     const QString normalized = mode.trimmed().toLower();
     if (normalized == QLatin1String("bookmarks") ||
+        normalized == QLatin1String("scan") ||
         normalized == QLatin1String("settings") ||
         normalized == QLatin1String("console")) {
         return normalized;
@@ -565,6 +577,27 @@ void ApplicationModel::restorePersistedDisplaySettings()
         &ApplicationModel::persistBookmarksPanelWidth);
 
     valid = false;
+    const double storedScanPanelWidth = settings.value(
+        scanPanelWidthSetting,
+        defaultScanPanelWidth).toDouble(&valid);
+    m_scanPanelWidth = valid
+                           ? normalizedScanPanelWidth(storedScanPanelWidth)
+                           : defaultScanPanelWidth;
+    if (!valid || !qFuzzyCompare(
+                      storedScanPanelWidth + 1.0,
+                      m_scanPanelWidth + 1.0)) {
+        settings.setValue(scanPanelWidthSetting, m_scanPanelWidth);
+    }
+    m_scanPanelWidthPersistenceTimer.setInterval(
+        bookmarksPanelPersistenceDelayMilliseconds);
+    m_scanPanelWidthPersistenceTimer.setSingleShot(true);
+    connect(
+        &m_scanPanelWidthPersistenceTimer,
+        &QTimer::timeout,
+        this,
+        &ApplicationModel::persistScanPanelWidth);
+
+    valid = false;
     const double storedSettingsPanelWidth = settings.value(
         settingsPanelWidthSetting,
         defaultSettingsPanelWidth).toDouble(&valid);
@@ -626,6 +659,11 @@ void ApplicationModel::persistSpectrumWaterfallSplitRatio()
 void ApplicationModel::persistBookmarksPanelWidth()
 {
     QSettings().setValue(bookmarksPanelWidthSetting, m_bookmarksPanelWidth);
+}
+
+void ApplicationModel::persistScanPanelWidth()
+{
+    QSettings().setValue(scanPanelWidthSetting, m_scanPanelWidth);
 }
 
 void ApplicationModel::persistSettingsPanelWidth()
@@ -838,6 +876,11 @@ bool ApplicationModel::bookmarksPanelOpen() const noexcept
     return m_sidebarMode == QLatin1String("bookmarks");
 }
 
+bool ApplicationModel::scanPanelOpen() const noexcept
+{
+    return m_sidebarMode == QLatin1String("scan");
+}
+
 bool ApplicationModel::settingsPanelOpen() const noexcept
 {
     return m_sidebarMode == QLatin1String("settings");
@@ -851,6 +894,11 @@ bool ApplicationModel::consolePanelOpen() const noexcept
 double ApplicationModel::bookmarksPanelWidth() const noexcept
 {
     return m_bookmarksPanelWidth;
+}
+
+double ApplicationModel::scanPanelWidth() const noexcept
+{
+    return m_scanPanelWidth;
 }
 
 double ApplicationModel::settingsPanelWidth() const noexcept
@@ -1722,6 +1770,23 @@ void ApplicationModel::commitBookmarksPanelWidth()
 {
     m_bookmarksPanelWidthPersistenceTimer.stop();
     persistBookmarksPanelWidth();
+}
+
+void ApplicationModel::setScanPanelWidth(double width)
+{
+    const double boundedWidth = normalizedScanPanelWidth(width);
+    if (qFuzzyCompare(m_scanPanelWidth + 1.0, boundedWidth + 1.0)) {
+        return;
+    }
+    m_scanPanelWidth = boundedWidth;
+    m_scanPanelWidthPersistenceTimer.start();
+    emit scanPanelWidthChanged();
+}
+
+void ApplicationModel::commitScanPanelWidth()
+{
+    m_scanPanelWidthPersistenceTimer.stop();
+    persistScanPanelWidth();
 }
 
 void ApplicationModel::setSettingsPanelWidth(double width)

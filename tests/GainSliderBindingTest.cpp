@@ -20,7 +20,7 @@ private slots:
     void reappliesRequestedGainWhenCapabilitiesArrive();
     void keepsFilterTextVisibleAndPlacesGainStatusBelowSlider();
     void maximumHoldToggleHasDistinctCheckedAndUncheckedStates();
-    void sidebarButtonsKeepBookmarksAndSettingsExclusive();
+    void sidebarButtonsKeepNavigationEntriesExclusiveAndExposeScanShell();
     void toolbarUsesEmbeddedSlopSdrLogo();
     void bookmarkNameDialogSelectsSuggestionAndRejectsWhitespace();
     void bookmarkDragStartsOnlyFromVisibleHandleAndEscapeCancels();
@@ -229,7 +229,8 @@ void GainSliderBindingTest::maximumHoldToggleHasDistinctCheckedAndUncheckedState
     QVERIFY(uncheckedText != checkedText);
 }
 
-void GainSliderBindingTest::sidebarButtonsKeepBookmarksAndSettingsExclusive()
+void GainSliderBindingTest::
+    sidebarButtonsKeepNavigationEntriesExclusiveAndExposeScanShell()
 {
     QQmlEngine engine;
     QQmlComponent component(&engine);
@@ -255,6 +256,14 @@ void GainSliderBindingTest::sidebarButtonsKeepBookmarksAndSettingsExclusive()
                         onClicked: window.sidebarMode = checked ? "bookmarks" : "none"
                     }
                     Button {
+                        id: scanButton
+                        objectName: "scanSidebarButton"
+                        checkable: true
+                        checked: window.sidebarMode === "scan"
+                        text: "Scan"
+                        onClicked: window.sidebarMode = checked ? "scan" : "none"
+                    }
+                    Button {
                         id: settingsButton
                         objectName: "settingsSidebarButton"
                         checkable: true
@@ -278,6 +287,53 @@ void GainSliderBindingTest::sidebarButtonsKeepBookmarksAndSettingsExclusive()
                         visible: window.sidebarMode === "bookmarks"
                     }
                     Rectangle {
+                        objectName: "scanSidebarContent"
+                        anchors.fill: parent
+                        visible: window.sidebarMode === "scan"
+
+                        Column {
+                            anchors.fill: parent
+
+                            Text {
+                                objectName: "scanPaneHeading"
+                                text: "Scan"
+                            }
+                            ComboBox {
+                                objectName: "scanTypeControl"
+                                enabled: false
+                                model: ["Current passband"]
+                            }
+                            TextField { objectName: "scanLowerFrequencyField"; enabled: false }
+                            TextField { objectName: "scanUpperFrequencyField"; enabled: false }
+                            TextField { objectName: "scanStepSizeField"; enabled: false }
+                            TextField { objectName: "scanDwellTimeField"; enabled: false }
+                            TextField { objectName: "scanResumeDelayField"; enabled: false }
+                            ComboBox {
+                                objectName: "scanSquelchSourceControl"
+                                enabled: false
+                                model: ["Live receiver squelch"]
+                            }
+                            Row {
+                                Button { objectName: "scanStartButton"; enabled: false }
+                                Button { objectName: "scanPauseResumeButton"; enabled: false }
+                                Button { objectName: "scanSkipButton"; enabled: false }
+                                Button { objectName: "scanStopButton"; enabled: false }
+                            }
+                            Text {
+                                objectName: "scanCurrentFrequencyDisplay"
+                                text: "—"
+                            }
+                            Text {
+                                objectName: "scanStateDisplay"
+                                text: "Scanner not running"
+                            }
+                            Text {
+                                objectName: "scanStatusMessage"
+                                text: "Scanner not running"
+                            }
+                        }
+                    }
+                    Rectangle {
                         objectName: "settingsSidebarPane"
                         anchors.fill: parent
                         visible: window.sidebarMode === "settings"
@@ -292,13 +348,17 @@ void GainSliderBindingTest::sidebarButtonsKeepBookmarksAndSettingsExclusive()
     QVERIFY2(object, qPrintable(component.errorString()));
     auto* window = qobject_cast<QQuickWindow*>(object.get());
     auto* bookmarksButton = object->findChild<QQuickItem*>("bookmarksSidebarButton");
+    auto* scanButton = object->findChild<QQuickItem*>("scanSidebarButton");
     auto* settingsButton = object->findChild<QQuickItem*>("settingsSidebarButton");
     auto* bookmarksPane = object->findChild<QQuickItem*>("bookmarksSidebarPane");
+    auto* scanPane = object->findChild<QQuickItem*>("scanSidebarContent");
     auto* settingsPane = object->findChild<QQuickItem*>("settingsSidebarPane");
     QVERIFY(window);
     QVERIFY(bookmarksButton);
+    QVERIFY(scanButton);
     QVERIFY(settingsButton);
     QVERIFY(bookmarksPane);
+    QVERIFY(scanPane);
     QVERIFY(settingsPane);
     QVERIFY(QTest::qWaitFor([window] { return window->isExposed(); }));
 
@@ -312,9 +372,15 @@ void GainSliderBindingTest::sidebarButtonsKeepBookmarksAndSettingsExclusive()
     };
     click(bookmarksButton);
     QVERIFY(bookmarksPane->isVisible());
+    QVERIFY(!scanPane->isVisible());
+    QVERIFY(!settingsPane->isVisible());
+    click(scanButton);
+    QVERIFY(!bookmarksPane->isVisible());
+    QVERIFY(scanPane->isVisible());
     QVERIFY(!settingsPane->isVisible());
     click(settingsButton);
     QVERIFY(!bookmarksPane->isVisible());
+    QVERIFY(!scanPane->isVisible());
     QVERIFY(settingsPane->isVisible());
     click(settingsButton);
     QVERIFY(!bookmarksPane->isVisible());
@@ -322,12 +388,62 @@ void GainSliderBindingTest::sidebarButtonsKeepBookmarksAndSettingsExclusive()
     for (int index = 0; index < 5; ++index) {
         click(bookmarksButton);
         QVERIFY(bookmarksPane->isVisible());
+        QVERIFY(!scanPane->isVisible());
+        QVERIFY(!settingsPane->isVisible());
+        click(scanButton);
+        QVERIFY(!bookmarksPane->isVisible());
+        QVERIFY(scanPane->isVisible());
         QVERIFY(!settingsPane->isVisible());
         click(settingsButton);
         QVERIFY(!bookmarksPane->isVisible());
+        QVERIFY(!scanPane->isVisible());
         QVERIFY(settingsPane->isVisible());
     }
     QCOMPARE(bookmarksPane->parentItem(), settingsPane->parentItem());
+    QCOMPARE(scanPane->parentItem(), settingsPane->parentItem());
+
+    const auto scanType = object->findChild<QObject*>("scanTypeControl");
+    QVERIFY(scanType);
+    QCOMPARE(scanType->property("enabled").toBool(), false);
+    QCOMPARE(scanType->property("currentText").toString(),
+             QStringLiteral("Current passband"));
+    for (const char* objectName : {
+             "scanPaneHeading",
+             "scanLowerFrequencyField",
+             "scanUpperFrequencyField",
+             "scanStepSizeField",
+             "scanDwellTimeField",
+             "scanResumeDelayField",
+             "scanSquelchSourceControl",
+             "scanStartButton",
+             "scanPauseResumeButton",
+             "scanSkipButton",
+             "scanStopButton",
+             "scanCurrentFrequencyDisplay",
+             "scanStateDisplay",
+             "scanStatusMessage",
+         }) {
+        QVERIFY2(object->findChild<QObject*>(objectName), objectName);
+    }
+    for (const char* objectName : {
+             "scanLowerFrequencyField",
+             "scanUpperFrequencyField",
+             "scanStepSizeField",
+             "scanDwellTimeField",
+             "scanResumeDelayField",
+             "scanSquelchSourceControl",
+             "scanStartButton",
+             "scanPauseResumeButton",
+             "scanSkipButton",
+             "scanStopButton",
+         }) {
+        QCOMPARE(
+            object->findChild<QObject*>(objectName)->property("enabled").toBool(),
+            false);
+    }
+    QCOMPARE(
+        object->findChild<QObject*>("scanStateDisplay")->property("text").toString(),
+        QStringLiteral("Scanner not running"));
 }
 
 void GainSliderBindingTest::toolbarUsesEmbeddedSlopSdrLogo()

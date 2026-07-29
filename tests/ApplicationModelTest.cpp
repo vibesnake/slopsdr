@@ -205,12 +205,14 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
     const QString modeKey = QStringLiteral("display/sidebarMode");
     const QString legacyOpenKey = QStringLiteral("display/bookmarksPanelOpen");
     const QString bookmarksWidthKey = QStringLiteral("display/bookmarksPanelWidth");
+    const QString scanWidthKey = QStringLiteral("display/scanPanelWidth");
     const QString settingsWidthKey = QStringLiteral("display/settingsPanelWidth");
     const QString consoleWidthKey = QStringLiteral("display/consolePanelWidth");
     QSettings settings;
     settings.remove(modeKey);
     settings.remove(legacyOpenKey);
     settings.remove(bookmarksWidthKey);
+    settings.remove(scanWidthKey);
     settings.remove(settingsWidthKey);
     settings.remove(consoleWidthKey);
     settings.sync();
@@ -219,9 +221,11 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
         ApplicationModel model;
         QCOMPARE(model.sidebarMode(), QStringLiteral("none"));
         QVERIFY(!model.bookmarksPanelOpen());
+        QVERIFY(!model.scanPanelOpen());
         QVERIFY(!model.settingsPanelOpen());
         QVERIFY(!model.consolePanelOpen());
         QCOMPARE(model.bookmarksPanelWidth(), 280.0);
+        QCOMPARE(model.scanPanelWidth(), 320.0);
         QCOMPARE(model.settingsPanelWidth(), 320.0);
         QCOMPARE(model.consolePanelWidth(), 420.0);
         const quint64 originalCenter = model.centerFrequency();
@@ -245,6 +249,7 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
         model.commitBookmarksPanelWidth();
         model.setSidebarMode(QStringLiteral("settings"));
         QVERIFY(!model.bookmarksPanelOpen());
+        QVERIFY(!model.scanPanelOpen());
         QVERIFY(model.settingsPanelOpen());
         QCOMPARE(model.centerFrequency(), originalCenter);
         QCOMPARE(model.listeningFrequency(), originalListening);
@@ -256,8 +261,19 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
         QCOMPARE(model.settingsPanelWidth(), 520.0);
         model.setSettingsPanelWidth(366.0);
         model.commitSettingsPanelWidth();
+        model.setSidebarMode(QStringLiteral("scan"));
+        QVERIFY(!model.bookmarksPanelOpen());
+        QVERIFY(model.scanPanelOpen());
+        QVERIFY(!model.settingsPanelOpen());
+        model.setScanPanelWidth(120.0);
+        QCOMPARE(model.scanPanelWidth(), 220.0);
+        model.setScanPanelWidth(700.0);
+        QCOMPARE(model.scanPanelWidth(), 520.0);
+        model.setScanPanelWidth(388.0);
+        model.commitScanPanelWidth();
         model.setSidebarMode(QStringLiteral("console"));
         QVERIFY(!model.bookmarksPanelOpen());
+        QVERIFY(!model.scanPanelOpen());
         QVERIFY(!model.settingsPanelOpen());
         QVERIFY(model.consolePanelOpen());
         model.setConsolePanelWidth(120.0);
@@ -273,22 +289,25 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
         model.setSidebarMode(QStringLiteral("none"));
         QVERIFY(!model.bookmarksPanelOpen());
         QVERIFY(!model.settingsPanelOpen());
-        model.setSidebarMode(QStringLiteral("console"));
+        model.setSidebarMode(QStringLiteral("scan"));
     }
 
     {
         ApplicationModel restored;
-        QCOMPARE(restored.sidebarMode(), QStringLiteral("console"));
+        QCOMPARE(restored.sidebarMode(), QStringLiteral("scan"));
         QVERIFY(!restored.bookmarksPanelOpen());
+        QVERIFY(restored.scanPanelOpen());
         QVERIFY(!restored.settingsPanelOpen());
-        QVERIFY(restored.consolePanelOpen());
+        QVERIFY(!restored.consolePanelOpen());
         QCOMPARE(restored.bookmarksPanelWidth(), 333.0);
+        QCOMPARE(restored.scanPanelWidth(), 388.0);
         QCOMPARE(restored.settingsPanelWidth(), 366.0);
         QCOMPARE(restored.consolePanelWidth(), 444.0);
     }
 
     settings.setValue(modeKey, QStringLiteral("invalid"));
     settings.setValue(bookmarksWidthKey, QStringLiteral("obsolete"));
+    settings.setValue(scanWidthKey, QStringLiteral("obsolete"));
     settings.setValue(settingsWidthKey, QStringLiteral("obsolete"));
     settings.setValue(consoleWidthKey, QStringLiteral("obsolete"));
     settings.sync();
@@ -296,9 +315,11 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
         ApplicationModel invalid;
         QCOMPARE(invalid.sidebarMode(), QStringLiteral("none"));
         QVERIFY(!invalid.bookmarksPanelOpen());
+        QVERIFY(!invalid.scanPanelOpen());
         QVERIFY(!invalid.settingsPanelOpen());
         QVERIFY(!invalid.consolePanelOpen());
         QCOMPARE(invalid.bookmarksPanelWidth(), 280.0);
+        QCOMPARE(invalid.scanPanelWidth(), 320.0);
         QCOMPARE(invalid.settingsPanelWidth(), 320.0);
         QCOMPARE(invalid.consolePanelWidth(), 420.0);
     }
@@ -316,6 +337,7 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
     settings.remove(modeKey);
     settings.remove(legacyOpenKey);
     settings.remove(bookmarksWidthKey);
+    settings.remove(scanWidthKey);
     settings.remove(settingsWidthKey);
     settings.remove(consoleWidthKey);
     settings.sync();

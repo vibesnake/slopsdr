@@ -177,11 +177,16 @@ does not tint the passband or hide waterfall data.
 
 ## Bookmark manager
 
-Select the checkable **Bookmarks**, **Settings**, or **Console** button
+Select the checkable **Bookmarks**, **Scan**, **Settings**, or **Console** button
 immediately to the right of Listening Frequency to open that left-side pane;
 selecting the active button closes it. Only one pane is open at a time. Opening
 one reduces the spectrum and waterfall width. Drag its right edge to resize it;
 each pane keeps its own width, and the active pane is restored at startup.
+
+The **Scan** pane is a non-operational preview of a future
+current-passband scanner. Its controls are disabled and the state remains
+**Scanner not running**; opening it does not tune the receiver or change
+reception.
 
 **Add Group** creates a nested group under the selected group, or at the root
 when no group is selected. **Add Bookmark** snapshots the current listening

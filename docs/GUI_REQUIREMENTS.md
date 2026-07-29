@@ -267,9 +267,9 @@ controls visible at reasonable desktop resolutions. Touch targets should
 remain usable on touch-capable systems, while mouse wheel, right-click,
 keyboard, and accessibility operation remain available on desktop.
 
-Checkable **Bookmarks**, **Settings**, and **Console** buttons immediately to
+Checkable **Bookmarks**, **Scan**, **Settings**, and **Console** buttons immediately to
 the right of Listening Frequency select one persisted, horizontally resizable
-panel on the left of the radio display. The three panels are mutually exclusive
+panel on the left of the radio display. The four panels are mutually exclusive
 and any may be closed. Each retains its own saved width; opening one reduces
 display width rather than overlaying the spectrum or waterfall. The Settings
 panel contains the optional DSD-FME executable-path field, native file chooser,
@@ -286,6 +286,10 @@ binary stdout. The Bookmarks panel renders
 nested groups with independent expansion state and scanner-inclusion checkboxes.
 Group inclusion is derived as a tri-state value and updates all descendant
 bookmarks; no scan-execution control exists.
+
+The Scan panel is a non-operational shell for a future current-passband
+scanner. Its controls are disabled and it reports **Scanner not running**;
+opening it does not tune, step, persist scan settings, or start scanning.
 
 The panel provides Add Group, Add Bookmark, Update Bookmark, Edit, Remove, and
 Tune actions. Update Bookmark writes the current receiver-owned fields to the
