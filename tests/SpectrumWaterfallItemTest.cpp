@@ -945,6 +945,7 @@ void SpectrumWaterfallItemTest::pausesSpectrumAndWaterfallIndependently()
         waterfall, first, 100'000'000, 2'000'000, 1, 100));
     QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{1});
     QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{1});
+    const auto frozenSpectrum = spectrum.m_latestFrame.normalizedMagnitudes;
 
     spectrum.setPaused(true);
     QVERIFY(spectrum.paused());
@@ -955,6 +956,7 @@ void SpectrumWaterfallItemTest::pausesSpectrumAndWaterfallIndependently()
     QVERIFY(deliverWaterfallFrame(
         waterfall, pausedSpectrumFrame, 100'000'000, 2'000'000, 2, 200));
     QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{1});
+    QCOMPARE(spectrum.m_latestFrame.normalizedMagnitudes, frozenSpectrum);
     QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{2});
 
     spectrum.setPaused(false);
@@ -963,6 +965,10 @@ void SpectrumWaterfallItemTest::pausesSpectrumAndWaterfallIndependently()
     QVERIFY(deliverSpectrumFrame(
         spectrum, resumedSpectrumFrame, 100'000'000, 2'000'000, 3, 300));
     QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{3});
+    QCOMPARE(
+        spectrum.m_latestFrame.normalizedMagnitudes,
+        std::vector<float>(
+            resumedSpectrumFrame.begin(), resumedSpectrumFrame.end()));
 
     waterfall.setPaused(true);
     QVERIFY(waterfall.paused());

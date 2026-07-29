@@ -52,7 +52,6 @@ ApplicationWindow {
         required property string heading
         required property string detail
         property bool waterfallInteraction: false
-        property var spectrumDisplay: null
         readonly property bool historyFitsMemoryBudget:
             displaySurface.historyConfigurationFitsMemoryBudget
         readonly property real retainedHistoryCapacitySeconds:
@@ -75,11 +74,102 @@ ApplicationWindow {
         border.width: 1
         clip: true
 
+        ToolButton {
+            id: spectrumPauseButton
+            objectName: "spectrumPauseButton"
+            anchors.left: parent.left
+            anchors.verticalCenter: waterfallTitle.verticalCenter
+            anchors.leftMargin: 8
+            implicitWidth: 28
+            implicitHeight: 28
+            visible: !pane.waterfallInteraction
+            checkable: true
+            checked: displaySurface.paused
+            text: checked ? "▶" : "⏸"
+            Accessible.name: checked
+                             ? qsTr("Resume spectrum")
+                             : qsTr("Pause spectrum")
+            Accessible.description: qsTr(
+                "Pause or resume the spectrum display")
+            onToggled: displaySurface.paused = checked
+            ToolTip.visible: hovered
+            ToolTip.text: checked
+                           ? qsTr("Resume spectrum")
+                           : qsTr("Pause spectrum")
+
+            background: Rectangle {
+                radius: 3
+                color: spectrumPauseButton.checked
+                           ? root.centerColor
+                           : (spectrumPauseButton.pressed
+                              ? root.panelBorderColor : root.panelColor)
+                border.color: spectrumPauseButton.checked
+                                  ? root.centerColor : root.panelBorderColor
+                border.width: spectrumPauseButton.activeFocus ? 2 : 1
+            }
+
+            contentItem: Text {
+                text: spectrumPauseButton.text
+                color: spectrumPauseButton.checked
+                           ? root.backgroundColor : root.primaryTextColor
+                font.pixelSize: 16
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        ToolButton {
+            id: waterfallPauseButton
+            objectName: "waterfallPauseButton"
+            anchors.left: parent.left
+            anchors.verticalCenter: waterfallTitle.verticalCenter
+            anchors.leftMargin: 8
+            implicitWidth: 28
+            implicitHeight: 28
+            visible: pane.waterfallInteraction
+            checkable: true
+            checked: displaySurface.paused
+            text: checked ? "▶" : "⏸"
+            Accessible.name: checked
+                             ? qsTr("Resume waterfall")
+                             : qsTr("Pause waterfall")
+            Accessible.description: qsTr(
+                "Pause or resume the waterfall display")
+            onToggled: displaySurface.paused = checked
+            ToolTip.visible: hovered
+            ToolTip.text: checked
+                           ? qsTr("Resume waterfall")
+                           : qsTr("Pause waterfall")
+
+            background: Rectangle {
+                radius: 3
+                color: waterfallPauseButton.checked
+                           ? root.centerColor
+                           : (waterfallPauseButton.pressed
+                              ? root.panelBorderColor : root.panelColor)
+                border.color: waterfallPauseButton.checked
+                                  ? root.centerColor : root.panelBorderColor
+                border.width: waterfallPauseButton.activeFocus ? 2 : 1
+            }
+
+            contentItem: Text {
+                text: waterfallPauseButton.text
+                color: waterfallPauseButton.checked
+                           ? root.backgroundColor : root.primaryTextColor
+                font.pixelSize: 16
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
         Label {
             id: waterfallTitle
-            anchors.left: parent.left
+            anchors.left: pane.waterfallInteraction
+                         ? waterfallPauseButton.right
+                         : spectrumPauseButton.right
             anchors.top: parent.top
-            anchors.margins: 12
+            anchors.leftMargin: 6
+            anchors.topMargin: 12
             text: pane.heading
             color: "#f1f5fb"
             font.bold: true
@@ -138,7 +228,7 @@ ApplicationWindow {
         RowLayout {
             id: waterfallRangeControls
             anchors.left: waterfallTitle.right
-            anchors.right: displayPauseControls.left
+            anchors.right: waterfallHeaderControls.left
             anchors.verticalCenter: waterfallTitle.verticalCenter
             anchors.leftMargin: 10
             anchors.rightMargin: 8
@@ -295,61 +385,6 @@ ApplicationWindow {
                 editable: true
                 Accessible.description: qsTr("Normal spectrum wheel center-frequency step")
                 onValueModified: pane.applicationModel.setTuningWheelStep(value)
-            }
-        }
-
-        RowLayout {
-            id: displayPauseControls
-            anchors.right: waterfallHeaderControls.left
-            anchors.top: parent.top
-            anchors.rightMargin: 8
-            anchors.topMargin: 4
-            visible: pane.waterfallInteraction
-            spacing: 3
-
-            ToolButton {
-                id: spectrumPauseButton
-                objectName: "spectrumPauseButton"
-                Layout.preferredWidth: 28
-                Layout.minimumWidth: 28
-                Layout.maximumWidth: 28
-                implicitHeight: 28
-                checkable: true
-                checked: pane.spectrumDisplay
-                         ? pane.spectrumDisplay.paused : false
-                text: checked ? "▶" : "⏸"
-                Accessible.name: checked
-                                 ? qsTr("Resume spectrum")
-                                 : qsTr("Pause spectrum")
-                Accessible.description: qsTr(
-                    "Pause or resume the spectrum display")
-                onToggled: pane.spectrumDisplay.paused = checked
-                ToolTip.visible: hovered
-                ToolTip.text: checked
-                               ? qsTr("Resume spectrum")
-                               : qsTr("Pause spectrum")
-            }
-
-            ToolButton {
-                id: waterfallPauseButton
-                objectName: "waterfallPauseButton"
-                Layout.preferredWidth: 28
-                Layout.minimumWidth: 28
-                Layout.maximumWidth: 28
-                implicitHeight: 28
-                checkable: true
-                checked: displaySurface.paused
-                text: checked ? "▶" : "⏸"
-                Accessible.name: checked
-                                 ? qsTr("Resume waterfall")
-                                 : qsTr("Pause waterfall")
-                Accessible.description: qsTr(
-                    "Pause or resume the waterfall display")
-                onToggled: displaySurface.paused = checked
-                ToolTip.visible: hovered
-                ToolTip.text: checked
-                               ? qsTr("Resume waterfall")
-                               : qsTr("Pause waterfall")
             }
         }
 
@@ -2474,7 +2509,6 @@ ApplicationWindow {
                 heading: qsTr("Waterfall")
                 detail: qsTr("Wheel: zoom · Ctrl: filter · Shift: listen")
                 waterfallInteraction: true
-                spectrumDisplay: spectrumPane.displaySurface
             }
         }
 

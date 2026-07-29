@@ -275,10 +275,11 @@ recenters it. Wheel movement over the waterfall instead zooms the shared
 spectrum/waterfall viewport around the listening marker. The read-only toolbar
 indicator shows the rounded whole percentage of the full effective capture
 bandwidth relative to the current visible span, with a minimum of 100%.
-Use the compact **Pause spectrum** and **Pause waterfall** toggle buttons in
-the same toolbar to freeze either display independently. Pausing drops frames
-for that display while reception, DSP, tuning, audio, and recording continue;
-resuming accepts the next live frame without replaying paused data.
+Use the compact **Pause spectrum** toggle in the Spectrum header and the
+**Pause waterfall** toggle in the Waterfall header to freeze either display
+independently. Pausing drops frames for that display while reception, DSP,
+tuning, audio, and recording continue; resuming accepts the next live frame
+without replaying paused data.
 
 Hold **Ctrl** while scrolling either spectrum or waterfall to widen or narrow
 the active demodulation filter within its mode limits. Non-preset widths appear
