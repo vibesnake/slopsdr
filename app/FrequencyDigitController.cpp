@@ -89,6 +89,33 @@ FrequencyEditResult FrequencyDigitController::zeroFromDigit(
     return constrained;
 }
 
+FrequencyEditResult FrequencyDigitController::replaceDigit(
+    std::uint64_t currentFrequency,
+    int digitIndex,
+    int replacementDigit)
+{
+    const auto place = placeValue(digitIndex);
+    if (!place.has_value()) {
+        return failure(
+            FrequencyEditError::InvalidDigit,
+            "Frequency digit index is outside the displayed range");
+    }
+    if (replacementDigit < 0 || replacementDigit > 9) {
+        return failure(
+            FrequencyEditError::InvalidReplacementDigit,
+            "Frequency digit replacement must be between 0 and 9");
+    }
+
+    const std::uint64_t existingDigit = (currentFrequency / *place) % 10;
+    return {
+        FrequencyEditError::None,
+        currentFrequency - existingDigit * *place +
+            static_cast<std::uint64_t>(replacementDigit) * *place,
+        false,
+        "Frequency digit replaced",
+    };
+}
+
 FrequencyEditResult FrequencyDigitController::constrain(
     std::uint64_t requestedFrequency,
     std::span<const radio::FrequencyRange> allowedRanges)

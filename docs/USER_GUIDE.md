@@ -334,6 +334,13 @@ independently. Pausing drops frames for that display while reception, DSP,
 tuning, audio, and recording continue; resuming accepts the next live frame
 without replaying paused data.
 
+For center-frequency digits, right-click removes the clicked decimal suffix
+immediately. Hover a digit and press `0`–`9` to replace only that digit. A
+left-click starts a temporary sequential edit: fill the highlighted suffix,
+then press **Enter** to apply the complete value or **Esc** to restore the
+original display. Digit editing is unavailable while scanning owns tuning, and
+hover replacement never captures numeric input from another text field.
+
 Hold **Ctrl** while scrolling either spectrum or waterfall to widen or narrow
 the active demodulation filter within its mode limits. Non-preset widths appear
 as Custom. Hold **Shift** while scrolling either panel to move listening

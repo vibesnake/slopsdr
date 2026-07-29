@@ -24,6 +24,7 @@ private slots:
     void toolbarUsesEmbeddedSlopSdrLogo();
     void bookmarkNameDialogSelectsSuggestionAndRejectsWhitespace();
     void bookmarkDragStartsOnlyFromVisibleHandleAndEscapeCancels();
+    void centerDigitHoverKeysAvoidTextEditorsAndScannerOwnership();
 };
 
 void GainSliderBindingTest::reappliesRequestedGainWhenCapabilitiesArrive()
@@ -883,6 +884,107 @@ void GainSliderBindingTest::bookmarkDragStartsOnlyFromVisibleHandleAndEscapeCanc
     QVERIFY(QTest::qWaitFor(
         [&object] { return object->property("completedDrops").toInt() == 1; }));
     QVERIFY(!object->property("dragActive").toBool());
+}
+
+void GainSliderBindingTest::centerDigitHoverKeysAvoidTextEditorsAndScannerOwnership()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(
+        R"(
+            import QtQuick
+            import QtQuick.Controls
+            import QtQuick.Window
+
+            Window {
+                id: root
+                width: 240
+                height: 100
+                visible: true
+                property int hoveredCenterFrequencyDigitIndex: 4
+                property bool scannerOwnsTuning: false
+                property bool centerFrequencyDigitEditActive: false
+                property int replacements: 0
+                property int replacementDigit: -1
+
+                function textEditorHasFocus() {
+                    let item = root.activeFocusItem
+                    while (item) {
+                        if (item instanceof TextInput || item instanceof TextEdit)
+                            return true
+                        item = item.parent
+                    }
+                    return false
+                }
+
+                Repeater {
+                    model: 10
+
+                    delegate: Item {
+                        width: 0
+                        height: 0
+
+                        Shortcut {
+                            sequence: String(index)
+                            context: Qt.WindowShortcut
+                            enabled: !root.scannerOwnsTuning
+                                     && !root.centerFrequencyDigitEditActive
+                                     && !root.textEditorHasFocus()
+                                     && root.hoveredCenterFrequencyDigitIndex >= 0
+                            onActivated: {
+                                ++root.replacements
+                                root.replacementDigit = index
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    id: digitFocus
+                    objectName: "centerFrequencyDigitFocus"
+                    focus: true
+                    width: 30
+                    height: 30
+                }
+                TextField {
+                    id: editor
+                    objectName: "otherTextEditor"
+                    anchors.top: digitFocus.bottom
+                    width: parent.width
+                }
+            }
+        )",
+        QUrl());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    const std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* window = qobject_cast<QQuickWindow*>(object.get());
+    auto* digitFocus = object->findChild<QQuickItem*>("centerFrequencyDigitFocus");
+    auto* editor = object->findChild<QQuickItem*>("otherTextEditor");
+    QVERIFY(window);
+    QVERIFY(digitFocus);
+    QVERIFY(editor);
+    QVERIFY(QTest::qWaitFor([window] { return window->isExposed(); }));
+
+    digitFocus->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_4);
+    QCOMPARE(object->property("replacements").toInt(), 1);
+    QCOMPARE(object->property("replacementDigit").toInt(), 4);
+
+    editor->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_5);
+    QCOMPARE(object->property("replacements").toInt(), 1);
+
+    object->setProperty("scannerOwnsTuning", true);
+    digitFocus->forceActiveFocus();
+    QTest::keyClick(window, Qt::Key_6);
+    QCOMPARE(object->property("replacements").toInt(), 1);
+
+    object->setProperty("scannerOwnsTuning", false);
+    object->setProperty("centerFrequencyDigitEditActive", true);
+    QTest::keyClick(window, Qt::Key_7);
+    QCOMPARE(object->property("replacements").toInt(), 1);
 }
 
 QTEST_MAIN(GainSliderBindingTest)

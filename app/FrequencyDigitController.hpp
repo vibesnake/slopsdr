@@ -15,6 +15,7 @@ namespace sdr::app {
 enum class FrequencyEditError {
     None,
     InvalidDigit,
+    InvalidReplacementDigit,
     InvalidDirection,
     NoAllowedFrequency,
     ZeroedFrequencyOutsideLimits,
@@ -48,6 +49,10 @@ public:
         std::uint64_t currentFrequency,
         int digitIndex,
         std::span<const radio::FrequencyRange> allowedRanges);
+    [[nodiscard]] static FrequencyEditResult replaceDigit(
+        std::uint64_t currentFrequency,
+        int digitIndex,
+        int replacementDigit);
     [[nodiscard]] static FrequencyEditResult constrain(
         std::uint64_t requestedFrequency,
         std::span<const radio::FrequencyRange> allowedRanges);

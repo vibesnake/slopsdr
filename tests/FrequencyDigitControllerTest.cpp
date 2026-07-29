@@ -21,6 +21,7 @@ private slots:
     void carriesAcrossDigits();
     void borrowsAcrossDigits();
     void zerosSelectedAndLessSignificantDigits();
+    void replacesOnlyTheSelectedDigit();
     void enforcesMinimumFrequency();
     void enforcesMaximumFrequency();
     void enforcesDeviceSpecificRanges();
@@ -98,6 +99,20 @@ void FrequencyDigitControllerTest::zerosSelectedAndLessSignificantDigits()
             result.frequency,
             (frequency / zeroingRange) * zeroingRange);
     }
+}
+
+void FrequencyDigitControllerTest::replacesOnlyTheSelectedDigit()
+{
+    const auto result = FrequencyDigitController::replaceDigit(
+        123'456'789, 4, 9);
+
+    QVERIFY(result.succeeded());
+    QVERIFY(!result.adjustedToLimit);
+    QCOMPARE(result.frequency, std::uint64_t{123'956'789});
+
+    const auto invalid = FrequencyDigitController::replaceDigit(
+        123'456'789, 4, 10);
+    QVERIFY(!invalid.succeeded());
 }
 
 void FrequencyDigitControllerTest::enforcesMinimumFrequency()

@@ -108,15 +108,31 @@ The center-frequency entry must provide a decimal digit control:
   value.
 * Scrolling upward increments and scrolling downward decrements.
 * Right-clicking a digit sets that digit and every less-significant digit to
-  zero.
+  zero immediately without focusing or selecting that digit.
+* Typing `0` through `9` while directly hovering a digit replaces only that
+  digit and immediately requests the resulting exact center frequency. This
+  pointer-local behavior must not take number keys from a focused text editor.
+* Left-clicking starts a temporary sequential edit at that digit. Digits to the
+  left remain unchanged; each numeric key replaces the active digit and moves
+  right. The active digit and remaining editable suffix are visibly indicated,
+  and no receiver tuning occurs until the completed value is confirmed with
+  Enter. Escape restores the exact original display. An unsupported completed
+  value is retained for correction and must not retune the receiver.
 * Carry and borrow operate across adjacent digits.
-* Values are validated and clamped to the available center-frequency limits.
+* Increment/decrement and complete-entry values are validated and clamped to
+  available center-frequency limits. Exact hover replacement, sequential
+  confirmation, and suffix zeroing reject unsupported results without changing
+  another digit.
 * Keyboard focus is visible. Up and Down perform the same increment/decrement
-  operation, Left and Right move between digits, Enter opens complete-frequency
-  entry, and Delete performs the same zeroing operation as right-click.
+  operation, Left and Right move between digits, and Delete performs the same
+  zeroing operation as right-click. Outside a sequential edit, Enter opens
+  complete-frequency entry.
 * Touching the upper or lower half of a digit increments or decrements it without
   changing mouse-wheel or right-click behavior.
 * Each digit exposes an accessible name, role, and operation description.
+
+All center-frequency digit interactions are unavailable while the scanner owns
+tuning, including its running, paused, holding, and retuning states.
 
 Tuning arithmetic, carry, borrow, zeroing, and limit enforcement must be
 implemented in C++, not QML JavaScript.

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 vibesnake
 
 #include "ApplicationModel.hpp"
+#include "FrequencyDigitController.hpp"
 #include "FrequencyViewport.hpp"
 #include "MockReceiverBackend.hpp"
 
@@ -76,6 +77,8 @@ private slots:
     void namesBookmarksBeforeCreatingCapturedReceiverState();
     void updatesBookmarksByStableIdentityAndPreservesMetadata();
     void supportsDigitTuning();
+    void supportsCenterFrequencyDigitEditSessions();
+    void rejectsInvalidCenterFrequencyDigitEdits();
     void honorsDeviceSpecificDigitLimits();
     void enforcesFrequencyLimits();
     void keepsSpectrumTuningDistinctFromWaterfallZoom();
@@ -1033,6 +1036,11 @@ void ApplicationModelTest::givesActiveScannerExclusiveTuningControl()
     model.setCenterFrequencyText(QString::number(scannerCenter + 1'000'000));
     model.adjustCenterFrequencyDigit(9, 1);
     model.zeroCenterFrequencyFromDigit(9);
+    model.beginCenterFrequencyDigitEdit(8);
+    model.replaceCenterFrequencyDigitInEdit(5);
+    model.replaceHoveredCenterFrequencyDigit(8, 5);
+    model.commitCenterFrequencyDigitEdit();
+    QVERIFY(!model.centerFrequencyDigitEditActive());
     model.shiftCenterFromSpectrum(120);
     model.handleFrequencyWheel(false, 120);
     model.setListeningFrequency(lower + 5'000);
@@ -1340,6 +1348,77 @@ void ApplicationModelTest::supportsDigitTuning()
     QCOMPARE(model.centerFrequency(), quint64{145'000'000});
     QCOMPARE(model.listeningFrequency(), model.centerFrequency());
     QCOMPARE(frequencySpy.count(), 5);
+}
+
+void ApplicationModelTest::supportsCenterFrequencyDigitEditSessions()
+{
+    ApplicationModel model;
+    QSignalSpy frequencySpy(&model, &ApplicationModel::centerFrequencyChanged);
+
+    model.setCenterFrequencyText(QStringLiteral("123456789"));
+    frequencySpy.clear();
+    model.replaceHoveredCenterFrequencyDigit(4, 9);
+    QCOMPARE(model.centerFrequency(), quint64{123'956'789});
+    QCOMPARE(model.listeningFrequency(), quint64{123'956'789});
+    QCOMPARE(frequencySpy.count(), 1);
+
+    model.setCenterFrequencyText(QStringLiteral("100000000"));
+    frequencySpy.clear();
+    model.beginCenterFrequencyDigitEdit(8);
+    QVERIFY(model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 8);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000000"));
+    model.replaceCenterFrequencyDigitInEdit(4);
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 9);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000040"));
+    QCOMPARE(model.centerFrequency(), quint64{100'000'000});
+    QCOMPARE(frequencySpy.count(), 0);
+    model.replaceCenterFrequencyDigitInEdit(2);
+    QCOMPARE(model.centerFrequencyDigitEditIndex(), 10);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000042"));
+    QCOMPARE(model.centerFrequency(), quint64{100'000'000});
+    model.commitCenterFrequencyDigitEdit();
+    QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequency(), quint64{100'000'042});
+    QCOMPARE(model.listeningFrequency(), quint64{100'000'042});
+    QCOMPARE(frequencySpy.count(), 1);
+
+    model.beginCenterFrequencyDigitEdit(9);
+    model.replaceCenterFrequencyDigitInEdit(9);
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000049"));
+    model.cancelCenterFrequencyDigitEdit();
+    QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000042"));
+    QCOMPARE(model.centerFrequency(), quint64{100'000'042});
+
+    model.beginCenterFrequencyDigitEdit(4);
+    model.replaceCenterFrequencyDigitInEdit(7);
+    QVERIFY(model.centerFrequencyDigitEditActive());
+    model.zeroCenterFrequencyFromDigit(4);
+    QVERIFY(!model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequency(), quint64{100'000'000});
+}
+
+void ApplicationModelTest::rejectsInvalidCenterFrequencyDigitEdits()
+{
+    ApplicationModel model;
+    model.setDeviceFrequencyRanges({{88'000'000, 108'000'000}});
+    model.setCenterFrequencyText(QStringLiteral("100000000"));
+
+    model.beginCenterFrequencyDigitEdit(1);
+    model.replaceCenterFrequencyDigitInEdit(7);
+    for (int index = 2;
+         index < sdr::app::FrequencyDigitController::digitCount;
+         ++index) {
+        model.replaceCenterFrequencyDigitInEdit(0);
+    }
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0700000000"));
+    model.commitCenterFrequencyDigitEdit();
+    QVERIFY(model.centerFrequencyDigitEditActive());
+    QCOMPARE(model.centerFrequency(), quint64{100'000'000});
+    QVERIFY(model.statusText().contains(QStringLiteral("outside")));
+    model.cancelCenterFrequencyDigitEdit();
+    QCOMPARE(model.centerFrequencyDigits(), QStringLiteral("0100000000"));
 }
 
 void ApplicationModelTest::honorsDeviceSpecificDigitLimits()

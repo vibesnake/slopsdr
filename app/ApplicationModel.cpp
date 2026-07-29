@@ -998,8 +998,20 @@ quint64 ApplicationModel::listeningFrequency() const noexcept
 
 QString ApplicationModel::centerFrequencyDigits() const
 {
-    return QString::number(centerFrequency()).rightJustified(
+    return QString::number(m_centerFrequencyDigitEditPending.value_or(
+                               centerFrequency()))
+        .rightJustified(
         sdr::app::FrequencyDigitController::digitCount, QLatin1Char('0'));
+}
+
+bool ApplicationModel::centerFrequencyDigitEditActive() const noexcept
+{
+    return m_centerFrequencyDigitEditPending.has_value();
+}
+
+int ApplicationModel::centerFrequencyDigitEditIndex() const noexcept
+{
+    return m_centerFrequencyDigitEditIndex;
 }
 
 double ApplicationModel::listeningPosition() const noexcept
@@ -1856,11 +1868,89 @@ void ApplicationModel::adjustCenterFrequencyDigit(int digitIndex, int direction)
 
 void ApplicationModel::zeroCenterFrequencyFromDigit(int digitIndex)
 {
+    clearCenterFrequencyDigitEdit();
     if (rejectManualTuningWhileScanning()) {
         return;
     }
     applyCenterFrequencyEdit(sdr::app::FrequencyDigitController::zeroFromDigit(
         centerFrequency(), digitIndex, effectiveCenterFrequencyRanges()));
+}
+
+void ApplicationModel::beginCenterFrequencyDigitEdit(int digitIndex)
+{
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
+    if (!sdr::app::FrequencyDigitController::placeValue(digitIndex).has_value()) {
+        setStatusText(QStringLiteral("Frequency digit index is outside the displayed range"));
+        return;
+    }
+
+    cancelPendingManualTuning();
+    m_centerFrequencyDigitEditOriginal = centerFrequency();
+    m_centerFrequencyDigitEditPending = *m_centerFrequencyDigitEditOriginal;
+    m_centerFrequencyDigitEditIndex = digitIndex;
+    emit centerFrequencyDigitsChanged();
+    emit centerFrequencyDigitEditChanged();
+}
+
+void ApplicationModel::replaceCenterFrequencyDigitInEdit(int replacementDigit)
+{
+    if (rejectManualTuningWhileScanning() ||
+        !m_centerFrequencyDigitEditPending.has_value() ||
+        m_centerFrequencyDigitEditIndex >=
+            sdr::app::FrequencyDigitController::digitCount) {
+        return;
+    }
+
+    const auto replacement = sdr::app::FrequencyDigitController::replaceDigit(
+        *m_centerFrequencyDigitEditPending,
+        m_centerFrequencyDigitEditIndex,
+        replacementDigit);
+    if (!replacement.succeeded()) {
+        setStatusText(QString::fromStdString(replacement.message));
+        return;
+    }
+    m_centerFrequencyDigitEditPending = replacement.frequency;
+    ++m_centerFrequencyDigitEditIndex;
+    emit centerFrequencyDigitsChanged();
+    emit centerFrequencyDigitEditChanged();
+}
+
+void ApplicationModel::replaceHoveredCenterFrequencyDigit(
+    int digitIndex, int replacementDigit)
+{
+    if (rejectManualTuningWhileScanning() || centerFrequencyDigitEditActive()) {
+        return;
+    }
+    applyExactCenterFrequencyEdit(
+        sdr::app::FrequencyDigitController::replaceDigit(
+            centerFrequency(), digitIndex, replacementDigit));
+}
+
+void ApplicationModel::commitCenterFrequencyDigitEdit()
+{
+    if (rejectManualTuningWhileScanning() ||
+        !m_centerFrequencyDigitEditPending.has_value()) {
+        return;
+    }
+    if (m_centerFrequencyDigitEditIndex <
+        sdr::app::FrequencyDigitController::digitCount) {
+        setStatusText(QStringLiteral("Replace the remaining center-frequency digits before applying"));
+        return;
+    }
+
+    applyExactCenterFrequencyEdit({
+        sdr::app::FrequencyEditError::None,
+        *m_centerFrequencyDigitEditPending,
+        false,
+        "Center frequency is within the available range",
+    });
+}
+
+void ApplicationModel::cancelCenterFrequencyDigitEdit()
+{
+    clearCenterFrequencyDigitEdit();
 }
 
 void ApplicationModel::handleFrequencyWheel(
@@ -1964,6 +2054,7 @@ void ApplicationModel::shiftCenterFromSpectrumWithMultiplier(
     }
     m_centerWheelDeltaRemainder -=
         wheelSteps * static_cast<qint64>(wheelDeltaPerStep);
+    clearCenterFrequencyDigitEdit();
     const int boundedMultiplier = std::clamp(accelerationMultiplier, 1, 10);
     const long double requestedShift =
         static_cast<long double>(wheelSteps) *
@@ -2561,6 +2652,7 @@ void ApplicationModel::startScan()
     if (scannerOwnsTuning()) {
         return;
     }
+    clearCenterFrequencyDigitEdit();
     static_cast<void>(updateScanValidation());
     if (!receiverRunning()) {
         m_scanStatus = QStringLiteral(
@@ -3825,6 +3917,7 @@ void ApplicationModel::applyCenterFrequencyEdit(
     if (rejectManualTuningWhileScanning()) {
         return;
     }
+    clearCenterFrequencyDigitEdit();
     if (!edit.succeeded()) {
         setStatusText(QString::fromStdString(edit.message));
         return;
@@ -3866,6 +3959,39 @@ void ApplicationModel::applyCenterFrequencyEdit(
                           .arg(static_cast<qulonglong>(edit.frequency))
                           .arg(limitSource);
     setStatusText(std::move(message));
+}
+
+void ApplicationModel::applyExactCenterFrequencyEdit(
+    const sdr::app::FrequencyEditResult& edit)
+{
+    if (rejectManualTuningWhileScanning()) {
+        return;
+    }
+    if (!edit.succeeded()) {
+        setStatusText(QString::fromStdString(edit.message));
+        return;
+    }
+
+    const auto constrained = sdr::app::FrequencyDigitController::constrain(
+        edit.frequency, effectiveCenterFrequencyRanges());
+    if (!constrained.succeeded() || constrained.adjustedToLimit) {
+        setStatusText(QStringLiteral(
+            "Center frequency is outside the available receiver and device limits"));
+        return;
+    }
+    applyCenterFrequencyEdit(constrained);
+}
+
+void ApplicationModel::clearCenterFrequencyDigitEdit()
+{
+    if (!m_centerFrequencyDigitEditPending.has_value()) {
+        return;
+    }
+    m_centerFrequencyDigitEditOriginal.reset();
+    m_centerFrequencyDigitEditPending.reset();
+    m_centerFrequencyDigitEditIndex = -1;
+    emit centerFrequencyDigitsChanged();
+    emit centerFrequencyDigitEditChanged();
 }
 
 bool ApplicationModel::rejectManualTuningWhileScanning()

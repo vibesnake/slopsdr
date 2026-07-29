@@ -36,6 +36,8 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(quint64 centerFrequency READ centerFrequency NOTIFY centerFrequencyChanged)
     Q_PROPERTY(quint64 listeningFrequency READ listeningFrequency NOTIFY listeningFrequencyChanged)
     Q_PROPERTY(QString centerFrequencyDigits READ centerFrequencyDigits NOTIFY centerFrequencyDigitsChanged)
+    Q_PROPERTY(bool centerFrequencyDigitEditActive READ centerFrequencyDigitEditActive NOTIFY centerFrequencyDigitEditChanged)
+    Q_PROPERTY(int centerFrequencyDigitEditIndex READ centerFrequencyDigitEditIndex NOTIFY centerFrequencyDigitEditChanged)
     Q_PROPERTY(double listeningPosition READ listeningPosition NOTIFY listeningPositionChanged)
     Q_PROPERTY(double filterLowerPosition READ filterLowerPosition NOTIFY filterMarkerChanged)
     Q_PROPERTY(double filterUpperPosition READ filterUpperPosition NOTIFY filterMarkerChanged)
@@ -157,6 +159,8 @@ public:
     [[nodiscard]] quint64 centerFrequency() const noexcept;
     [[nodiscard]] quint64 listeningFrequency() const noexcept;
     [[nodiscard]] QString centerFrequencyDigits() const;
+    [[nodiscard]] bool centerFrequencyDigitEditActive() const noexcept;
+    [[nodiscard]] int centerFrequencyDigitEditIndex() const noexcept;
     [[nodiscard]] double listeningPosition() const noexcept;
     [[nodiscard]] double filterLowerPosition() const noexcept;
     [[nodiscard]] double filterUpperPosition() const noexcept;
@@ -287,6 +291,11 @@ public slots:
     void setListeningFrequency(quint64 frequency);
     void adjustCenterFrequencyDigit(int digitIndex, int direction);
     void zeroCenterFrequencyFromDigit(int digitIndex);
+    void beginCenterFrequencyDigitEdit(int digitIndex);
+    void replaceCenterFrequencyDigitInEdit(int replacementDigit);
+    void replaceHoveredCenterFrequencyDigit(int digitIndex, int replacementDigit);
+    void commitCenterFrequencyDigitEdit();
+    void cancelCenterFrequencyDigitEdit();
     void handleFrequencyWheel(
         bool waterfall, int wheelDelta, int modifierKeys = 0);
     void handleFrequencyWheelWithDeltas(
@@ -378,6 +387,7 @@ signals:
     void centerFrequencyChanged();
     void listeningFrequencyChanged();
     void centerFrequencyDigitsChanged();
+    void centerFrequencyDigitEditChanged();
     void listeningPositionChanged();
     void filterMarkerChanged();
     void visibleRangeChanged();
@@ -494,6 +504,9 @@ private:
         Zoom,
     };
     void applyCenterFrequencyEdit(const sdr::app::FrequencyEditResult& edit);
+    void applyExactCenterFrequencyEdit(
+        const sdr::app::FrequencyEditResult& edit);
+    void clearCenterFrequencyDigitEdit();
     [[nodiscard]] bool rejectManualTuningWhileScanning();
     void cancelPendingManualTuning();
     void initializeWheelTuningCoalescing();
@@ -683,6 +696,9 @@ private:
         PendingTuningWheelAction::None;
     PendingViewportWheelAction m_pendingViewportWheelAction =
         PendingViewportWheelAction::None;
+    std::optional<quint64> m_centerFrequencyDigitEditOriginal;
+    std::optional<quint64> m_centerFrequencyDigitEditPending;
+    int m_centerFrequencyDigitEditIndex = -1;
     std::optional<quint64> m_pendingCenterWheelFrequency;
     std::optional<quint64> m_pendingListeningWheelFrequency;
     std::optional<std::vector<sdr::radio::FrequencyRange>> m_deviceFrequencyRanges;

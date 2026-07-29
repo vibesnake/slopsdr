@@ -27,6 +27,7 @@ ApplicationWindow {
     property real bookmarkDragListY: -1
     property bool scanPresetDragActive: false
     property real scanPresetDragListY: -1
+    property int hoveredCenterFrequencyDigitIndex: -1
     readonly property string sidebarModeNone: "none"
     readonly property string sidebarModeBookmarks: "bookmarks"
     readonly property string sidebarModeScan: "scan"
@@ -42,6 +43,36 @@ ApplicationWindow {
     color: backgroundColor
 
     onClosing: Qt.quit()
+
+    function textEditorHasFocus() {
+        let item = root.activeFocusItem
+        while (item) {
+            if (item instanceof TextInput || item instanceof TextEdit)
+                return true
+            item = item.parent
+        }
+        return false
+    }
+
+    Repeater {
+        model: 10
+
+        delegate: Item {
+            width: 0
+            height: 0
+
+            Shortcut {
+                sequence: String(index)
+                context: Qt.WindowShortcut
+                enabled: !root.applicationModel.scannerOwnsTuning
+                         && !root.applicationModel.centerFrequencyDigitEditActive
+                         && !root.textEditorHasFocus()
+                         && root.hoveredCenterFrequencyDigitIndex >= 0
+                onActivated: root.applicationModel.replaceHoveredCenterFrequencyDigit(
+                                 root.hoveredCenterFrequencyDigitIndex, index)
+            }
+        }
+    }
 
     Shortcut {
         sequence: StandardKey.Quit
@@ -660,20 +691,28 @@ ApplicationWindow {
         property Item nextDigit
         signal completeEntryRequested()
 
+        readonly property bool editActive:
+            applicationModel.centerFrequencyDigitEditActive
+        readonly property bool activeEditDigit: editActive
+            && applicationModel.centerFrequencyDigitEditIndex === digitIndex
+        readonly property bool editableInSession: editActive
+            && digitIndex >= applicationModel.centerFrequencyDigitEditIndex
+
         implicitWidth: dense ? 25 : 31
         implicitHeight: dense ? 36 : 42
         enabled: !applicationModel.scannerOwnsTuning
         opacity: enabled ? 1.0 : 0.55
         radius: 4
-        color: activeFocus ? "#29425f" : "#0a1020"
-        border.color: activeFocus ? digitColor : outlineColor
-        border.width: activeFocus ? 2 : 1
+        color: activeEditDigit ? "#29425f" : (activeFocus ? "#29425f" : "#0a1020")
+        border.color: activeEditDigit || activeFocus ? digitColor : outlineColor
+        border.width: activeEditDigit || activeFocus ? 2 : 1
         activeFocusOnTab: true
+        objectName: "centerFrequencyDigit" + digitIndex
 
         Accessible.role: Accessible.SpinBox
         Accessible.name: qsTr("Center frequency digit %1 of 10").arg(digitIndex + 1)
         Accessible.description: qsTr(
-            "Up and wheel up increment; Down and wheel down decrement; Left and Right move between digits; Enter opens complete frequency entry; Delete or right-click zeros this and following digits; touch the upper or lower half to adjust")
+            "Left-click begins sequential digit editing; right-click zeros this and following digits; hover and type a digit for immediate replacement; Up and wheel adjust; touch the upper or lower half to adjust")
 
         Label {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -689,9 +728,32 @@ ApplicationWindow {
             anchors.centerIn: parent
             text: frequencyDigit.digitText
             color: frequencyDigit.digitColor
+            opacity: frequencyDigit.editActive
+                     ? (frequencyDigit.editableInSession ? 1.0 : 0.65) : 1.0
             font.bold: true
             font.family: "monospace"
             font.pixelSize: frequencyDigit.dense ? 20 : 25
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 1
+            height: 2
+            visible: frequencyDigit.editableInSession
+            color: frequencyDigit.digitColor
+            opacity: frequencyDigit.activeEditDigit ? 1.0 : 0.45
+        }
+
+        Keys.onPressed: function(event) {
+            if (!frequencyDigit.editActive
+                    || event.key < Qt.Key_0 || event.key > Qt.Key_9) {
+                return
+            }
+            frequencyDigit.applicationModel.replaceCenterFrequencyDigitInEdit(
+                        event.key - Qt.Key_0)
+            event.accepted = true
         }
 
         Label {
@@ -705,11 +767,13 @@ ApplicationWindow {
         }
 
         Keys.onUpPressed: function(event) {
+            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
             frequencyDigit.applicationModel.adjustCenterFrequencyDigit(
                 frequencyDigit.digitIndex, 1)
             event.accepted = true
         }
         Keys.onDownPressed: function(event) {
+            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
             frequencyDigit.applicationModel.adjustCenterFrequencyDigit(
                 frequencyDigit.digitIndex, -1)
             event.accepted = true
@@ -720,23 +784,37 @@ ApplicationWindow {
             event.accepted = true
         }
         Keys.onLeftPressed: function(event) {
+            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
             if (frequencyDigit.previousDigit) {
                 frequencyDigit.previousDigit.forceActiveFocus()
             }
             event.accepted = true
         }
         Keys.onRightPressed: function(event) {
+            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
             if (frequencyDigit.nextDigit) {
                 frequencyDigit.nextDigit.forceActiveFocus()
             }
             event.accepted = true
         }
         Keys.onReturnPressed: function(event) {
-            frequencyDigit.completeEntryRequested()
+            if (frequencyDigit.editActive)
+                frequencyDigit.applicationModel.commitCenterFrequencyDigitEdit()
+            else
+                frequencyDigit.completeEntryRequested()
             event.accepted = true
         }
         Keys.onEnterPressed: function(event) {
-            frequencyDigit.completeEntryRequested()
+            if (frequencyDigit.editActive)
+                frequencyDigit.applicationModel.commitCenterFrequencyDigitEdit()
+            else
+                frequencyDigit.completeEntryRequested()
+            event.accepted = true
+        }
+        Keys.onEscapePressed: function(event) {
+            if (!frequencyDigit.editActive)
+                return
+            frequencyDigit.applicationModel.cancelCenterFrequencyDigitEdit()
             event.accepted = true
         }
 
@@ -756,11 +834,22 @@ ApplicationWindow {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
 
-            onPressed: frequencyDigit.forceActiveFocus()
             onClicked: function(mouse) {
                 if (mouse.button === Qt.RightButton) {
                     frequencyDigit.applicationModel.zeroCenterFrequencyFromDigit(
                         frequencyDigit.digitIndex)
+                    return
+                }
+                frequencyDigit.applicationModel.beginCenterFrequencyDigitEdit(
+                    frequencyDigit.digitIndex)
+                frequencyDigit.forceActiveFocus()
+            }
+            onContainsMouseChanged: {
+                if (containsMouse) {
+                    root.hoveredCenterFrequencyDigitIndex = frequencyDigit.digitIndex
+                } else if (root.hoveredCenterFrequencyDigitIndex
+                           === frequencyDigit.digitIndex) {
+                    root.hoveredCenterFrequencyDigitIndex = -1
                 }
             }
             onWheel: function(wheel) {
@@ -1103,7 +1192,9 @@ ApplicationWindow {
                 spacing: 2
 
                 Label {
-                    text: qsTr("CENTER FREQUENCY — scroll/tap digits · Enter for complete value")
+                    text: root.applicationModel.centerFrequencyDigitEditActive
+                          ? qsTr("CENTER FREQUENCY — edit highlighted digits · Enter apply · Esc cancel")
+                          : qsTr("CENTER FREQUENCY — scroll/tap digits · click to edit")
                     color: root.secondaryTextColor
                     font.bold: true
                     font.pixelSize: root.denseLayout ? 9 : 10
