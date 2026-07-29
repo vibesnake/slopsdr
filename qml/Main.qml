@@ -1287,7 +1287,7 @@ ApplicationWindow {
                 text: qsTr("Scan")
                 Accessible.name: qsTr("Show scan pane")
                 Accessible.description: qsTr(
-                    "Open or close the non-operational scan pane")
+                    "Open or close the current-passband scan pane")
                 onClicked: root.applicationModel.setSidebarMode(
                                checked ? root.sidebarModeScan
                                        : root.sidebarModeNone)
@@ -2030,12 +2030,6 @@ ApplicationWindow {
                     font.pixelSize: 9
                 }
 
-                Label {
-                    Layout.fillWidth: true
-                    text: qsTr("Scanning is not implemented yet.")
-                    color: root.secondaryTextColor
-                    font.pixelSize: 9
-                }
             }
 
             ColumnLayout {
@@ -2096,7 +2090,7 @@ ApplicationWindow {
                         Label {
                             objectName: "scanShellNotice"
                             Layout.fillWidth: true
-                            text: qsTr("Scanning is not implemented yet. These controls are a preview only.")
+                            text: qsTr("Scans only the SDR's current usable capture passband. It never retunes the SDR center frequency.")
                             color: root.secondaryTextColor
                             wrapMode: Text.WordWrap
                             font.pixelSize: 10
@@ -2121,40 +2115,55 @@ ApplicationWindow {
                             TextField {
                                 objectName: "scanLowerFrequencyField"
                                 Layout.fillWidth: true
-                                enabled: false
-                                placeholderText: qsTr("Not available")
+                                enabled: !root.applicationModel.scanCanStop
+                                text: root.applicationModel.scanLowerFrequency.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 0 }
+                                onEditingFinished: root.applicationModel.setScanLowerFrequency(Number(text))
                             }
 
                             Label { text: qsTr("Upper frequency"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanUpperFrequencyField"
                                 Layout.fillWidth: true
-                                enabled: false
-                                placeholderText: qsTr("Not available")
+                                enabled: !root.applicationModel.scanCanStop
+                                text: root.applicationModel.scanUpperFrequency.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 0 }
+                                onEditingFinished: root.applicationModel.setScanUpperFrequency(Number(text))
                             }
 
                             Label { text: qsTr("Step size"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanStepSizeField"
                                 Layout.fillWidth: true
-                                enabled: false
-                                placeholderText: qsTr("Not available")
+                                enabled: !root.applicationModel.scanCanStop
+                                text: root.applicationModel.scanStepSize.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 0 }
+                                onEditingFinished: root.applicationModel.setScanStepSize(Number(text))
                             }
 
-                            Label { text: qsTr("Dwell time"); color: root.secondaryTextColor }
+                            Label { text: qsTr("Dwell time (ms)"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanDwellTimeField"
                                 Layout.fillWidth: true
-                                enabled: false
-                                placeholderText: qsTr("Not available")
+                                enabled: !root.applicationModel.scanCanStop
+                                text: root.applicationModel.scanDwellMilliseconds.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 1 }
+                                onEditingFinished: root.applicationModel.setScanDwellMilliseconds(Number(text))
                             }
 
-                            Label { text: qsTr("Resume delay"); color: root.secondaryTextColor }
+                            Label { text: qsTr("Resume delay (ms)"); color: root.secondaryTextColor }
                             TextField {
                                 objectName: "scanResumeDelayField"
                                 Layout.fillWidth: true
-                                enabled: false
-                                placeholderText: qsTr("Not available")
+                                enabled: !root.applicationModel.scanCanStop
+                                text: root.applicationModel.scanResumeDelayMilliseconds.toString()
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator { bottom: 0 }
+                                onEditingFinished: root.applicationModel.setScanResumeDelayMilliseconds(Number(text))
                             }
 
                             Label { text: qsTr("Squelch source"); color: root.secondaryTextColor }
@@ -2174,26 +2183,31 @@ ApplicationWindow {
                             Button {
                                 objectName: "scanStartButton"
                                 Layout.fillWidth: true
-                                enabled: false
+                                enabled: root.applicationModel.scanCanStart
                                 text: qsTr("Start")
+                                onClicked: root.applicationModel.startScan()
                             }
                             Button {
                                 objectName: "scanPauseResumeButton"
                                 Layout.fillWidth: true
-                                enabled: false
-                                text: qsTr("Pause")
+                                enabled: root.applicationModel.scanCanPauseResume
+                                text: root.applicationModel.scanPaused
+                                      ? qsTr("Resume") : qsTr("Pause")
+                                onClicked: root.applicationModel.pauseOrResumeScan()
                             }
                             Button {
                                 objectName: "scanSkipButton"
                                 Layout.fillWidth: true
-                                enabled: false
+                                enabled: root.applicationModel.scanCanSkip
                                 text: qsTr("Skip")
+                                onClicked: root.applicationModel.skipScanFrequency()
                             }
                             Button {
                                 objectName: "scanStopButton"
                                 Layout.fillWidth: true
-                                enabled: false
+                                enabled: root.applicationModel.scanCanStop
                                 text: qsTr("Stop")
+                                onClicked: root.applicationModel.stopScan()
                             }
                         }
 
@@ -2206,7 +2220,8 @@ ApplicationWindow {
                         Label {
                             objectName: "scanCurrentFrequencyDisplay"
                             Layout.fillWidth: true
-                            text: "—"
+                            text: root.applicationModel.scanCurrentFrequency === 0
+                                  ? "—" : root.applicationModel.scanCurrentFrequency + qsTr(" Hz")
                             color: root.primaryTextColor
                         }
                         Label {
@@ -2218,7 +2233,7 @@ ApplicationWindow {
                         Label {
                             objectName: "scanStateDisplay"
                             Layout.fillWidth: true
-                            text: qsTr("Scanner not running")
+                            text: root.applicationModel.scanState
                             color: root.primaryTextColor
                         }
                         Label {
@@ -2230,8 +2245,16 @@ ApplicationWindow {
                         Label {
                             objectName: "scanStatusMessage"
                             Layout.fillWidth: true
-                            text: qsTr("Scanner not running")
+                            text: root.applicationModel.scanStatusMessage
                             color: root.secondaryTextColor
+                            wrapMode: Text.WordWrap
+                        }
+                        Label {
+                            objectName: "scanValidationError"
+                            Layout.fillWidth: true
+                            visible: root.applicationModel.scanValidationError.length > 0
+                            text: root.applicationModel.scanValidationError
+                            color: "#ff9b9b"
                             wrapMode: Text.WordWrap
                         }
                     }

@@ -183,10 +183,17 @@ selecting the active button closes it. Only one pane is open at a time. Opening
 one reduces the spectrum and waterfall width. Drag its right edge to resize it;
 each pane keeps its own width, and the active pane is restored at startup.
 
-The **Scan** pane is a non-operational preview of a future
-current-passband scanner. Its controls are disabled and the state remains
-**Scanner not running**; opening it does not tune the receiver or change
-reception.
+The **Scan** pane runs a **Current passband** scan without retuning the SDR's
+hardware center frequency. Its default lower and upper bounds are the current
+usable captured passband, not the displayed zoom range. Set the bounds, step,
+dwell time, and resume delay, then select **Start**. The scanner uses the
+receiver's active mode, filter, and live squelch setting; it holds when
+squelch opens and resumes after the configured delay once it closes. **Pause**
+stops scanner movement while reception continues, **Skip** advances once, and
+**Stop** leaves the receiver on its current frequency. A center-frequency,
+capture-bandwidth, or device-limit change that places either bound outside the
+usable passband stops the scanner. Scan settings and scanner state are not
+saved, and bookmark or hardware-retuning scans are not available.
 
 **Add Group** creates a nested group under the selected group, or at the root
 when no group is selected. **Add Bookmark** snapshots the current listening
@@ -220,7 +227,7 @@ history; a running receiver uses its live update paths.
 Groups expand independently and remember their state.
 The checkboxes store scanner-inclusion metadata: bookmark values are stored directly,
 while group checkboxes show unchecked, checked, or partial state and update all
-descendant bookmarks. The application has no scan-execution operation.
+descendant bookmarks. They are not used by the current-passband scanner.
 
 Bookmarks use stable demodulator IDs. A bookmark for a mode unavailable in the
 current build remains intact and is marked **Unavailable**; it is not changed to

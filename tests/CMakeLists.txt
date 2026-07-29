@@ -12,6 +12,17 @@ sdr_enable_warnings(application_model_tests)
 
 add_test(NAME application_model_tests COMMAND application_model_tests)
 
+add_executable(current_passband_scanner_tests CurrentPassbandScannerTest.cpp)
+target_link_libraries(
+    current_passband_scanner_tests
+    PRIVATE
+        sdr_application_model
+        Qt6::Test
+)
+sdr_enable_warnings(current_passband_scanner_tests)
+
+add_test(NAME current_passband_scanner_tests COMMAND current_passband_scanner_tests)
+
 add_executable(application_log_model_tests ApplicationLogModelTest.cpp)
 target_link_libraries(
     application_log_model_tests

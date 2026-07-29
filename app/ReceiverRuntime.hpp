@@ -26,6 +26,7 @@ struct ReceiverRuntimeSnapshot {
     radio::ReceiverState receiverState;
     radio::ReceiverLimits receiverLimits;
     radio::ReceiverCapabilities receiverCapabilities;
+    bool squelchOpen = false;
     quint64 effectiveSampleRate = 0;
     quint64 tuningGeneration = 0;
     // The requested value is persisted even when the backend must use a

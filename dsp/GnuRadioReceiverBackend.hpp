@@ -39,6 +39,7 @@ public:
     [[nodiscard]] const radio::ReceiverState& state() const noexcept override;
     [[nodiscard]] std::uint64_t effectiveSampleRate() const noexcept override;
     [[nodiscard]] std::uint64_t tuningGeneration() const noexcept override;
+    [[nodiscard]] bool squelchOpen() const noexcept override;
     [[nodiscard]] std::optional<radio::SpectrumFrame> takeLatestSpectrumFrame() override;
     [[nodiscard]] std::vector<radio::SpectrumFrame> takePendingSpectrumFrames(
         std::size_t maximumFrames) override;

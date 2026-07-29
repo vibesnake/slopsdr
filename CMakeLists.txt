@@ -230,6 +230,8 @@ add_library(
     app/ApplicationLogModel.hpp
     app/BookmarkTreeModel.cpp
     app/BookmarkTreeModel.hpp
+    app/CurrentPassbandScanner.cpp
+    app/CurrentPassbandScanner.hpp
     app/FrequencyDigitController.cpp
     app/FrequencyDigitController.hpp
     app/FrequencyViewport.cpp

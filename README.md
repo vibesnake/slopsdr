@@ -19,8 +19,10 @@ console. Its five built-in analog demodulation modes are AM, NFM, WFM, USB, and
 LSB. **DMR/P25** is experimental: it is a separate digital-decoder mode that
 sends discriminator audio to a separately installed DSD-FME executable.
 Decoding reliability may vary, and FEC errors or audio underruns may occur.
-Encrypted traffic is not decoded. Bookmark scanner-inclusion checkboxes are
-persisted metadata; the application has no scan-execution operation.
+Encrypted traffic is not decoded. The Scan pane can step only within the SDR's
+current usable capture passband without retuning the hardware center frequency.
+Bookmark scanner-inclusion checkboxes remain persisted metadata and are not
+used by this scanner.
 
 RTL-SDR Blog V4 handling is documented in [device access](docs/DEVICE_ACCESS.md).
 Hardware is never opened and reception never starts until you explicitly press

@@ -303,18 +303,18 @@ void GainSliderBindingTest::
                                 enabled: false
                                 model: ["Current passband"]
                             }
-                            TextField { objectName: "scanLowerFrequencyField"; enabled: false }
-                            TextField { objectName: "scanUpperFrequencyField"; enabled: false }
-                            TextField { objectName: "scanStepSizeField"; enabled: false }
-                            TextField { objectName: "scanDwellTimeField"; enabled: false }
-                            TextField { objectName: "scanResumeDelayField"; enabled: false }
+                            TextField { objectName: "scanLowerFrequencyField"; enabled: true }
+                            TextField { objectName: "scanUpperFrequencyField"; enabled: true }
+                            TextField { objectName: "scanStepSizeField"; enabled: true }
+                            TextField { objectName: "scanDwellTimeField"; enabled: true }
+                            TextField { objectName: "scanResumeDelayField"; enabled: true }
                             ComboBox {
                                 objectName: "scanSquelchSourceControl"
                                 enabled: false
                                 model: ["Live receiver squelch"]
                             }
                             Row {
-                                Button { objectName: "scanStartButton"; enabled: false }
+                                Button { objectName: "scanStartButton"; enabled: true }
                                 Button { objectName: "scanPauseResumeButton"; enabled: false }
                                 Button { objectName: "scanSkipButton"; enabled: false }
                                 Button { objectName: "scanStopButton"; enabled: false }
@@ -331,6 +331,7 @@ void GainSliderBindingTest::
                                 objectName: "scanStatusMessage"
                                 text: "Scanner not running"
                             }
+                            Text { objectName: "scanValidationError" }
                         }
                     }
                     Rectangle {
@@ -422,6 +423,7 @@ void GainSliderBindingTest::
              "scanCurrentFrequencyDisplay",
              "scanStateDisplay",
              "scanStatusMessage",
+             "scanValidationError",
          }) {
         QVERIFY2(object->findChild<QObject*>(objectName), objectName);
     }
@@ -431,8 +433,18 @@ void GainSliderBindingTest::
              "scanStepSizeField",
              "scanDwellTimeField",
              "scanResumeDelayField",
-             "scanSquelchSourceControl",
-             "scanStartButton",
+         }) {
+        QCOMPARE(
+            object->findChild<QObject*>(objectName)->property("enabled").toBool(),
+            true);
+    }
+    QCOMPARE(
+        object->findChild<QObject*>("scanSquelchSourceControl")->property("enabled").toBool(),
+        false);
+    QCOMPARE(
+        object->findChild<QObject*>("scanStartButton")->property("enabled").toBool(),
+        true);
+    for (const char* objectName : {
              "scanPauseResumeButton",
              "scanSkipButton",
              "scanStopButton",

@@ -2077,6 +2077,12 @@ private:
             for (auto& frame : frames) {
                 static_cast<void>(m_waterfallDelivery.enqueue(std::move(frame)));
             }
+            const bool squelchOpen = m_backend->squelchOpen();
+            if (!m_lastPublishedSquelchOpen.has_value() ||
+                *m_lastPublishedSquelchOpen != squelchOpen) {
+                m_lastPublishedSquelchOpen = squelchOpen;
+                publishSnapshot(true);
+            }
         }
         reportSpectrumMetrics();
         if (m_audioOutput &&
@@ -2500,6 +2506,7 @@ private:
             snapshot.receiverState = m_backend->state();
             snapshot.receiverLimits = m_backend->limits();
             snapshot.receiverCapabilities = m_backend->capabilities();
+            snapshot.squelchOpen = m_backend->squelchOpen();
             snapshot.effectiveSampleRate = m_backend->effectiveSampleRate();
             snapshot.tuningGeneration = m_backend->tuningGeneration();
             const auto spectrumMetrics = m_backend->spectrumProcessingMetrics();
@@ -2676,6 +2683,7 @@ private:
     double m_waterfallTimerFractionalMilliseconds = 0.0;
     ApplicationLogHandler m_applicationLogHandler;
     std::unique_ptr<radio::ReceiverBackend> m_backend;
+    std::optional<bool> m_lastPublishedSquelchOpen;
     std::unique_ptr<platform::AudioOutputService> m_audioOutput;
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
     std::vector<devices::DeviceDescriptor> m_devices;

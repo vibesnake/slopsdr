@@ -43,6 +43,11 @@ std::uint64_t MockReceiverBackend::tuningGeneration() const noexcept
     return m_tuningGeneration;
 }
 
+bool MockReceiverBackend::squelchOpen() const noexcept
+{
+    return m_configuration.squelchOpen;
+}
+
 std::optional<SpectrumFrame> MockReceiverBackend::takeLatestSpectrumFrame()
 {
     if (state().running) {

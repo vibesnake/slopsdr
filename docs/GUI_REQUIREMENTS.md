@@ -257,8 +257,8 @@ selection with the first remaining device.
 The GUI offers conventional single-frequency **DMR/P25** decoding through the
 configured DSD-FME executable and reports its bounded runtime state near normal
 audio status. DSD-FME process management remains outside QML. Bookmark
-scanner-inclusion checkboxes are persisted metadata; no scan-execution control
-exists.
+scanner-inclusion checkboxes are persisted metadata and are not used by the
+current-passband scanner.
 
 ## Layout and responsibility boundaries
 
@@ -285,11 +285,16 @@ and conditional auto-scrolling; it never exposes command entry or DSD-FME's
 binary stdout. The Bookmarks panel renders
 nested groups with independent expansion state and scanner-inclusion checkboxes.
 Group inclusion is derived as a tri-state value and updates all descendant
-bookmarks; no scan-execution control exists.
+bookmarks; that metadata is not used by the current-passband scanner.
 
-The Scan panel is a non-operational shell for a future current-passband
-scanner. Its controls are disabled and it reports **Scanner not running**;
-opening it does not tune, step, persist scan settings, or start scanning.
+The Scan panel runs a current-passband scanner owned by the application model.
+It validates lower and upper bounds against the usable captured passband, steps
+only through the existing in-passband listening-frequency path, and never
+retunes the SDR center frequency. It wraps at the upper bound, holds on live
+squelch activity, resumes after the configured delay, and stops safely if a
+center-frequency, sample-rate, or device-limit change invalidates its range.
+Its controls and transient scanner state are not persisted. Bookmark scans and
+hardware-retuning scans are not provided.
 
 The panel provides Add Group, Add Bookmark, Update Bookmark, Edit, Remove, and
 Tune actions. Update Bookmark writes the current receiver-owned fields to the

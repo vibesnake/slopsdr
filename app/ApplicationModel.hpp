@@ -5,6 +5,7 @@
 
 #include "BookmarkTreeModel.hpp"
 #include "ApplicationLogModel.hpp"
+#include "CurrentPassbandScanner.hpp"
 #include "FrequencyViewport.hpp"
 #include "ReceiverRuntime.hpp"
 #include "ReceiverBackend.hpp"
@@ -69,6 +70,20 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool consolePanelOpen READ consolePanelOpen NOTIFY sidebarModeChanged)
     Q_PROPERTY(double bookmarksPanelWidth READ bookmarksPanelWidth NOTIFY bookmarksPanelWidthChanged)
     Q_PROPERTY(double scanPanelWidth READ scanPanelWidth NOTIFY scanPanelWidthChanged)
+    Q_PROPERTY(quint64 scanLowerFrequency READ scanLowerFrequency NOTIFY scannerChanged)
+    Q_PROPERTY(quint64 scanUpperFrequency READ scanUpperFrequency NOTIFY scannerChanged)
+    Q_PROPERTY(quint64 scanStepSize READ scanStepSize NOTIFY scannerChanged)
+    Q_PROPERTY(int scanDwellMilliseconds READ scanDwellMilliseconds NOTIFY scannerChanged)
+    Q_PROPERTY(int scanResumeDelayMilliseconds READ scanResumeDelayMilliseconds NOTIFY scannerChanged)
+    Q_PROPERTY(quint64 scanCurrentFrequency READ scanCurrentFrequency NOTIFY scannerChanged)
+    Q_PROPERTY(QString scanState READ scanState NOTIFY scannerChanged)
+    Q_PROPERTY(QString scanStatusMessage READ scanStatusMessage NOTIFY scannerChanged)
+    Q_PROPERTY(QString scanValidationError READ scanValidationError NOTIFY scannerChanged)
+    Q_PROPERTY(bool scanCanStart READ scanCanStart NOTIFY scannerChanged)
+    Q_PROPERTY(bool scanCanPauseResume READ scanCanPauseResume NOTIFY scannerChanged)
+    Q_PROPERTY(bool scanPaused READ scanPaused NOTIFY scannerChanged)
+    Q_PROPERTY(bool scanCanSkip READ scanCanSkip NOTIFY scannerChanged)
+    Q_PROPERTY(bool scanCanStop READ scanCanStop NOTIFY scannerChanged)
     Q_PROPERTY(double settingsPanelWidth READ settingsPanelWidth NOTIFY settingsPanelWidthChanged)
     Q_PROPERTY(double consolePanelWidth READ consolePanelWidth NOTIFY consolePanelWidthChanged)
     Q_PROPERTY(QString dsdFmeBinaryPath READ dsdFmeBinaryPath NOTIFY dsdFmeBinaryPathChanged)
@@ -168,6 +183,20 @@ public:
     [[nodiscard]] bool consolePanelOpen() const noexcept;
     [[nodiscard]] double bookmarksPanelWidth() const noexcept;
     [[nodiscard]] double scanPanelWidth() const noexcept;
+    [[nodiscard]] quint64 scanLowerFrequency() const noexcept;
+    [[nodiscard]] quint64 scanUpperFrequency() const noexcept;
+    [[nodiscard]] quint64 scanStepSize() const noexcept;
+    [[nodiscard]] int scanDwellMilliseconds() const noexcept;
+    [[nodiscard]] int scanResumeDelayMilliseconds() const noexcept;
+    [[nodiscard]] quint64 scanCurrentFrequency() const noexcept;
+    [[nodiscard]] QString scanState() const;
+    [[nodiscard]] QString scanStatusMessage() const;
+    [[nodiscard]] QString scanValidationError() const;
+    [[nodiscard]] bool scanCanStart() const noexcept;
+    [[nodiscard]] bool scanCanPauseResume() const noexcept;
+    [[nodiscard]] bool scanPaused() const noexcept;
+    [[nodiscard]] bool scanCanSkip() const noexcept;
+    [[nodiscard]] bool scanCanStop() const noexcept;
     [[nodiscard]] double settingsPanelWidth() const noexcept;
     [[nodiscard]] double consolePanelWidth() const noexcept;
     [[nodiscard]] QString dsdFmeBinaryPath() const;
@@ -266,6 +295,15 @@ public slots:
     void commitBookmarksPanelWidth();
     void setScanPanelWidth(double width);
     void commitScanPanelWidth();
+    void setScanLowerFrequency(quint64 frequency);
+    void setScanUpperFrequency(quint64 frequency);
+    void setScanStepSize(quint64 stepSize);
+    void setScanDwellMilliseconds(int milliseconds);
+    void setScanResumeDelayMilliseconds(int milliseconds);
+    void startScan();
+    void pauseOrResumeScan();
+    void skipScanFrequency();
+    void stopScan();
     void setSettingsPanelWidth(double width);
     void commitSettingsPanelWidth();
     void setConsolePanelWidth(double width);
@@ -329,6 +367,7 @@ signals:
     void bookmarkUpdateAvailableChanged();
     void bookmarksPanelWidthChanged();
     void scanPanelWidthChanged();
+    void scannerChanged();
     void settingsPanelWidthChanged();
     void consolePanelWidthChanged();
     void dsdFmeBinaryPathChanged();
@@ -458,6 +497,18 @@ private:
     void persistSettingsPanelWidth();
     void persistConsolePanelWidth();
     void setStatusText(QString statusText);
+    [[nodiscard]] sdr::app::CurrentPassbandScanSettings scanSettings() const noexcept;
+    [[nodiscard]] bool scannerSquelchOpen() const noexcept;
+    void resetScanBoundsToCaptureRange();
+    void updateScanValidation();
+    void validateActiveScanRange();
+    void updateScannerSquelchActivity();
+    void scheduleScanDwell();
+    void scheduleScanResumeDelay();
+    void tuneScannerTo(quint64 frequency);
+    void scannerDwellElapsed();
+    void scannerResumeDelayElapsed();
+    void stopScanner(const QString& status);
 
     std::unique_ptr<sdr::radio::ReceiverBackend> m_receiver;
     sdr::app::ReceiverRuntime* m_runtime = nullptr;
@@ -484,6 +535,16 @@ private:
     QString m_sidebarMode = QStringLiteral("none");
     double m_bookmarksPanelWidth = 280.0;
     double m_scanPanelWidth = 320.0;
+    quint64 m_scanLowerFrequency = 0;
+    quint64 m_scanUpperFrequency = 0;
+    quint64 m_scanStepSize = 12'500;
+    int m_scanDwellMilliseconds = 250;
+    int m_scanResumeDelayMilliseconds = 1'000;
+    QString m_scanValidationError;
+    QString m_scanStatus = QStringLiteral("Scanner not running");
+    bool m_scanBoundsFollowCapture = true;
+    bool m_runtimeSquelchOpen = false;
+    sdr::app::CurrentPassbandScanner m_scanner;
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
     QString m_dsdFmeBinaryPath;
@@ -493,6 +554,9 @@ private:
     QTimer m_splitRatioPersistenceTimer;
     QTimer m_bookmarksPanelWidthPersistenceTimer;
     QTimer m_scanPanelWidthPersistenceTimer;
+    QTimer m_scanDwellTimer;
+    QTimer m_scanResumeTimer;
+    QTimer m_scanActivityTimer;
     QTimer m_settingsPanelWidthPersistenceTimer;
     QTimer m_consolePanelWidthPersistenceTimer;
     QTimer m_wheelTuningTimer;

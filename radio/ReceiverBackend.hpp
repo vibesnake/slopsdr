@@ -183,6 +183,12 @@ public:
     {
         return 0;
     }
+    // This reflects the receiver's live squelch gate. It is intentionally
+    // separate from the configured threshold and mode in ReceiverState.
+    [[nodiscard]] virtual bool squelchOpen() const noexcept
+    {
+        return false;
+    }
     [[nodiscard]] virtual std::optional<SpectrumFrame> takeLatestSpectrumFrame() = 0;
     [[nodiscard]] virtual std::vector<SpectrumFrame> takePendingSpectrumFrames(
         std::size_t maximumFrames)

@@ -30,6 +30,7 @@ private slots:
     void hasSafeDefaults();
     void persistsAndClampsSpectrumWaterfallSplitRatio();
     void persistsAndClampsSidebarState();
+    void scansOnlyInsideTheCurrentCapturePassband();
     void persistsAndValidatesDsdFmeBinaryPath();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
     void updatesBookmarksByStableIdentityAndPreservesMetadata();
@@ -341,6 +342,41 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
     settings.remove(settingsWidthKey);
     settings.remove(consoleWidthKey);
     settings.sync();
+}
+
+void ApplicationModelTest::scansOnlyInsideTheCurrentCapturePassband()
+{
+    ApplicationModel model;
+    const quint64 center = model.centerFrequency();
+    const quint64 lower = center;
+    const quint64 upper = center + 20'000;
+
+    QCOMPARE(model.scanLowerFrequency(), center - model.sampleRate() / 2);
+    QCOMPARE(model.scanUpperFrequency(), center + model.sampleRate() / 2);
+    model.setScanLowerFrequency(lower);
+    model.setScanUpperFrequency(upper);
+    model.setScanStepSize(10'000);
+    model.setScanDwellMilliseconds(20);
+    model.setScanResumeDelayMilliseconds(10);
+    QVERIFY(model.scanValidationError().isEmpty());
+    QVERIFY(model.scanCanStart());
+
+    model.startScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Running"));
+    QCOMPARE(model.scanCurrentFrequency(), center);
+    model.pauseOrResumeScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+    model.skipScanFrequency();
+    QCOMPARE(model.scanCurrentFrequency(), center + 10'000);
+    QCOMPARE(model.listeningFrequency(), center + 10'000);
+    QCOMPARE(model.scanState(), QStringLiteral("Paused"));
+
+    model.pauseOrResumeScan();
+    QCOMPARE(model.scanState(), QStringLiteral("Running"));
+    model.setCenterFrequencyText(QString::number(center + model.sampleRate()));
+    QCOMPARE(model.scanState(), QStringLiteral("Stopped"));
+    QVERIFY(model.scanStatusMessage().contains(
+        QStringLiteral("outside the current usable capture passband")));
 }
 
 void ApplicationModelTest::persistsAndValidatesDsdFmeBinaryPath()

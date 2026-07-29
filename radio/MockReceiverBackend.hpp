@@ -13,6 +13,7 @@ struct MockReceiverConfiguration {
     bool ppmCorrectionSupported = true;
     bool startSucceeds = true;
     bool stopSucceeds = true;
+    bool squelchOpen = false;
 };
 
 class MockReceiverBackend final : public ReceiverBackend
@@ -26,6 +27,7 @@ public:
     [[nodiscard]] const ReceiverCapabilities& capabilities() const noexcept override;
     [[nodiscard]] const ReceiverState& state() const noexcept override;
     [[nodiscard]] std::uint64_t tuningGeneration() const noexcept override;
+    [[nodiscard]] bool squelchOpen() const noexcept override;
     [[nodiscard]] std::optional<SpectrumFrame> takeLatestSpectrumFrame() override;
     [[nodiscard]] SpectrumProcessingMetrics spectrumProcessingMetrics()
         const override;

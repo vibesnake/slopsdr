@@ -1457,6 +1457,11 @@ public:
             squelch->set_threshold(squelchThresholdDb(state));
         }
 
+        [[nodiscard]] bool squelchOpen() const noexcept
+        {
+            return squelch->unmuted();
+        }
+
         void updateOutputRouteForMode(radio::DemodulationMode mode)
         {
             outputRouter->set_output_index(
@@ -1954,6 +1959,11 @@ std::uint64_t GnuRadioReceiverBackend::effectiveSampleRate() const noexcept
 std::uint64_t GnuRadioReceiverBackend::tuningGeneration() const noexcept
 {
     return m_impl->tuningGeneration;
+}
+
+bool GnuRadioReceiverBackend::squelchOpen() const noexcept
+{
+    return m_impl->flowgraph->squelchOpen();
 }
 
 std::optional<radio::SpectrumFrame> GnuRadioReceiverBackend::takeLatestSpectrumFrame()

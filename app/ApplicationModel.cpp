@@ -381,6 +381,7 @@ ApplicationModel::ApplicationModel(
         listeningFrequency(),
         false,
         passbandAlignment(receiverState().demodulationMode));
+    resetScanBoundsToCaptureRange();
     restorePersistedDisplaySettings();
     m_applicationLog.post(
         sdr::app::ApplicationLogModel::Info,
@@ -407,6 +408,15 @@ ApplicationModel::ApplicationModel(
         &ApplicationModel::publishLatestSpectrumFrame);
     m_spectrumTimer.start();
     initializeWheelTuningCoalescing();
+    m_scanDwellTimer.setSingleShot(true);
+    m_scanDwellTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_scanDwellTimer, &QTimer::timeout, this, &ApplicationModel::scannerDwellElapsed);
+    m_scanResumeTimer.setSingleShot(true);
+    m_scanResumeTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_scanResumeTimer, &QTimer::timeout, this, &ApplicationModel::scannerResumeDelayElapsed);
+    m_scanActivityTimer.setInterval(displayPollIntervalMilliseconds);
+    connect(&m_scanActivityTimer, &QTimer::timeout, this, &ApplicationModel::updateScannerSquelchActivity);
+    m_scanActivityTimer.start();
 }
 
 ApplicationModel::ApplicationModel(
@@ -438,6 +448,7 @@ ApplicationModel::ApplicationModel(
         listeningFrequency(),
         false,
         passbandAlignment(receiverState().demodulationMode));
+    resetScanBoundsToCaptureRange();
     restorePersistedDisplaySettings();
     m_applicationLog.post(
         sdr::app::ApplicationLogModel::Info,
@@ -471,6 +482,12 @@ ApplicationModel::ApplicationModel(
         });
     runtime.setDsdFmeBinaryPath(m_dsdFmeBinaryPath);
     initializeWheelTuningCoalescing();
+    m_scanDwellTimer.setSingleShot(true);
+    m_scanDwellTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_scanDwellTimer, &QTimer::timeout, this, &ApplicationModel::scannerDwellElapsed);
+    m_scanResumeTimer.setSingleShot(true);
+    m_scanResumeTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_scanResumeTimer, &QTimer::timeout, this, &ApplicationModel::scannerResumeDelayElapsed);
     connect(
         &runtime,
         &sdr::app::ReceiverRuntime::snapshotChanged,
@@ -901,6 +918,87 @@ double ApplicationModel::scanPanelWidth() const noexcept
     return m_scanPanelWidth;
 }
 
+quint64 ApplicationModel::scanLowerFrequency() const noexcept
+{
+    return m_scanLowerFrequency;
+}
+
+quint64 ApplicationModel::scanUpperFrequency() const noexcept
+{
+    return m_scanUpperFrequency;
+}
+
+quint64 ApplicationModel::scanStepSize() const noexcept
+{
+    return m_scanStepSize;
+}
+
+int ApplicationModel::scanDwellMilliseconds() const noexcept
+{
+    return m_scanDwellMilliseconds;
+}
+
+int ApplicationModel::scanResumeDelayMilliseconds() const noexcept
+{
+    return m_scanResumeDelayMilliseconds;
+}
+
+quint64 ApplicationModel::scanCurrentFrequency() const noexcept
+{
+    return m_scanner.currentFrequency();
+}
+
+QString ApplicationModel::scanState() const
+{
+    switch (m_scanner.state()) {
+    case sdr::app::CurrentPassbandScanState::Stopped:
+        return QStringLiteral("Stopped");
+    case sdr::app::CurrentPassbandScanState::Running:
+        return QStringLiteral("Running");
+    case sdr::app::CurrentPassbandScanState::Paused:
+        return QStringLiteral("Paused");
+    case sdr::app::CurrentPassbandScanState::Holding:
+        return QStringLiteral("Holding on squelch activity");
+    }
+    return QStringLiteral("Stopped");
+}
+
+QString ApplicationModel::scanStatusMessage() const
+{
+    return m_scanStatus;
+}
+
+QString ApplicationModel::scanValidationError() const
+{
+    return m_scanValidationError;
+}
+
+bool ApplicationModel::scanCanStart() const noexcept
+{
+    return m_scanner.state() == sdr::app::CurrentPassbandScanState::Stopped &&
+           m_scanValidationError.isEmpty();
+}
+
+bool ApplicationModel::scanCanPauseResume() const noexcept
+{
+    return m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+}
+
+bool ApplicationModel::scanPaused() const noexcept
+{
+    return m_scanner.state() == sdr::app::CurrentPassbandScanState::Paused;
+}
+
+bool ApplicationModel::scanCanSkip() const noexcept
+{
+    return m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+}
+
+bool ApplicationModel::scanCanStop() const noexcept
+{
+    return m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped;
+}
+
 double ApplicationModel::settingsPanelWidth() const noexcept
 {
     return m_settingsPanelWidth;
@@ -1241,6 +1339,7 @@ void ApplicationModel::setDeviceFrequencyRanges(
             advertisedRfRangeForCenter(centerFrequency()))) {
         emitFrequencyViewportChanges();
     }
+    validateActiveScanRange();
     setStatusText(QStringLiteral("Selected device frequency limits applied"));
 }
 
@@ -1257,6 +1356,7 @@ void ApplicationModel::clearDeviceFrequencyRanges()
             advertisedRfRangeForCenter(centerFrequency()))) {
         emitFrequencyViewportChanges();
     }
+    validateActiveScanRange();
     setStatusText(QStringLiteral("Device-specific frequency limits cleared"));
 }
 
@@ -1787,6 +1887,141 @@ void ApplicationModel::commitScanPanelWidth()
 {
     m_scanPanelWidthPersistenceTimer.stop();
     persistScanPanelWidth();
+}
+
+void ApplicationModel::setScanLowerFrequency(quint64 frequency)
+{
+    if (m_scanLowerFrequency == frequency) {
+        return;
+    }
+    m_scanLowerFrequency = frequency;
+    m_scanBoundsFollowCapture = false;
+    if (scanCanStop()) {
+        stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    }
+    updateScanValidation();
+}
+
+void ApplicationModel::setScanUpperFrequency(quint64 frequency)
+{
+    if (m_scanUpperFrequency == frequency) {
+        return;
+    }
+    m_scanUpperFrequency = frequency;
+    m_scanBoundsFollowCapture = false;
+    if (scanCanStop()) {
+        stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    }
+    updateScanValidation();
+}
+
+void ApplicationModel::setScanStepSize(quint64 stepSize)
+{
+    if (m_scanStepSize == stepSize) {
+        return;
+    }
+    m_scanStepSize = stepSize;
+    if (scanCanStop()) {
+        stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    }
+    updateScanValidation();
+}
+
+void ApplicationModel::setScanDwellMilliseconds(int milliseconds)
+{
+    if (m_scanDwellMilliseconds == milliseconds) {
+        return;
+    }
+    m_scanDwellMilliseconds = milliseconds;
+    if (scanCanStop()) {
+        stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    }
+    updateScanValidation();
+}
+
+void ApplicationModel::setScanResumeDelayMilliseconds(int milliseconds)
+{
+    if (m_scanResumeDelayMilliseconds == milliseconds) {
+        return;
+    }
+    m_scanResumeDelayMilliseconds = milliseconds;
+    if (scanCanStop()) {
+        stopScanner(QStringLiteral("Scanner stopped: scan settings changed"));
+    }
+    updateScanValidation();
+}
+
+void ApplicationModel::startScan()
+{
+    updateScanValidation();
+    if (!m_scanValidationError.isEmpty()) {
+        m_scanStatus = QStringLiteral("Scanner not started: %1").arg(m_scanValidationError);
+        emit scannerChanged();
+        return;
+    }
+    if (!m_scanner.start(
+            scanSettings(),
+            m_frequencyViewport.captureRange(),
+            listeningFrequency(),
+            scannerSquelchOpen())) {
+        updateScanValidation();
+        return;
+    }
+    tuneScannerTo(m_scanner.currentFrequency());
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Holding) {
+        m_scanStatus = QStringLiteral("Holding on squelch activity");
+    } else {
+        m_scanStatus = QStringLiteral("Scanning current capture passband");
+        scheduleScanDwell();
+    }
+    emit scannerChanged();
+}
+
+void ApplicationModel::pauseOrResumeScan()
+{
+    if (!scanCanPauseResume()) {
+        return;
+    }
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Paused) {
+        m_scanner.resume(scannerSquelchOpen());
+        if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Holding) {
+            m_scanStatus = QStringLiteral("Holding on squelch activity");
+        } else {
+            m_scanStatus = QStringLiteral("Scanning current capture passband");
+            scheduleScanDwell();
+        }
+    } else {
+        m_scanDwellTimer.stop();
+        m_scanResumeTimer.stop();
+        m_scanner.pause();
+        m_scanStatus = QStringLiteral("Scanner paused");
+    }
+    emit scannerChanged();
+}
+
+void ApplicationModel::skipScanFrequency()
+{
+    const auto frequency = m_scanner.skip();
+    if (!frequency.has_value()) {
+        return;
+    }
+    m_scanDwellTimer.stop();
+    m_scanResumeTimer.stop();
+    tuneScannerTo(*frequency);
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Paused) {
+        m_scanStatus = QStringLiteral("Scanner paused after skipping frequency");
+    } else {
+        m_scanStatus = QStringLiteral("Scanning current capture passband");
+        scheduleScanDwell();
+    }
+    emit scannerChanged();
+}
+
+void ApplicationModel::stopScan()
+{
+    if (scanCanStop()) {
+        stopScanner(QStringLiteral("Scanner stopped"));
+    }
 }
 
 void ApplicationModel::setSettingsPanelWidth(double width)
@@ -2388,6 +2623,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     const quint64 previousAudioUnderrunEvents = m_audioUnderrunEvents;
 
     m_runtimeState = snapshot.receiverState;
+    m_runtimeSquelchOpen = snapshot.squelchOpen;
     m_runtimeLimits = snapshot.receiverLimits;
     m_runtimeCapabilities = snapshot.receiverCapabilities;
     m_runtimeEffectiveSampleRate = snapshot.effectiveSampleRate == 0
@@ -2493,6 +2729,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     }
     notifyStateChanges(
         previousState, notificationState, snapshot.operationSucceeded);
+    updateScannerSquelchActivity();
     if (listeningWheelRecentered) {
         emitFrequencyViewportChanges();
     }
@@ -2509,6 +2746,10 @@ void ApplicationModel::applyRuntimeSnapshot(
             listeningFrequency(),
             advertisedRfRangeForCenter(centerFrequency()))) {
         emitFrequencyViewportChanges();
+    }
+    if (previousEffectiveSampleRate != m_runtimeEffectiveSampleRate ||
+        previousFrequencyRanges != m_deviceFrequencyRanges) {
+        validateActiveScanRange();
     }
     if (previousEffectiveSpectrumFftSize != m_effectiveSpectrumFftSize) {
         resetSpectrumFrame();
@@ -2616,6 +2857,7 @@ void ApplicationModel::notifyStateChanges(
             effectiveSampleRate(),
             state.listeningFrequency,
             advertisedRfRangeForCenter(state.centerFrequency));
+        validateActiveScanRange();
     }
     if (state.filterWidth != previousState.filterWidth ||
         state.demodulationMode != previousState.demodulationMode) {
@@ -3233,6 +3475,139 @@ void ApplicationModel::publishLatestSpectrumFrame()
         frame->sequence,
         frame->timestampNanoseconds,
         frame->tuningGeneration);
+}
+
+sdr::app::CurrentPassbandScanSettings ApplicationModel::scanSettings() const noexcept
+{
+    return {
+        m_scanLowerFrequency,
+        m_scanUpperFrequency,
+        m_scanStepSize,
+        m_scanDwellMilliseconds,
+        m_scanResumeDelayMilliseconds,
+    };
+}
+
+bool ApplicationModel::scannerSquelchOpen() const noexcept
+{
+    if (squelchDisabled()) {
+        return false;
+    }
+    return m_runtime ? m_runtimeSquelchOpen : m_receiver->squelchOpen();
+}
+
+void ApplicationModel::resetScanBoundsToCaptureRange()
+{
+    const auto passband = m_frequencyViewport.captureRange();
+    m_scanLowerFrequency = passband.minimum;
+    m_scanUpperFrequency = passband.maximum;
+    m_scanBoundsFollowCapture = true;
+    updateScanValidation();
+}
+
+void ApplicationModel::updateScanValidation()
+{
+    const auto validation = sdr::app::CurrentPassbandScanner::validate(
+        scanSettings(), m_frequencyViewport.captureRange());
+    const QString error = validation.has_value()
+                              ? QString::fromStdString(*validation)
+                              : QString();
+    if (m_scanValidationError != error) {
+        m_scanValidationError = error;
+    }
+    emit scannerChanged();
+}
+
+void ApplicationModel::validateActiveScanRange()
+{
+    if (m_scanBoundsFollowCapture &&
+        m_scanner.state() == sdr::app::CurrentPassbandScanState::Stopped) {
+        resetScanBoundsToCaptureRange();
+        return;
+    }
+    updateScanValidation();
+    if (m_scanner.state() != sdr::app::CurrentPassbandScanState::Stopped &&
+        !m_scanValidationError.isEmpty()) {
+        stopScanner(
+            QStringLiteral("Scanner stopped: scan range is outside the current usable capture passband"));
+    }
+}
+
+void ApplicationModel::updateScannerSquelchActivity()
+{
+    const bool open = scannerSquelchOpen();
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Running && open) {
+        m_scanDwellTimer.stop();
+        m_scanner.setSquelchOpen(true);
+        m_scanStatus = QStringLiteral("Holding on squelch activity");
+        emit scannerChanged();
+        return;
+    }
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Holding) {
+        if (open) {
+            m_scanResumeTimer.stop();
+            return;
+        }
+        if (!m_scanResumeTimer.isActive()) {
+            m_scanStatus = QStringLiteral("Squelch closed; waiting to resume");
+            scheduleScanResumeDelay();
+            emit scannerChanged();
+        }
+    }
+}
+
+void ApplicationModel::scheduleScanDwell()
+{
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Running) {
+        m_scanDwellTimer.start(m_scanDwellMilliseconds);
+    }
+}
+
+void ApplicationModel::scheduleScanResumeDelay()
+{
+    if (m_scanner.state() == sdr::app::CurrentPassbandScanState::Holding) {
+        m_scanResumeTimer.start(m_scanResumeDelayMilliseconds);
+    }
+}
+
+void ApplicationModel::tuneScannerTo(quint64 frequency)
+{
+    setListeningFrequency(frequency);
+}
+
+void ApplicationModel::scannerDwellElapsed()
+{
+    updateScannerSquelchActivity();
+    const auto frequency = m_scanner.advanceAfterDwell();
+    if (!frequency.has_value()) {
+        return;
+    }
+    tuneScannerTo(*frequency);
+    m_scanStatus = QStringLiteral("Scanning current capture passband");
+    scheduleScanDwell();
+    emit scannerChanged();
+}
+
+void ApplicationModel::scannerResumeDelayElapsed()
+{
+    const auto frequency = m_scanner.advanceAfterResumeDelay(scannerSquelchOpen());
+    if (!frequency.has_value()) {
+        updateScannerSquelchActivity();
+        return;
+    }
+    tuneScannerTo(*frequency);
+    m_scanStatus = QStringLiteral("Scanning current capture passband");
+    scheduleScanDwell();
+    emit scannerChanged();
+}
+
+void ApplicationModel::stopScanner(const QString& status)
+{
+    m_scanDwellTimer.stop();
+    m_scanResumeTimer.stop();
+    m_scanner.stop();
+    m_scanStatus = status;
+    emit scannerChanged();
 }
 
 void ApplicationModel::setStatusText(QString statusText)
