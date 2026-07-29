@@ -25,6 +25,8 @@ ApplicationWindow {
     readonly property color listeningColor: "#f6ad55"
     property bool bookmarkDragActive: false
     property real bookmarkDragListY: -1
+    property bool scanPresetDragActive: false
+    property real scanPresetDragListY: -1
     readonly property string sidebarModeNone: "none"
     readonly property string sidebarModeBookmarks: "bookmarks"
     readonly property string sidebarModeScan: "scan"
@@ -2194,148 +2196,6 @@ ApplicationWindow {
                             }
                         }
 
-                        Rectangle {
-                            objectName: "scanPresetsSection"
-                            Layout.fillWidth: true
-                            Layout.minimumHeight: scanPresetsContent.implicitHeight + 20
-                            radius: 4
-                            color: "#0b111e"
-                            border.color: root.panelBorderColor
-
-                            ColumnLayout {
-                                id: scanPresetsContent
-                                anchors.fill: parent
-                                anchors.margins: 10
-                                spacing: 6
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Presets")
-                                    color: root.primaryTextColor
-                                    font.bold: true
-                                    font.pixelSize: 12
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 5
-
-                                    TextField {
-                                        id: scanPresetNameField
-                                        objectName: "scanPresetNameField"
-                                        Layout.fillWidth: true
-                                        placeholderText: qsTr("Preset name")
-                                        Accessible.name: qsTr("Scanner preset name")
-                                        Accessible.description: qsTr(
-                                            "Name for saving or updating a scanner preset")
-                                    }
-
-                                    Button {
-                                        objectName: "saveNewScanPresetButton"
-                                        text: qsTr("Save New")
-                                        Accessible.name: text
-                                        onClicked: root.applicationModel.saveNewScanPreset(
-                                                       scanPresetNameField.text)
-                                    }
-                                }
-
-                                ListView {
-                                    id: scanPresetList
-                                    objectName: "scanPresetList"
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: Math.min(
-                                                                144,
-                                                                Math.max(42, contentHeight))
-                                    clip: true
-                                    boundsBehavior: Flickable.StopAtBounds
-                                    spacing: 2
-                                    model: root.applicationModel.scanPresets
-                                    ScrollBar.vertical: ScrollBar {}
-
-                                    delegate: ItemDelegate {
-                                        id: scanPresetDelegate
-                                        required property var modelData
-                                        readonly property var preset: modelData
-                                        width: scanPresetList.width
-                                        highlighted: preset.presetId
-                                                     === root.applicationModel.selectedScanPresetId
-                                        Accessible.name: qsTr("Scanner preset %1")
-                                                         .arg(preset.name)
-                                        Accessible.description: qsTr(
-                                            "Select this scanner preset")
-                                        onClicked: {
-                                            root.applicationModel.selectScanPreset(
-                                                        preset.presetId)
-                                            scanPresetNameField.text = preset.name
-                                        }
-                                        ToolTip.visible: hovered
-                                        ToolTip.text: preset.name
-                                        ToolTip.delay: 500
-
-                                        contentItem: Label {
-                                            text: scanPresetDelegate.preset.name
-                                            color: scanPresetDelegate.highlighted
-                                                   ? root.primaryTextColor
-                                                   : root.secondaryTextColor
-                                            elide: Text.ElideRight
-                                            verticalAlignment: Text.AlignVCenter
-                                        }
-                                    }
-
-                                    Label {
-                                        anchors.centerIn: parent
-                                        visible: scanPresetList.count === 0
-                                        text: qsTr("No saved presets")
-                                        color: root.secondaryTextColor
-                                        font.pixelSize: 10
-                                    }
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 5
-
-                                    Button {
-                                        objectName: "loadScanPresetButton"
-                                        Layout.fillWidth: true
-                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
-                                                 && !root.applicationModel.scanCanStop
-                                        text: qsTr("Load")
-                                        Accessible.name: text
-                                        onClicked: root.applicationModel.loadSelectedScanPreset()
-                                    }
-                                    Button {
-                                        objectName: "updateScanPresetButton"
-                                        Layout.fillWidth: true
-                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
-                                        text: qsTr("Update")
-                                        Accessible.name: text
-                                        onClicked: root.applicationModel.updateSelectedScanPreset(
-                                                       scanPresetNameField.text)
-                                    }
-                                    Button {
-                                        objectName: "deleteScanPresetButton"
-                                        Layout.fillWidth: true
-                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
-                                        text: qsTr("Delete")
-                                        Accessible.name: text
-                                        onClicked: deleteScanPresetDialog.open()
-                                    }
-                                }
-
-                                Label {
-                                    objectName: "scanPresetStatusMessage"
-                                    Layout.fillWidth: true
-                                    visible: text.length > 0
-                                    text: root.applicationModel.scanPresetStatusMessage
-                                    color: text.startsWith("Unable")
-                                           ? "#ff9b9b" : root.secondaryTextColor
-                                    wrapMode: Text.WordWrap
-                                    font.pixelSize: 10
-                                }
-                            }
-                        }
-
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 5
@@ -2416,6 +2276,385 @@ ApplicationWindow {
                             text: root.applicationModel.scanValidationError
                             color: "#ff9b9b"
                             wrapMode: Text.WordWrap
+                        }
+
+                        Rectangle {
+                            objectName: "scanPresetsSection"
+                            Layout.fillWidth: true
+                            Layout.minimumHeight: scanPresetsContent.implicitHeight + 20
+                            radius: 4
+                            color: "#0b111e"
+                            border.color: root.panelBorderColor
+
+                            ColumnLayout {
+                                id: scanPresetsContent
+                                anchors.fill: parent
+                                anchors.margins: 10
+                                spacing: 6
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Presets")
+                                    color: root.primaryTextColor
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+
+                                    TextField {
+                                        id: scanPresetNameField
+                                        objectName: "scanPresetNameField"
+                                        Layout.fillWidth: true
+                                        placeholderText: qsTr("Preset name")
+                                        Accessible.name: qsTr("Scanner preset name")
+                                        Accessible.description: qsTr(
+                                            "Name for saving or updating a scanner preset")
+                                    }
+
+                                    Button {
+                                        objectName: "saveNewScanPresetButton"
+                                        text: qsTr("Save New")
+                                        Accessible.name: text
+                                        onClicked: root.applicationModel.saveNewScanPreset(
+                                                       scanPresetNameField.text)
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 5
+
+                                    Button {
+                                        objectName: "loadScanPresetButton"
+                                        Layout.fillWidth: true
+                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
+                                                 && !root.applicationModel.scanCanStop
+                                        text: qsTr("Load")
+                                        Accessible.name: text
+                                        onClicked: root.applicationModel.loadSelectedScanPreset()
+                                    }
+                                    Button {
+                                        objectName: "updateScanPresetButton"
+                                        Layout.fillWidth: true
+                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
+                                        text: qsTr("Update")
+                                        Accessible.name: text
+                                        onClicked: root.applicationModel.updateSelectedScanPreset(
+                                                       scanPresetNameField.text)
+                                    }
+                                    Button {
+                                        objectName: "deleteScanPresetButton"
+                                        Layout.fillWidth: true
+                                        enabled: root.applicationModel.selectedScanPresetId.length > 0
+                                        text: qsTr("Delete")
+                                        Accessible.name: text
+                                        onClicked: deleteScanPresetDialog.open()
+                                    }
+                                }
+
+                                Label {
+                                    objectName: "scanPresetStatusMessage"
+                                    Layout.fillWidth: true
+                                    visible: text.length > 0
+                                    text: root.applicationModel.scanPresetStatusMessage
+                                    color: text.startsWith("Unable")
+                                           ? "#ff9b9b" : root.secondaryTextColor
+                                    wrapMode: Text.WordWrap
+                                    font.pixelSize: 10
+                                }
+
+                                ListView {
+                                    id: scanPresetList
+                                    objectName: "scanPresetList"
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: Math.min(
+                                                                220,
+                                                                Math.max(42, contentHeight))
+                                    clip: true
+                                    spacing: 2
+                                    model: root.applicationModel.scanPresets
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    ScrollBar.vertical: ScrollBar {}
+
+                                    delegate: Item {
+                                        id: scanPresetDelegate
+                                        required property int index
+                                        required property var modelData
+                                        readonly property var preset: modelData
+                                        property bool dragOccurred: false
+                                        property bool dragSessionActive: false
+                                        property string dropPlacement: ""
+
+                                        width: scanPresetList.width
+                                        height: 42
+
+                                        HoverHandler {
+                                            id: scanPresetRowHover
+                                        }
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: 4
+                                            color: scanPresetDelegate.preset.presetId
+                                                   === root.applicationModel.selectedScanPresetId
+                                                   ? "#29425f"
+                                                   : (scanPresetDrop.containsDrag
+                                                      ? "#315a78" : "transparent")
+                                        }
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 4
+                                            anchors.rightMargin: 32
+                                            spacing: 3
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 0
+
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    text: scanPresetDelegate.preset.name
+                                                    color: root.primaryTextColor
+                                                    font.pixelSize: 11
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Label {
+                                                    Layout.fillWidth: true
+                                                    text: qsTr("Current passband")
+                                                    color: root.secondaryTextColor
+                                                    font.pixelSize: 9
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+                                        }
+
+                                        TapHandler {
+                                            enabled: !root.scanPresetDragActive
+                                            onTapped: {
+                                                root.applicationModel.selectScanPreset(
+                                                            scanPresetDelegate.preset.presetId)
+                                                scanPresetNameField.text =
+                                                        scanPresetDelegate.preset.name
+                                            }
+                                            onDoubleTapped: {
+                                                root.applicationModel.selectScanPreset(
+                                                            scanPresetDelegate.preset.presetId)
+                                                scanPresetNameField.text =
+                                                        scanPresetDelegate.preset.name
+                                                if (!scanPresetDelegate.dragOccurred)
+                                                    root.applicationModel.loadSelectedScanPreset()
+                                            }
+                                        }
+
+                                        Item {
+                                            id: scanPresetDragHandle
+                                            objectName: "scanPresetDragHandle"
+                                            anchors.top: parent.top
+                                            anchors.right: parent.right
+                                            anchors.bottom: parent.bottom
+                                            width: 30
+                                            z: 8
+
+                                            Column {
+                                                anchors.centerIn: parent
+                                                spacing: 2
+                                                visible: scanPresetRowHover.hovered
+                                                         || scanPresetDelegate.preset.presetId
+                                                            === root.applicationModel.selectedScanPresetId
+                                                         || scanPresetDrag.active
+                                                Repeater {
+                                                    model: 3
+                                                    Rectangle {
+                                                        width: 12
+                                                        height: 2
+                                                        radius: 1
+                                                        color: scanPresetDrag.active
+                                                               ? root.centerColor
+                                                               : root.secondaryTextColor
+                                                    }
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: scanPresetDrag
+                                                objectName: "scanPresetDragHandler"
+                                                anchors.fill: parent
+                                                acceptedButtons: Qt.LeftButton
+                                                hoverEnabled: true
+                                                preventStealing: true
+                                                cursorShape: drag.active
+                                                             ? Qt.ClosedHandCursor
+                                                             : Qt.OpenHandCursor
+                                                drag.target: scanPresetDragPreview
+                                                drag.threshold: Qt.styleHints.startDragDistance
+
+                                                onPressed: {
+                                                    const position = scanPresetDelegate.mapToItem(
+                                                                       scanPresetList, 4, 0)
+                                                    scanPresetDragPreview.x = position.x
+                                                    scanPresetDragPreview.y = position.y
+                                                    root.applicationModel.selectScanPreset(
+                                                                scanPresetDelegate.preset.presetId)
+                                                    scanPresetNameField.text =
+                                                            scanPresetDelegate.preset.name
+                                                }
+                                                onPositionChanged: function(mouse) {
+                                                    if (drag.active) {
+                                                        if (!scanPresetDelegate.dragSessionActive) {
+                                                            scanPresetDelegate.dragSessionActive = true
+                                                            scanPresetDelegate.dragOccurred = true
+                                                            root.scanPresetDragActive = true
+                                                        }
+                                                        const point = scanPresetDragHandle.mapToItem(
+                                                                          scanPresetList,
+                                                                          mouse.x,
+                                                                          mouse.y)
+                                                        root.scanPresetDragListY = point.y
+                                                    }
+                                                }
+                                                onReleased: {
+                                                    if (scanPresetDelegate.dragSessionActive) {
+                                                        scanPresetDragPreview.Drag.drop()
+                                                        scanPresetDelegate.dragSessionActive = false
+                                                    }
+                                                    root.scanPresetDragActive = false
+                                                    Qt.callLater(function() {
+                                                        scanPresetDelegate.dragOccurred = false
+                                                    })
+                                                }
+                                                onCanceled: {
+                                                    if (scanPresetDelegate.dragSessionActive) {
+                                                        scanPresetDragPreview.Drag.cancel()
+                                                        scanPresetDelegate.dragSessionActive = false
+                                                    }
+                                                    root.scanPresetDragActive = false
+                                                    Qt.callLater(function() {
+                                                        scanPresetDelegate.dragOccurred = false
+                                                    })
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            id: scanPresetDragPreview
+                                            parent: scanPresetList
+                                            visible: scanPresetDelegate.dragSessionActive
+                                            width: Math.max(80, scanPresetList.width - 12)
+                                            height: scanPresetDelegate.height
+                                            radius: 4
+                                            z: 100
+                                            opacity: 0.9
+                                            color: "#29425f"
+                                            border.color: root.centerColor
+                                            border.width: 1
+
+                                            Drag.active: scanPresetDelegate.dragSessionActive
+                                            Drag.source: scanPresetDelegate
+                                            Drag.keys: ["scan-preset-row"]
+                                            Drag.hotSpot.x: width - 15
+                                            Drag.hotSpot.y: height / 2
+
+                                            Label {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 10
+                                                anchors.rightMargin: 10
+                                                text: scanPresetDelegate.preset.name
+                                                color: root.primaryTextColor
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        Shortcut {
+                                            enabled: scanPresetDelegate.dragSessionActive
+                                            sequence: "Escape"
+                                            onActivated: {
+                                                scanPresetDragPreview.Drag.cancel()
+                                                scanPresetDelegate.dragSessionActive = false
+                                                root.scanPresetDragActive = false
+                                            }
+                                        }
+
+                                        DropArea {
+                                            id: scanPresetDrop
+                                            anchors.fill: parent
+                                            keys: ["scan-preset-row"]
+                                            onEntered: function(drag) {
+                                                scanPresetDelegate.dropPlacement =
+                                                        drag.y < height / 2 ? "before" : "after"
+                                            }
+                                            onPositionChanged: function(drag) {
+                                                scanPresetDelegate.dropPlacement =
+                                                        drag.y < height / 2 ? "before" : "after"
+                                            }
+                                            onExited: scanPresetDelegate.dropPlacement = ""
+                                            onDropped: function(drop) {
+                                                const source = drop.source
+                                                const movedId = source ? source.preset.presetId : ""
+                                                const placement = scanPresetDelegate.dropPlacement
+                                                scanPresetDelegate.dropPlacement = ""
+                                                if (source && movedId !== scanPresetDelegate.preset.presetId
+                                                        && root.applicationModel.moveScanPreset(
+                                                            movedId,
+                                                            scanPresetDelegate.preset.presetId,
+                                                            placement)) {
+                                                    root.applicationModel.selectScanPreset(movedId)
+                                                    drop.acceptProposedAction()
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            visible: scanPresetDrop.containsDrag
+                                                     && scanPresetDelegate.dropPlacement.length > 0
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: scanPresetDelegate.dropPlacement === "before"
+                                                         ? parent.top : undefined
+                                            anchors.bottom: scanPresetDelegate.dropPlacement === "after"
+                                                            ? parent.bottom : undefined
+                                            height: 2
+                                            color: root.centerColor
+                                            z: 5
+                                        }
+                                    }
+
+                                    Timer {
+                                        interval: 16
+                                        repeat: true
+                                        running: root.scanPresetDragActive
+                                        onTriggered: {
+                                            const edge = 34
+                                            const maximum = Math.max(
+                                                                0,
+                                                                scanPresetList.contentHeight
+                                                                - scanPresetList.height)
+                                            if (root.scanPresetDragListY >= 0
+                                                    && root.scanPresetDragListY < edge) {
+                                                scanPresetList.contentY = Math.max(
+                                                    0, scanPresetList.contentY - 8)
+                                            } else if (root.scanPresetDragListY
+                                                       > scanPresetList.height - edge) {
+                                                scanPresetList.contentY = Math.min(
+                                                    maximum, scanPresetList.contentY + 8)
+                                            }
+                                        }
+                                    }
+
+                                    Label {
+                                        anchors.centerIn: parent
+                                        visible: scanPresetList.count === 0
+                                        text: qsTr("No saved presets")
+                                        color: root.secondaryTextColor
+                                    }
+                                }
+                            }
                         }
                     }
                 }

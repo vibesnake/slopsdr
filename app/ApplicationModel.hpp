@@ -313,6 +313,10 @@ public slots:
     bool loadSelectedScanPreset();
     bool updateSelectedScanPreset(const QString& name);
     bool deleteSelectedScanPreset();
+    bool moveScanPreset(
+        const QString& presetId,
+        const QString& targetPresetId,
+        const QString& placement);
     void startScan();
     void pauseOrResumeScan();
     void skipScanFrequency();

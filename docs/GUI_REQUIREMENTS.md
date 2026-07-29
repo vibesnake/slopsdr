@@ -307,12 +307,16 @@ current-frequency state are transient and always reset to stopped on startup.
 Saved bounds remain visible and invalid rather than being silently replaced if
 the current usable passband no longer contains them. Bookmark scans and
 hardware-retuning scans are not provided.
-The Presets section keeps an ordered list of UUID-backed named snapshots of
-that configuration, including the current-passband scan type. Save New, Load,
-Update (including an edited name), and confirmation-backed Delete operate on
-the selected preset identity; loading copies values only and never starts or
-links scanner runtime state. Long preset lists scroll within the pane and long
-names remain available through their tooltip.
+The Presets section is below the other Scan controls and keeps an ordered list
+of UUID-backed named snapshots of that configuration, including the
+current-passband scan type. It uses the bookmark list's compact rows, spacing,
+selected-row treatment, scrolling, and drag/reorder interaction, but has no
+bookmark scanner-inclusion checkbox. Save New, Load, Update (including an
+edited name), and confirmation-backed Delete operate on the selected preset
+identity; a single click selects only, while a double-click loads a
+disconnected copy without starting the scanner. Reordering persists the
+ordered UUID list. Long preset lists scroll within the pane and long names
+remain available through their tooltip.
 
 The panel provides Add Group, Add Bookmark, Update Bookmark, Edit, Remove, and
 Tune actions. Update Bookmark writes the current receiver-owned fields to the

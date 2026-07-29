@@ -243,8 +243,10 @@ void GainSliderBindingTest::
                 id: window
                 visible: true
                 width: 400
-                height: 220
+                height: 600
                 property string sidebarMode: "none"
+                property string selectedPresetId: ""
+                property string loadedPresetId: ""
 
                 Row {
                     Button {
@@ -279,7 +281,7 @@ void GainSliderBindingTest::
                     anchors.left: parent.left
                     anchors.bottom: parent.bottom
                     width: 220
-                    height: 150
+                    height: 500
 
                     Rectangle {
                         objectName: "bookmarksSidebarPane"
@@ -313,15 +315,6 @@ void GainSliderBindingTest::
                                 enabled: false
                                 model: ["Live receiver squelch"]
                             }
-                            TextField { objectName: "scanPresetNameField" }
-                            ListView { objectName: "scanPresetList"; model: [] }
-                            Row {
-                                Button { objectName: "saveNewScanPresetButton" }
-                                Button { objectName: "loadScanPresetButton"; enabled: false }
-                                Button { objectName: "updateScanPresetButton"; enabled: false }
-                                Button { objectName: "deleteScanPresetButton"; enabled: false }
-                            }
-                            Text { objectName: "scanPresetStatusMessage" }
                             Row {
                                 Button { objectName: "scanStartButton"; enabled: true }
                                 Button { objectName: "scanPauseResumeButton"; enabled: false }
@@ -341,6 +334,56 @@ void GainSliderBindingTest::
                                 text: "Scanner not running"
                             }
                             Text { objectName: "scanValidationError" }
+                            Rectangle {
+                                objectName: "scanPresetsSection"
+                                width: parent.width
+                                height: 80
+
+                                Column {
+                                    anchors.fill: parent
+                                    TextField { objectName: "scanPresetNameField" }
+                                    ListView {
+                                        objectName: "scanPresetList"
+                                        width: parent.width
+                                        height: 42
+                                        spacing: 2
+                                        model: []
+                                    }
+                                    Item {
+                                        id: scanPresetRow
+                                        objectName: "scanPresetRow"
+                                        width: parent.width
+                                        height: 42
+                                        property string presetId: "preset-1"
+
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            color: window.selectedPresetId === scanPresetRow.presetId
+                                                   ? "#29425f" : "transparent"
+                                        }
+                                        Label {
+                                            anchors.fill: parent
+                                            text: "Long preset name"
+                                        }
+                                        TapHandler {
+                                            onTapped: {
+                                                window.selectedPresetId = scanPresetRow.presetId
+                                            }
+                                            onDoubleTapped: {
+                                                window.selectedPresetId = scanPresetRow.presetId
+                                                window.loadedPresetId = scanPresetRow.presetId
+                                            }
+                                        }
+                                    }
+                                    Row {
+                                        Button { objectName: "saveNewScanPresetButton" }
+                                        Button { objectName: "loadScanPresetButton"; enabled: false }
+                                        Button { objectName: "updateScanPresetButton"; enabled: false }
+                                        Button { objectName: "deleteScanPresetButton"; enabled: false }
+                                    }
+                                    Text { objectName: "scanPresetStatusMessage" }
+                                }
+                            }
                         }
                     }
                     Rectangle {
@@ -363,6 +406,10 @@ void GainSliderBindingTest::
     auto* bookmarksPane = object->findChild<QQuickItem*>("bookmarksSidebarPane");
     auto* scanPane = object->findChild<QQuickItem*>("scanSidebarContent");
     auto* settingsPane = object->findChild<QQuickItem*>("settingsSidebarPane");
+    auto* scanPresetsSection = object->findChild<QQuickItem*>("scanPresetsSection");
+    auto* scanPresetList = object->findChild<QQuickItem*>("scanPresetList");
+    QQuickItem* scanPresetRow = nullptr;
+    auto* scanStatusMessage = object->findChild<QQuickItem*>("scanStatusMessage");
     QVERIFY(window);
     QVERIFY(bookmarksButton);
     QVERIFY(scanButton);
@@ -370,6 +417,9 @@ void GainSliderBindingTest::
     QVERIFY(bookmarksPane);
     QVERIFY(scanPane);
     QVERIFY(settingsPane);
+    QVERIFY(scanPresetsSection);
+    QVERIFY(scanPresetList);
+    QVERIFY(scanStatusMessage);
     QVERIFY(QTest::qWaitFor([window] { return window->isExposed(); }));
 
     const auto click = [window](QQuickItem* item) {
@@ -411,6 +461,11 @@ void GainSliderBindingTest::
     }
     QCOMPARE(bookmarksPane->parentItem(), settingsPane->parentItem());
     QCOMPARE(scanPane->parentItem(), settingsPane->parentItem());
+    click(scanButton);
+    QCoreApplication::processEvents();
+    scanPresetRow = object->findChild<QQuickItem*>("scanPresetRow");
+    QVERIFY(scanPresetRow);
+    QCOMPARE(scanPresetRow->objectName(), QStringLiteral("scanPresetRow"));
 
     const auto scanType = object->findChild<QObject*>("scanTypeControl");
     QVERIFY(scanType);
@@ -426,6 +481,7 @@ void GainSliderBindingTest::
              "scanResumeDelayField",
              "scanSquelchSourceControl",
              "scanPresetNameField",
+             "scanPresetsSection",
              "scanPresetList",
              "saveNewScanPresetButton",
              "loadScanPresetButton",
@@ -472,6 +528,25 @@ void GainSliderBindingTest::
     QCOMPARE(
         object->findChild<QObject*>("scanStateDisplay")->property("text").toString(),
         QStringLiteral("Scanner not running"));
+    QVERIFY(scanPresetsSection->y() > scanStatusMessage->y());
+    QVERIFY(!scanPane->findChild<QObject*>("scanPresetCheckBox"));
+
+    click(scanPresetRow);
+    QCOMPARE(object->property("selectedPresetId").toString(),
+             QStringLiteral("preset-1"));
+    QCOMPARE(object->property("loadedPresetId").toString(), QString());
+    QTest::mouseDClick(
+        window,
+        Qt::LeftButton,
+        {},
+        scanPresetRow->mapToScene(
+            QPointF(scanPresetRow->width() / 2.0, scanPresetRow->height() / 2.0))
+            .toPoint());
+    QCoreApplication::processEvents();
+    QCOMPARE(object->property("selectedPresetId").toString(),
+             QStringLiteral("preset-1"));
+    QCOMPARE(object->property("loadedPresetId").toString(),
+             QStringLiteral("preset-1"));
 }
 
 void GainSliderBindingTest::toolbarUsesEmbeddedSlopSdrLogo()

@@ -2397,6 +2397,38 @@ bool ApplicationModel::deleteSelectedScanPreset()
     return true;
 }
 
+bool ApplicationModel::moveScanPreset(
+    const QString& presetId,
+    const QString& targetPresetId,
+    const QString& placement)
+{
+    const int sourceIndex = scanPresetIndex(presetId);
+    const int targetIndex = scanPresetIndex(targetPresetId);
+    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex == targetIndex ||
+        (placement != QLatin1String("before") &&
+         placement != QLatin1String("after"))) {
+        return false;
+    }
+
+    const auto previousPresets = m_scanPresets;
+    ScanPreset movedPreset = m_scanPresets.at(static_cast<std::size_t>(sourceIndex));
+    m_scanPresets.erase(m_scanPresets.begin() + sourceIndex);
+    int adjustedTargetIndex = scanPresetIndex(targetPresetId);
+    if (placement == QLatin1String("after")) {
+        ++adjustedTargetIndex;
+    }
+    m_scanPresets.insert(
+        m_scanPresets.begin() + adjustedTargetIndex,
+        std::move(movedPreset));
+    if (!persistScanPresets()) {
+        m_scanPresets = previousPresets;
+        return false;
+    }
+    emit scanPresetsChanged();
+    setScanPresetStatusMessage(QStringLiteral("Reordered scanner presets"));
+    return true;
+}
+
 void ApplicationModel::startScan()
 {
     static_cast<void>(updateScanValidation());

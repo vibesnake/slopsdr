@@ -47,6 +47,7 @@ private slots:
     void preservesRestoredInvalidScanBoundsWithoutStarting();
     void createsLoadsUpdatesDeletesAndOrdersScanPresets();
     void persistsScanPresetsAcrossApplicationModels();
+    void reordersScanPresetsAndPersistsStableIdentity();
     void validatesUniqueScanPresetNames();
     void roundTripsExactWidePresetFrequencies();
     void editsLoadedScanSettingsWithoutMutatingPreset();
@@ -588,6 +589,42 @@ void ApplicationModelTest::persistsScanPresetsAcrossApplicationModels()
         secondId);
     QVERIFY(restored.selectedScanPresetId().isEmpty());
     QCOMPARE(restored.scanState(), QStringLiteral("Stopped"));
+}
+
+void ApplicationModelTest::reordersScanPresetsAndPersistsStableIdentity()
+{
+    ApplicationModel model;
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("First")));
+    const QString firstId =
+        scanPresetAt(model, 0).value(QStringLiteral("presetId")).toString();
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Second")));
+    const QString secondId =
+        scanPresetAt(model, 1).value(QStringLiteral("presetId")).toString();
+    QVERIFY(model.saveNewScanPreset(QStringLiteral("Third")));
+    const QString thirdId =
+        scanPresetAt(model, 2).value(QStringLiteral("presetId")).toString();
+
+    QVERIFY(model.moveScanPreset(thirdId, firstId, QStringLiteral("before")));
+    QCOMPARE(
+        scanPresetAt(model, 0).value(QStringLiteral("presetId")).toString(),
+        thirdId);
+    QCOMPARE(
+        scanPresetAt(model, 1).value(QStringLiteral("presetId")).toString(),
+        firstId);
+    QCOMPARE(
+        scanPresetAt(model, 2).value(QStringLiteral("presetId")).toString(),
+        secondId);
+
+    ApplicationModel restored;
+    QCOMPARE(
+        scanPresetAt(restored, 0).value(QStringLiteral("presetId")).toString(),
+        thirdId);
+    QCOMPARE(
+        scanPresetAt(restored, 1).value(QStringLiteral("presetId")).toString(),
+        firstId);
+    QCOMPARE(
+        scanPresetAt(restored, 2).value(QStringLiteral("presetId")).toString(),
+        secondId);
 }
 
 void ApplicationModelTest::validatesUniqueScanPresetNames()
