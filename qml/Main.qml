@@ -3453,13 +3453,15 @@ ApplicationWindow {
             Layout.minimumHeight: spectrumMinimumHeight
                                   + waterfallMinimumHeight
                                   + splitterHeight
+                                  + viewportScrollbarHeight
 
             readonly property real splitterHeight: 12
+            readonly property real viewportScrollbarHeight: 16
             readonly property real spectrumMinimumHeight: 135
             readonly property real waterfallMinimumHeight: 150
             readonly property real panelHeight: Math.max(
-                                                    0,
-                                                    height - splitterHeight)
+                0,
+                height - splitterHeight - viewportScrollbarHeight)
             readonly property real spectrumPaneHeight: Math.max(
                 spectrumMinimumHeight,
                 Math.min(
@@ -3534,11 +3536,30 @@ ApplicationWindow {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: splitterHandle.bottom
-                anchors.bottom: parent.bottom
+                anchors.bottom: viewportPanScrollbar.top
                 applicationModel: root.applicationModel
                 heading: qsTr("Waterfall")
                 detail: qsTr("Wheel: zoom · Ctrl: filter · Shift: listen")
                 waterfallInteraction: true
+            }
+
+            ScrollBar {
+                id: viewportPanScrollbar
+                objectName: "sharedViewportPanScrollbar"
+                anchors.left: waterfallPane.left
+                anchors.right: waterfallPane.right
+                anchors.bottom: parent.bottom
+                height: displayWorkspace.viewportScrollbarHeight
+                orientation: Qt.Horizontal
+                policy: ScrollBar.AlwaysOn
+                size: root.applicationModel.displayPanPageSize
+                position: root.applicationModel.displayPanPosition
+                enabled: root.applicationModel.displayPanEnabled
+                opacity: enabled ? 1.0 : 0.0
+                Accessible.name: qsTr("Spectrum and waterfall frequency pan")
+                Accessible.description: qsTr(
+                    "Pan the shared visible spectrum and waterfall frequency range")
+                onMoved: root.applicationModel.setDisplayPanPosition(position)
             }
         }
 

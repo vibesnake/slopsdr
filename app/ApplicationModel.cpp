@@ -1126,6 +1126,21 @@ quint64 ApplicationModel::displayZoomPercentage() const noexcept
             static_cast<double>(currentSpan) * 100.0)));
 }
 
+bool ApplicationModel::displayPanEnabled() const noexcept
+{
+    return m_frequencyViewport.visibleSpan() < m_frequencyViewport.captureSpan();
+}
+
+double ApplicationModel::displayPanPosition() const noexcept
+{
+    return m_frequencyViewport.panPosition();
+}
+
+double ApplicationModel::displayPanPageSize() const noexcept
+{
+    return m_frequencyViewport.panPageSize();
+}
+
 quint64 ApplicationModel::sampleRate() const noexcept
 {
     return receiverState().sampleRate;
@@ -1832,7 +1847,8 @@ void ApplicationModel::setDeviceFrequencyRanges(
             centerFrequency(),
             effectiveSampleRate(),
             listeningFrequency(),
-            advertisedRfRangeForCenter(centerFrequency()))) {
+            advertisedRfRangeForCenter(centerFrequency()),
+            true)) {
         emitFrequencyViewportChanges();
     }
     validateActiveScanRange();
@@ -1849,7 +1865,8 @@ void ApplicationModel::clearDeviceFrequencyRanges()
             centerFrequency(),
             effectiveSampleRate(),
             listeningFrequency(),
-            advertisedRfRangeForCenter(centerFrequency()))) {
+            advertisedRfRangeForCenter(centerFrequency()),
+            true)) {
         emitFrequencyViewportChanges();
     }
     validateActiveScanRange();
@@ -2319,6 +2336,13 @@ void ApplicationModel::requestWaterfallZoom(int wheelDelta)
         ++m_coalescedWaterfallZoomEvents;
     }
     queueViewportWheelAction(PendingViewportWheelAction::Zoom, wheelDelta);
+}
+
+void ApplicationModel::setDisplayPanPosition(double position)
+{
+    if (m_frequencyViewport.setPanPosition(position)) {
+        emitFrequencyViewportChanges();
+    }
 }
 
 void ApplicationModel::selectListeningFrequencyAt(
@@ -3767,7 +3791,8 @@ void ApplicationModel::applyRuntimeSnapshot(
             centerFrequency(),
             effectiveSampleRate(),
             listeningFrequency(),
-            advertisedRfRangeForCenter(centerFrequency()))) {
+            advertisedRfRangeForCenter(centerFrequency()),
+            true)) {
         emitFrequencyViewportChanges();
     }
     if (previousEffectiveSampleRate != m_runtimeEffectiveSampleRate ||
@@ -3974,7 +3999,8 @@ void ApplicationModel::notifyStateChanges(
             state.centerFrequency,
             effectiveSampleRate(),
             state.listeningFrequency,
-            advertisedRfRangeForCenter(state.centerFrequency));
+            advertisedRfRangeForCenter(state.centerFrequency),
+            state.centerFrequency == previousState.centerFrequency);
         validateActiveScanRange();
     }
     if (state.filterWidth != previousState.filterWidth ||

@@ -335,6 +335,9 @@ recenters it. Wheel movement over the waterfall instead zooms the shared
 spectrum/waterfall viewport around the listening marker. The read-only toolbar
 indicator shows the rounded whole percentage of the full effective capture
 bandwidth relative to the current visible span, with a minimum of 100%.
+When zoomed, use the horizontal scrollbar below the waterfall to pan both
+displays across the captured span without changing receiver tuning or scanner
+state. The scrollbar remains unavailable at full-span zoom.
 Use the compact **Pause spectrum** toggle in the Spectrum header and the
 **Pause waterfall** toggle in the Waterfall header to freeze either display
 independently. Pausing drops frames for that display while reception, DSP,

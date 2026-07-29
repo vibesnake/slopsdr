@@ -36,7 +36,8 @@ public:
         sdr::radio::FrequencyRange advertisedRfRange = {
             0,
             std::numeric_limits<std::uint64_t>::max(),
-        }) noexcept;
+        },
+        bool preserveVisibleCenter = false) noexcept;
     [[nodiscard]] bool configureDetail(
         std::uint64_t fftSize,
         std::uint64_t filterWidth,
@@ -47,6 +48,7 @@ public:
         std::uint64_t listeningFrequency,
         double wheelSteps) noexcept;
     [[nodiscard]] bool centerOn(std::uint64_t frequency) noexcept;
+    [[nodiscard]] bool setPanPosition(double position) noexcept;
 
     [[nodiscard]] bool valid() const noexcept;
     [[nodiscard]] sdr::radio::FrequencyRange captureRange() const noexcept;
@@ -56,6 +58,8 @@ public:
     [[nodiscard]] std::uint64_t visibleCenter() const noexcept;
     [[nodiscard]] std::uint64_t minimumVisibleSpan() const noexcept;
     [[nodiscard]] double zoomFactor() const noexcept;
+    [[nodiscard]] double panPosition() const noexcept;
+    [[nodiscard]] double panPageSize() const noexcept;
     [[nodiscard]] double normalizedPosition(
         std::uint64_t frequency) const noexcept;
     [[nodiscard]] sdr::radio::FrequencyAxisMapper axis(
@@ -66,6 +70,10 @@ private:
         std::uint64_t requestedSpan,
         std::uint64_t listeningFrequency,
         double normalizedAnchor) noexcept;
+    [[nodiscard]] bool setVisibleSpanCentered(
+        std::uint64_t requestedSpan,
+        std::uint64_t centerFrequency) noexcept;
+    [[nodiscard]] bool setVisibleLower(std::uint64_t lower) noexcept;
     void updateMinimumSpan() noexcept;
 
     sdr::radio::FrequencyRange m_captureRange;

@@ -120,6 +120,7 @@ history.
 | --- | --- |
 | Wheel over spectrum (no modifier) | Tunes the center and listening frequencies together by the configured spectrum tuning step; the shared viewport keeps its zoom/span and recenters around the new center. Rapid consecutive events use application-level scroll acceleration for this operation; after scrolling pauses, the rate returns to fine control. This is separate from operating-system mouse acceleration. |
 | Wheel over waterfall (no modifier) | Zooms the shared frequency viewport in or out, anchored on the listening/tuned frequency rather than the pointer; center frequency, listening frequency, and filter width do not change. |
+| Horizontal scrollbar below waterfall | Pans the shared zoomed spectrum/waterfall viewport across the usable captured span without tuning the receiver or changing scanner state. |
 | `Ctrl`+wheel over either display | Widens (`up`) or narrows (`down`) the active demodulation filter by its mode-specific step, within its limits; frequencies and viewport are unchanged. |
 | `Shift`+wheel over either display | Moves only the listening frequency by the configured spectrum tuning step (`up` higher, `down` lower). The center and filter width stay unchanged; when zoomed, the shared viewport recenters on the new listening frequency (clamped to capture coverage). |
 | `Ctrl`+`Shift`+wheel (with or without `Alt`) | `Ctrl` takes priority: adjusts filter width; `Shift` does not also tune. `Alt` alone does not change the selected action. |

@@ -50,6 +50,9 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(quint64 visibleSpan READ visibleSpan NOTIFY visibleRangeChanged)
     Q_PROPERTY(double displayZoomFactor READ displayZoomFactor NOTIFY visibleRangeChanged)
     Q_PROPERTY(quint64 displayZoomPercentage READ displayZoomPercentage NOTIFY visibleRangeChanged)
+    Q_PROPERTY(bool displayPanEnabled READ displayPanEnabled NOTIFY visibleRangeChanged)
+    Q_PROPERTY(double displayPanPosition READ displayPanPosition NOTIFY visibleRangeChanged)
+    Q_PROPERTY(double displayPanPageSize READ displayPanPageSize NOTIFY visibleRangeChanged)
     Q_PROPERTY(quint64 sampleRate READ sampleRate NOTIFY sampleRateChanged)
     Q_PROPERTY(quint64 requestedCaptureBandwidth READ sampleRate NOTIFY sampleRateChanged)
     Q_PROPERTY(quint64 effectiveSampleRate READ effectiveSampleRate NOTIFY effectiveSampleRateChanged)
@@ -186,6 +189,9 @@ public:
     [[nodiscard]] quint64 visibleSpan() const noexcept;
     [[nodiscard]] double displayZoomFactor() const noexcept;
     [[nodiscard]] quint64 displayZoomPercentage() const noexcept;
+    [[nodiscard]] bool displayPanEnabled() const noexcept;
+    [[nodiscard]] double displayPanPosition() const noexcept;
+    [[nodiscard]] double displayPanPageSize() const noexcept;
     [[nodiscard]] quint64 sampleRate() const noexcept;
     [[nodiscard]] quint64 effectiveSampleRate() const noexcept;
     [[nodiscard]] QStringList captureBandwidthOptions() const;
@@ -331,6 +337,7 @@ public slots:
         int modifierKeys = 0);
     void shiftCenterFromSpectrum(int wheelDelta);
     void requestWaterfallZoom(int wheelDelta);
+    void setDisplayPanPosition(double position);
     void selectListeningFrequencyAt(double horizontalPosition, double displayWidth);
     void setTuningWheelStep(quint64 step);
     void setSampleRate(quint64 sampleRate);

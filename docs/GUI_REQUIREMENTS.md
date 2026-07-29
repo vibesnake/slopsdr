@@ -33,6 +33,10 @@ The spectrum and waterfall follow distinct interaction rules:
   anchored to the listening frequency rather than the pointer, and preserves
   that frequency's horizontal position unless capture-edge clamping prevents
   it. Fractional wheel input is accumulated and rapid events are coalesced.
+* A horizontal scrollbar directly below the waterfall pans that same shared
+  viewport only when zoomed. Its thumb represents the visible span within the
+  usable capture span. Panning never tunes the center or listening frequency,
+  changes scanner state, or resumes a paused display.
 * Mouse-wheel movement over the spectrum changes the hardware center frequency.
   Scrolling upward increases it and scrolling downward decreases it. The
   default step is 10 kHz per wheel action. High-resolution deltas accumulate,
@@ -73,7 +77,8 @@ The spectrum and waterfall follow distinct interaction rules:
 The shared C++ viewport keeps hardware center/capture span separate from visible
 center/span and supplies one absolute-frequency mapping to the spectrum,
 waterfall, labels, filter gate markers, click tuning, and retained
-history reprojection. A read-only zoom indicator reports the rounded whole
+history reprojection. It also owns the normalized horizontal pan position used
+by the scrollbar. A read-only zoom indicator reports the rounded whole
 percentage of the full effective capture span relative to the current visible
 span, with a minimum of 100%.
 At a device RF limit, that effective span is the intersection of nominal FFT

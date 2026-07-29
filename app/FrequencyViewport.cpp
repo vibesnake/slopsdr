@@ -25,7 +25,8 @@ bool FrequencyViewport::configureCapture(
     std::uint64_t captureCenter,
     std::uint64_t captureSpan,
     std::uint64_t listeningFrequency,
-    sdr::radio::FrequencyRange advertisedRfRange) noexcept
+    sdr::radio::FrequencyRange advertisedRfRange,
+    bool preserveVisibleCenter) noexcept
 {
     const auto captureRange = sdr::radio::visibleCaptureRange(
         captureCenter, captureSpan, advertisedRfRange);
@@ -34,6 +35,7 @@ bool FrequencyViewport::configureCapture(
     }
     const auto previousCaptureRange = m_captureRange;
     const auto previousVisibleRange = m_visibleRange;
+    const std::uint64_t previousVisibleCenter = visibleCenter();
     const double previousZoomFactor = zoomFactor();
     m_captureRange = *captureRange;
     m_nominalCaptureSpan = captureSpan;
@@ -53,7 +55,11 @@ bool FrequencyViewport::configureCapture(
         this->captureSpan());
     const auto oldVisible = m_visibleRange;
     m_visibleRange = m_captureRange;
-    (void)setVisibleSpanAnchored(preservedSpan, listeningFrequency, 0.5);
+    if (preserveVisibleCenter) {
+        (void)setVisibleSpanCentered(preservedSpan, previousVisibleCenter);
+    } else {
+        (void)setVisibleSpanAnchored(preservedSpan, listeningFrequency, 0.5);
+    }
     return m_captureRange.minimum != previousCaptureRange.minimum ||
            m_captureRange.maximum != previousCaptureRange.maximum ||
            m_visibleRange.minimum != oldVisible.minimum ||
@@ -127,6 +133,18 @@ bool FrequencyViewport::centerOn(std::uint64_t frequency) noexcept
     return true;
 }
 
+bool FrequencyViewport::setPanPosition(double position) noexcept
+{
+    if (!m_valid || !std::isfinite(position) || visibleSpan() >= captureSpan()) {
+        return false;
+    }
+    const std::uint64_t maximumOffset = captureSpan() - visibleSpan();
+    const double normalized = std::clamp(position, 0.0, 1.0);
+    const std::uint64_t offset = static_cast<std::uint64_t>(std::llround(
+        normalized * static_cast<double>(maximumOffset)));
+    return setVisibleLower(m_captureRange.minimum + offset);
+}
+
 bool FrequencyViewport::valid() const noexcept
 {
     return m_valid;
@@ -168,6 +186,24 @@ double FrequencyViewport::zoomFactor() const noexcept
                ? 1.0
                : static_cast<double>(captureSpan()) /
                      static_cast<double>(visibleSpan());
+}
+
+double FrequencyViewport::panPosition() const noexcept
+{
+    if (!m_valid || visibleSpan() >= captureSpan()) {
+        return 0.0;
+    }
+    const std::uint64_t maximumOffset = captureSpan() - visibleSpan();
+    return static_cast<double>(m_visibleRange.minimum - m_captureRange.minimum) /
+           static_cast<double>(maximumOffset);
+}
+
+double FrequencyViewport::panPageSize() const noexcept
+{
+    return !m_valid || captureSpan() == 0
+               ? 1.0
+               : static_cast<double>(visibleSpan()) /
+                     static_cast<double>(captureSpan());
 }
 
 double FrequencyViewport::normalizedPosition(std::uint64_t frequency) const noexcept
@@ -243,6 +279,46 @@ bool FrequencyViewport::setVisibleSpanAnchored(
         return false;
     }
     m_visibleRange = updated;
+    return true;
+}
+
+bool FrequencyViewport::setVisibleSpanCentered(
+    std::uint64_t requestedSpan, std::uint64_t centerFrequency) noexcept
+{
+    if (!m_valid) {
+        return false;
+    }
+    const std::uint64_t span = std::clamp(
+        requestedSpan, m_minimumVisibleSpan, captureSpan());
+    const std::uint64_t halfSpan = span / 2;
+    const std::uint64_t requestedLower = centerFrequency > halfSpan
+                                             ? centerFrequency - halfSpan
+                                             : 0;
+    const std::uint64_t maximumLower = m_captureRange.maximum - span;
+    const std::uint64_t lower = std::clamp(
+        requestedLower, m_captureRange.minimum, maximumLower);
+    const sdr::radio::FrequencyRange updated{lower, lower + span};
+    if (updated.minimum == m_visibleRange.minimum &&
+        updated.maximum == m_visibleRange.maximum) {
+        return false;
+    }
+    m_visibleRange = updated;
+    return true;
+}
+
+bool FrequencyViewport::setVisibleLower(std::uint64_t lower) noexcept
+{
+    if (!m_valid) {
+        return false;
+    }
+    const std::uint64_t span = visibleSpan();
+    const std::uint64_t maximumLower = m_captureRange.maximum - span;
+    const std::uint64_t boundedLower = std::clamp(
+        lower, m_captureRange.minimum, maximumLower);
+    if (boundedLower == m_visibleRange.minimum) {
+        return false;
+    }
+    m_visibleRange = {boundedLower, boundedLower + span};
     return true;
 }
 

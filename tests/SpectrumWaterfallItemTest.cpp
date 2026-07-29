@@ -158,6 +158,7 @@ private slots:
     void rendersSpectrumHoldsAbovePaletteAndLiveTrace();
     void retainsSpectrumFrameAcrossCenterRetunes();
     void pausesSpectrumAndWaterfallIndependently();
+    void keepsPausedDisplaysPausedWhileViewportPans();
     void exposesMajorTicksAndCustomRange();
     void estimatesAndSmoothsNoiseFloor();
     void calculatesHighDpiScaleMargin();
@@ -987,6 +988,42 @@ void SpectrumWaterfallItemTest::pausesSpectrumAndWaterfallIndependently()
         waterfall, first, 100'000'000, 2'000'000, 4, 400));
     QCOMPARE(waterfall.m_latestFrame.sequence, std::uint64_t{4});
     QCOMPARE(waterfall.m_waterfallHistory.size(), std::size_t{3});
+}
+
+void SpectrumWaterfallItemTest::keepsPausedDisplaysPausedWhileViewportPans()
+{
+    ApplicationModel model;
+    SpectrumWaterfallItem spectrum;
+    SpectrumWaterfallItem waterfall;
+    waterfall.setWaterfall(true);
+    spectrum.setWidth(800.0);
+    waterfall.setWidth(800.0);
+    spectrum.setApplicationModel(&model);
+    waterfall.setApplicationModel(&model);
+
+    const QVector<float> frame{0.1F, 0.8F, 0.2F, 0.4F};
+    QVERIFY(deliverSpectrumFrame(
+        spectrum, frame, 100'000'000, 2'000'000, 1, 100));
+    QVERIFY(deliverWaterfallFrame(
+        waterfall, frame, 100'000'000, 2'000'000, 1, 100));
+    spectrum.setPaused(true);
+    waterfall.setPaused(true);
+    const float beforePan = spectrum.xForFrequency(100'000'000);
+
+    model.requestWaterfallZoom(240);
+    QVERIFY(QTest::qWaitFor(
+        [&model] { return model.displayPanEnabled(); }, 500));
+    model.setDisplayPanPosition(0.0);
+    QCoreApplication::processEvents();
+
+    QVERIFY(spectrum.paused());
+    QVERIFY(waterfall.paused());
+    QCOMPARE(spectrum.m_latestFrame.sequence, std::uint64_t{1});
+    QCOMPARE(waterfall.m_latestFrame.sequence, std::uint64_t{1});
+    QVERIFY(spectrum.xForFrequency(100'000'000) != beforePan);
+    QCOMPARE(
+        spectrum.xForFrequency(100'000'000),
+        waterfall.xForFrequency(100'000'000));
 }
 
 void SpectrumWaterfallItemTest::exposesMajorTicksAndCustomRange()

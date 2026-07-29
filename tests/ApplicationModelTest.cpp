@@ -87,6 +87,8 @@ private slots:
     void enforcesFrequencyLimits();
     void keepsSpectrumTuningDistinctFromWaterfallZoom();
     void reportsDisplayZoomPercentage();
+    void pansSharedViewportWithoutChangingReceiverTuning();
+    void preservesViewportPanAcrossCaptureChangesAndScannerActivity();
     void anchorsWaterfallZoomAtListeningFrequency();
     void clampsZoomAndViewport();
     void supportsPartialPassbandAtDeviceRfLimit();
@@ -1802,6 +1804,90 @@ void ApplicationModelTest::reportsDisplayZoomPercentage()
         limitedModel.displayZoomPercentage(),
         static_cast<quint64>(
             std::llround(limitedModel.displayZoomFactor() * 100.0)));
+}
+
+void ApplicationModelTest::pansSharedViewportWithoutChangingReceiverTuning()
+{
+    ApplicationModel model;
+    model.requestWaterfallZoom(240);
+    QVERIFY(QTest::qWaitFor(
+        [&model] { return model.displayPanEnabled(); }, 500));
+
+    const quint64 center = model.centerFrequency();
+    const quint64 listening = model.listeningFrequency();
+    const quint64 visibleSpan = model.visibleSpan();
+    const double zoom = model.displayZoomFactor();
+    QSignalSpy centerChanges(&model, &ApplicationModel::centerFrequencyChanged);
+    QSignalSpy listeningChanges(
+        &model, &ApplicationModel::listeningFrequencyChanged);
+    QSignalSpy waterfallResets(&model, &ApplicationModel::waterfallReset);
+
+    QVERIFY(std::abs(
+                model.displayPanPageSize() -
+                static_cast<double>(visibleSpan) /
+                    static_cast<double>(model.sampleRate())) < 0.000001);
+    model.setDisplayPanPosition(-1.0);
+    QCOMPARE(model.visibleLowerFrequency(), center - model.sampleRate() / 2);
+    QCOMPARE(model.displayPanPosition(), 0.0);
+    model.setDisplayPanPosition(1.0);
+    QCOMPARE(model.visibleUpperFrequency(), center + model.sampleRate() / 2);
+    QCOMPARE(model.displayPanPosition(), 1.0);
+    QCOMPARE(model.visibleSpan(), visibleSpan);
+    QCOMPARE(model.displayZoomFactor(), zoom);
+    QCOMPARE(model.centerFrequency(), center);
+    QCOMPARE(model.listeningFrequency(), listening);
+    QCOMPARE(centerChanges.count(), 0);
+    QCOMPARE(listeningChanges.count(), 0);
+    QCOMPARE(waterfallResets.count(), 0);
+
+    const auto axis = model.frequencyViewportAxis({0.0, 1'000.0});
+    QCOMPARE(
+        axis.roundedFrequencyForPosition(0.0).value(),
+        model.visibleLowerFrequency());
+    QCOMPARE(
+        axis.roundedFrequencyForPosition(1'000.0).value(),
+        model.visibleUpperFrequency());
+}
+
+void ApplicationModelTest::
+    preservesViewportPanAcrossCaptureChangesAndScannerActivity()
+{
+    sdr::app::FrequencyViewport viewport(
+        100'000'000, 2'000'000, 4'096, 12'500);
+    QVERIFY(viewport.zoomBySteps(100'000'000, 2.0));
+    QVERIFY(viewport.setPanPosition(0.25));
+    const quint64 oldCenter = viewport.visibleCenter();
+    QVERIFY(viewport.configureCapture(
+        100'000'000,
+        2'400'000,
+        100'000'000,
+        {0, std::numeric_limits<quint64>::max()},
+        true));
+    QCOMPARE(viewport.visibleCenter(), oldCenter);
+    QVERIFY(viewport.panPosition() > 0.0);
+    QVERIFY(viewport.panPosition() < 1.0);
+
+    ApplicationModel model;
+    model.requestWaterfallZoom(240);
+    QVERIFY(QTest::qWaitFor(
+        [&model] { return model.displayPanEnabled(); }, 500));
+    model.startReception();
+    model.setScanLowerFrequency(model.centerFrequency() - 100'000);
+    model.setScanUpperFrequency(model.centerFrequency() + 100'000);
+    model.setScanStepSize(25'000);
+    model.setScanDwellMilliseconds(100'000);
+    QVERIFY(model.scanCanStart());
+    model.startScan();
+    QVERIFY(model.scannerOwnsTuning());
+    const quint64 scannerCenter = model.centerFrequency();
+    const quint64 scannerListening = model.listeningFrequency();
+    const quint64 scannerPosition = model.scanCurrentFrequency();
+    model.setDisplayPanPosition(1.0);
+    QCOMPARE(model.centerFrequency(), scannerCenter);
+    QCOMPARE(model.listeningFrequency(), scannerListening);
+    QCOMPARE(model.scanCurrentFrequency(), scannerPosition);
+    QVERIFY(model.scannerOwnsTuning());
+    model.stopScan();
 }
 
 void ApplicationModelTest::anchorsWaterfallZoomAtListeningFrequency()
