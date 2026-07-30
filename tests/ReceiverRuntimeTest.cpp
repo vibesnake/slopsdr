@@ -17,6 +17,7 @@
 #include <QtTest>
 
 #include <chrono>
+#include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -73,6 +74,7 @@ struct RuntimeTrace {
     bool failPpmCorrection = false;
     std::optional<double> effectiveManualPpmCorrection;
     std::optional<double> squelchSignalStrengthDb = -54.0;
+    std::atomic_bool recordingSquelchOpen = false;
     std::string discoveryDriver = "mock";
     bool calibrationActive = false;
     int calibrationBegins = 0;
@@ -402,6 +404,11 @@ public:
                        m_delegate.state().running
                    ? m_trace->squelchSignalStrengthDb
                    : std::nullopt;
+    }
+
+    [[nodiscard]] bool squelchOpen() const noexcept override
+    {
+        return m_trace->recordingSquelchOpen.load();
     }
 
     [[nodiscard]] std::uint64_t effectiveSampleRate() const noexcept override
@@ -805,6 +812,7 @@ private slots:
     void testCounterDataNeverReachesReceiverProcessing();
     void stopsBackendAndJoinsWorkerDuringShutdown();
     void recordsMutedAudioAcrossRetunesAndFinalizesOnStop();
+    void armsQuietSkippingRecordingAcrossScannerAndRetunes();
 
 private:
     QTemporaryDir m_settingsDirectory;
@@ -2661,6 +2669,64 @@ void ReceiverRuntimeTest::recordsMutedAudioAcrossRetunesAndFinalizesOnStop()
     QCOMPARE(bytes.mid(46, 2), QByteArray::fromHex("0040"));
     QCOMPARE(bytes.mid(48, 2), QByteArray::fromHex("00c0"));
     QCOMPARE(bytes.mid(50, 2), QByteArray::fromHex("00c0"));
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::armsQuietSkippingRecordingAcrossScannerAndRetunes()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.deviceDisplayNames().size() == 2; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+    model.setRecordingsFolder(recordings.path());
+    model.setSkipQuietRecordingParts(true);
+    model.setRecordingPreRollSeconds(0);
+    model.setRecordingTailSeconds(0);
+    model.startAudioRecording();
+    QVERIFY(waitUntil([&model] { return model.recordingActive(); }));
+    QVERIFY(!model.recordingWriting());
+    {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        trace->recordingAudioSamples = {0.1F};
+    }
+    QVERIFY(waitUntil([&trace] {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        return trace->recordingAudioSamples.empty();
+    }));
+    QVERIFY(!model.recordingWriting());
+    trace->recordingSquelchOpen.store(true);
+    {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        trace->recordingAudioSamples = {0.5F};
+    }
+    QVERIFY(waitUntil([&model] { return model.recordingWriting(); }));
+    model.setListeningFrequency(99'500'000);
+    QVERIFY(waitUntil([&model] {
+        return model.listeningFrequency() == 99'500'000 && model.recordingActive();
+    }));
+    model.setScanLowerFrequency(99'400'000);
+    model.setScanUpperFrequency(99'500'000);
+    model.setScanStepSize(50'000);
+    model.startScan();
+    QVERIFY(waitUntil([&model] { return model.scannerOwnsTuning(); }));
+    QVERIFY(model.recordingActive());
+    model.stopReception();
+    QVERIFY(waitUntil([&model] { return !model.recordingActive(); }));
+    const QStringList wavs = QDir(recordings.path()).entryList(
+        {QStringLiteral("*.wav")}, QDir::Files);
+    QCOMPARE(wavs.size(), 1);
+    QFile file(recordings.filePath(wavs.front()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray bytes = file.readAll();
+    QCOMPARE(bytes.size(), 48);
+    QCOMPARE(bytes.mid(44, 2), QByteArray::fromHex("0040"));
     runtime.shutdown();
 }
 

@@ -78,6 +78,7 @@ struct ReceiverRuntimeSnapshot {
     bool audioRunning = false;
     bool decoderRunning = false;
     bool recordingActive = false;
+    bool recordingWriting = false;
     bool recordingFailed = false;
     quint64 recordingElapsedSeconds = 0;
     quint64 recordingDroppedFrames = 0;
@@ -148,7 +149,8 @@ public slots:
     void selectAudioDevice(const QString& identifier);
     void setAudioVolume(int volumePercent);
     void setAudioMuted(bool muted);
-    void startAudioRecording(const QString& directory);
+    void startAudioRecording(const QString& directory, bool skipQuietParts,
+        int preRollSeconds, int tailSeconds);
     void stopAudioRecording();
     void setDsdFmeBinaryPath(const QString& path);
     void startReception();
@@ -219,7 +221,8 @@ signals:
     void selectAudioDeviceRequested(const QString& identifier);
     void setAudioVolumeRequested(int volumePercent);
     void setAudioMutedRequested(bool muted);
-    void startAudioRecordingRequested(const QString& directory);
+    void startAudioRecordingRequested(const QString& directory, bool skipQuietParts,
+        int preRollSeconds, int tailSeconds);
     void stopAudioRecordingRequested();
     void setDsdFmeBinaryPathRequested(const QString& path);
     void startReceptionRequested();

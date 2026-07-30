@@ -903,7 +903,8 @@ public slots:
         publishSnapshot(true);
     }
 
-    void startAudioRecording(const QString& directory)
+    void startAudioRecording(const QString& directory, bool skipQuietParts,
+        int preRollSeconds, int tailSeconds)
     {
         if (!m_backend || !m_backend->state().running || !m_recording) {
             m_statusText = QStringLiteral("Reception must be active before recording");
@@ -917,10 +918,17 @@ public slots:
             .frequencyHz = m_backend->state().listeningFrequency,
             .modeName = descriptor ? std::string(descriptor->displayName)
                                    : std::string("audio"),
+            .skipQuietParts = skipQuietParts,
+            .preRollSeconds = static_cast<std::uint32_t>(std::clamp(preRollSeconds, 0, 10)),
+            .tailSeconds = static_cast<std::uint32_t>(std::clamp(tailSeconds, 0, 30)),
         });
         const auto state = m_recording->state();
+        m_lastPublishedRecordingWriting = state.writing;
+        m_lastPublishedRecordingElapsedSeconds = state.elapsedSeconds;
         m_statusText = started
-                           ? QStringLiteral("Recording %1")
+                           ? QStringLiteral("%1 %2")
+                                 .arg(skipQuietParts ? QStringLiteral("WAV armed")
+                                                      : QStringLiteral("Recording"))
                                  .arg(QString::fromStdString(
                                      state.filePath.filename().string()))
                            : QString::fromStdString(state.statusText);
@@ -933,6 +941,8 @@ public slots:
         if (m_recording) {
             m_recording->stop();
             const auto state = m_recording->state();
+            m_lastPublishedRecordingWriting = state.writing;
+            m_lastPublishedRecordingElapsedSeconds = state.elapsedSeconds;
             m_statusText = QString::fromStdString(state.statusText);
             log(state.failed ? 3 : 1, QStringLiteral("Recording"), m_statusText);
         }
@@ -2562,7 +2572,8 @@ private:
                            : maximumAudioTransferFrames));
             m_audioTransferredSamples += decoded.size() / 2U;
             if (m_recording) {
-                m_recording->enqueueStereo(decoded);
+                m_recording->enqueueStereo(decoded, m_backend->squelchOpen());
+                publishRecordingStateIfChanged();
             }
             if (m_audioOutput) {
                 m_audioOutput->enqueueStereo(decoded);
@@ -2577,7 +2588,8 @@ private:
                                         : maximumAudioTransferFrames));
             m_audioTransferredSamples += audio.size();
             if (m_recording) {
-                m_recording->enqueueMono(audio);
+                m_recording->enqueueMono(audio, m_backend->squelchOpen());
+                publishRecordingStateIfChanged();
             }
             if (m_audioOutput) {
                 m_audioOutput->enqueueMono(audio);
@@ -2607,6 +2619,20 @@ private:
         }
         reportAudioMetrics();
         if (previousDsdState && *previousDsdState != m_dsdFme->state()) {
+            publishSnapshot(true);
+        }
+    }
+
+    void publishRecordingStateIfChanged()
+    {
+        if (!m_recording) {
+            return;
+        }
+        const auto state = m_recording->state();
+        if (state.writing != m_lastPublishedRecordingWriting ||
+            state.elapsedSeconds != m_lastPublishedRecordingElapsedSeconds) {
+            m_lastPublishedRecordingWriting = state.writing;
+            m_lastPublishedRecordingElapsedSeconds = state.elapsedSeconds;
             publishSnapshot(true);
         }
     }
@@ -2973,6 +2999,7 @@ private:
         if (m_recording) {
             const auto recording = m_recording->state();
             snapshot.recordingActive = recording.active;
+            snapshot.recordingWriting = recording.writing;
             snapshot.recordingFailed = recording.failed;
             snapshot.recordingElapsedSeconds = recording.elapsedSeconds;
             snapshot.recordingDroppedFrames = recording.droppedFrames;
@@ -3088,6 +3115,8 @@ private:
     std::unique_ptr<platform::AudioOutputService> m_audioOutput;
     std::unique_ptr<platform::WavRecordingService> m_recording =
         std::make_unique<platform::WavRecordingService>();
+    bool m_lastPublishedRecordingWriting = false;
+    quint64 m_lastPublishedRecordingElapsedSeconds = 0;
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
     std::vector<devices::DeviceDescriptor> m_devices;
     std::optional<devices::DeviceDescriptor> m_selectedCapabilities;
@@ -3544,9 +3573,11 @@ void ReceiverRuntime::setAudioMuted(bool muted)
     emit setAudioMutedRequested(muted);
 }
 
-void ReceiverRuntime::startAudioRecording(const QString& directory)
+void ReceiverRuntime::startAudioRecording(const QString& directory,
+    bool skipQuietParts, int preRollSeconds, int tailSeconds)
 {
-    emit startAudioRecordingRequested(directory);
+    emit startAudioRecordingRequested(
+        directory, skipQuietParts, preRollSeconds, tailSeconds);
 }
 
 void ReceiverRuntime::stopAudioRecording()

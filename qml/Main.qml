@@ -3302,6 +3302,36 @@ ApplicationWindow {
                             font.pixelSize: 10
                             wrapMode: Text.WordWrap
                         }
+
+                        CheckBox {
+                            objectName: "skipQuietRecordingPartsCheckBox"
+                            Layout.fillWidth: true
+                            text: qsTr("Skip quiet parts")
+                            checked: root.applicationModel.skipQuietRecordingParts
+                            onToggled: root.applicationModel.skipQuietRecordingParts = checked
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Label { text: qsTr("Pre-roll (s)") }
+                            SpinBox {
+                                objectName: "recordingPreRollSpinBox"
+                                from: 0
+                                to: 10
+                                value: root.applicationModel.recordingPreRollSeconds
+                                onValueModified: root.applicationModel.recordingPreRollSeconds = value
+                            }
+                            Label { text: qsTr("Tail (s)") }
+                            SpinBox {
+                                objectName: "recordingTailSpinBox"
+                                from: 0
+                                to: 30
+                                value: root.applicationModel.recordingTailSeconds
+                                onValueModified: root.applicationModel.recordingTailSeconds = value
+                            }
+                        }
                     }
                 }
 
@@ -4338,7 +4368,7 @@ ApplicationWindow {
 
             Rectangle {
                 objectName: "recordingIndicator"
-                visible: root.applicationModel.recordingActive
+                visible: root.applicationModel.recordingWriting
                 implicitWidth: 8
                 implicitHeight: 8
                 radius: width / 2
@@ -4347,8 +4377,10 @@ ApplicationWindow {
 
             Label {
                 objectName: "recordingFormatLabel"
-                text: qsTr("WAV")
-                color: root.applicationModel.recordingActive
+                text: root.applicationModel.recordingActive
+                      && !root.applicationModel.recordingWriting
+                      ? qsTr("WAV ARMED") : qsTr("WAV")
+                color: root.applicationModel.recordingWriting
                        ? "#fecaca" : root.secondaryTextColor
                 font.bold: true
                 font.pixelSize: 10
@@ -4357,7 +4389,7 @@ ApplicationWindow {
             Label {
                 objectName: "recordingElapsedLabel"
                 text: root.applicationModel.recordingElapsedText
-                color: root.applicationModel.recordingActive
+                color: root.applicationModel.recordingWriting
                        ? "#fecaca" : root.secondaryTextColor
                 font.pixelSize: 10
             }

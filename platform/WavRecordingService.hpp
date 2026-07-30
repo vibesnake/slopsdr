@@ -22,10 +22,14 @@ struct WavRecordingRequest {
     std::filesystem::path directory;
     std::uint64_t frequencyHz = 0;
     std::string modeName;
+    bool skipQuietParts = false;
+    std::uint32_t preRollSeconds = 1;
+    std::uint32_t tailSeconds = 2;
 };
 
 struct WavRecordingState {
     bool active = false;
+    bool writing = false;
     bool failed = false;
     std::filesystem::path filePath;
     std::string statusText = "Recording idle";
@@ -48,8 +52,9 @@ public:
 
     [[nodiscard]] bool start(const WavRecordingRequest& request);
     void stop() noexcept;
-    void enqueueMono(std::span<const float> samples) noexcept;
-    void enqueueStereo(std::span<const float> interleavedSamples) noexcept;
+    void enqueueMono(std::span<const float> samples, bool voiceOpen = true) noexcept;
+    void enqueueStereo(std::span<const float> interleavedSamples,
+        bool voiceOpen = true) noexcept;
     [[nodiscard]] WavRecordingState state() const;
 
 private:
@@ -59,8 +64,10 @@ private:
     static void appendPcm16(
         std::vector<std::int16_t>& destination,
         std::span<const float> interleavedSamples);
-    void enqueueInterleavedStereo(
-        std::span<const float> interleavedSamples) noexcept;
+    void enqueueInterleavedStereo(std::span<const float> interleavedSamples,
+        bool voiceOpen) noexcept;
+    void appendPreRollLocked(std::span<const float> interleavedSamples);
+    void enqueueLocked(std::span<const float> interleavedSamples);
     void writerLoop() noexcept;
     void failLocked(std::string message) noexcept;
 
@@ -72,8 +79,13 @@ private:
     std::thread m_writer;
     std::ofstream m_file;
     WavRecordingState m_state;
-    std::chrono::steady_clock::time_point m_startedAt;
     std::uint64_t m_dataBytes = 0;
+    std::deque<std::vector<float>> m_preRoll;
+    std::size_t m_preRollFrames = 0;
+    std::size_t m_maximumPreRollFrames = 0;
+    std::size_t m_tailDurationFrames = 0;
+    std::size_t m_tailFramesRemaining = 0;
+    bool m_skipQuietParts = false;
     bool m_accepting = false;
     bool m_stopRequested = false;
 };

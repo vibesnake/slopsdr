@@ -117,6 +117,9 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString recordingsFolder READ recordingsFolder NOTIFY recordingsFolderChanged)
     Q_PROPERTY(QString recordingsFolderStatus READ recordingsFolderStatus NOTIFY recordingsFolderChanged)
     Q_PROPERTY(bool recordingsFolderValid READ recordingsFolderValid NOTIFY recordingsFolderChanged)
+    Q_PROPERTY(bool skipQuietRecordingParts READ skipQuietRecordingParts WRITE setSkipQuietRecordingParts NOTIFY recordingSettingsChanged)
+    Q_PROPERTY(int recordingPreRollSeconds READ recordingPreRollSeconds WRITE setRecordingPreRollSeconds NOTIFY recordingSettingsChanged)
+    Q_PROPERTY(int recordingTailSeconds READ recordingTailSeconds WRITE setRecordingTailSeconds NOTIFY recordingSettingsChanged)
     Q_PROPERTY(QVariantList bookmarkDemodulators READ bookmarkDemodulators CONSTANT)
     Q_PROPERTY(quint64 filterWidth READ filterWidth NOTIFY filterWidthChanged)
     Q_PROPERTY(quint64 minimumFilterWidth READ minimumFilterWidth NOTIFY filterLimitsChanged)
@@ -164,6 +167,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(quint64 audioOverflowEvents READ audioOverflowEvents NOTIFY audioStateChanged)
     Q_PROPERTY(quint64 audioUnderrunEvents READ audioUnderrunEvents NOTIFY audioStateChanged)
     Q_PROPERTY(bool recordingActive READ recordingActive NOTIFY recordingStateChanged)
+    Q_PROPERTY(bool recordingWriting READ recordingWriting NOTIFY recordingStateChanged)
     Q_PROPERTY(bool recordingCanStart READ recordingCanStart NOTIFY recordingStateChanged)
     Q_PROPERTY(QString recordingElapsedText READ recordingElapsedText NOTIFY recordingStateChanged)
     Q_PROPERTY(QString recordingStatusText READ recordingStatusText NOTIFY recordingStateChanged)
@@ -263,6 +267,9 @@ public:
     [[nodiscard]] QString recordingsFolder() const;
     [[nodiscard]] QString recordingsFolderStatus() const;
     [[nodiscard]] bool recordingsFolderValid() const noexcept;
+    [[nodiscard]] bool skipQuietRecordingParts() const noexcept;
+    [[nodiscard]] int recordingPreRollSeconds() const noexcept;
+    [[nodiscard]] int recordingTailSeconds() const noexcept;
     [[nodiscard]] QVariantList bookmarkDemodulators() const;
     [[nodiscard]] quint64 filterWidth() const noexcept;
     [[nodiscard]] quint64 minimumFilterWidth() const noexcept;
@@ -311,6 +318,7 @@ public:
     [[nodiscard]] quint64 audioOverflowEvents() const noexcept;
     [[nodiscard]] quint64 audioUnderrunEvents() const noexcept;
     [[nodiscard]] bool recordingActive() const noexcept;
+    [[nodiscard]] bool recordingWriting() const noexcept;
     [[nodiscard]] bool recordingCanStart() const noexcept;
     [[nodiscard]] QString recordingElapsedText() const;
     [[nodiscard]] QString recordingStatusText() const;
@@ -402,6 +410,9 @@ public slots:
     void revalidateDsdFmeBinaryPath();
     void setRecordingsFolder(const QString& path);
     void setRecordingsFolderUrl(const QUrl& url);
+    void setSkipQuietRecordingParts(bool enabled);
+    void setRecordingPreRollSeconds(int seconds);
+    void setRecordingTailSeconds(int seconds);
     void openRecordingsFolder();
     void startAudioRecording();
     void stopAudioRecording();
@@ -472,6 +483,7 @@ signals:
     void dsdFmeBinaryPathChanged();
     void dsdFmeBinaryStatusChanged();
     void recordingsFolderChanged();
+    void recordingSettingsChanged();
     void recordingStateChanged();
     void filterWidthChanged();
     void filterLimitsChanged();
@@ -761,6 +773,9 @@ private:
     QString m_recordingsFolder;
     QString m_recordingsFolderStatus;
     bool m_recordingsFolderValid = false;
+    bool m_skipQuietRecordingParts = false;
+    int m_recordingPreRollSeconds = 1;
+    int m_recordingTailSeconds = 2;
     QString m_dsdFmeBinaryStatus;
     bool m_dsdFmeBinaryValid = false;
     QTimer m_spectrumTimer;
@@ -833,6 +848,7 @@ private:
     quint64 m_audioOverflowEvents = 0;
     quint64 m_audioUnderrunEvents = 0;
     bool m_recordingActive = false;
+    bool m_recordingWriting = false;
     bool m_recordingFailed = false;
     quint64 m_recordingElapsedSeconds = 0;
     quint64 m_recordingDroppedFrames = 0;

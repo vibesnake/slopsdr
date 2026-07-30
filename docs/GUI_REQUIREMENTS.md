@@ -304,7 +304,15 @@ The bottom status bar is approximately 40–44 px high and remains visible while
 any sidebar is open. It contains a **Record audio** control while idle and
 **Stop** while recording, followed by a red recording indicator, **WAV**, and
 an `HH:MM:SS` elapsed time. Start is available only during active reception with
-a usable recording folder; Stop remains available until finalization. Recording
+a usable recording folder; Stop remains available until finalization. When
+**Skip quiet parts** is enabled, recording starts armed and displays **WAV
+ARMED** until the existing receiver squelch/voice-open state begins writing;
+the red **WAV** state identifies active writes. Its elapsed time measures WAV
+audio written rather than armed time. Settings persists bounded pre-roll
+(default 1 s) and tail (default 2 s) durations. Opening writes the rolling
+pre-roll then live audio; closing retains the tail, and a reopen during that
+tail remains continuous. Longer quiet gaps are omitted without inserted
+silence. Disabled quiet skipping remains continuous recording. Recording
 captures final analog or decoded audio before speaker volume, mute, output
 device readiness, and scanner state. It writes 48 kHz 16-bit PCM stereo WAV:
 analog mono is duplicated and decoded stereo is retained. A bounded background

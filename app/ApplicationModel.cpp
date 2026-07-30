@@ -82,6 +82,9 @@ QString scanTypeName(int scanTypeIndex)
 }
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
 constexpr auto recordingsFolderSetting = "recording/folder";
+constexpr auto skipQuietRecordingPartsSetting = "recording/skipQuietParts";
+constexpr auto recordingPreRollSecondsSetting = "recording/preRollSeconds";
+constexpr auto recordingTailSecondsSetting = "recording/tailSeconds";
 constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
 constexpr double defaultSettingsPanelWidth = 320.0;
@@ -835,6 +838,12 @@ void ApplicationModel::restorePersistedDisplaySettings()
     m_recordingsFolderStatus = recordingsFolderStatusForPath(
         m_recordingsFolder, &recordingsFolderValid);
     m_recordingsFolderValid = recordingsFolderValid;
+    m_skipQuietRecordingParts = settings.value(
+        skipQuietRecordingPartsSetting, false).toBool();
+    m_recordingPreRollSeconds = std::clamp(
+        settings.value(recordingPreRollSecondsSetting, 1).toInt(), 0, 10);
+    m_recordingTailSeconds = std::clamp(
+        settings.value(recordingTailSecondsSetting, 2).toInt(), 0, 30);
 }
 
 void ApplicationModel::restorePersistedScanSettings()
@@ -1604,6 +1613,21 @@ bool ApplicationModel::recordingsFolderValid() const noexcept
     return m_recordingsFolderValid;
 }
 
+bool ApplicationModel::skipQuietRecordingParts() const noexcept
+{
+    return m_skipQuietRecordingParts;
+}
+
+int ApplicationModel::recordingPreRollSeconds() const noexcept
+{
+    return m_recordingPreRollSeconds;
+}
+
+int ApplicationModel::recordingTailSeconds() const noexcept
+{
+    return m_recordingTailSeconds;
+}
+
 QVariantList ApplicationModel::bookmarkDemodulators() const
 {
     QVariantList options;
@@ -1895,6 +1919,11 @@ quint64 ApplicationModel::audioUnderrunEvents() const noexcept
 bool ApplicationModel::recordingActive() const noexcept
 {
     return m_recordingActive;
+}
+
+bool ApplicationModel::recordingWriting() const noexcept
+{
+    return m_recordingWriting;
 }
 
 bool ApplicationModel::recordingCanStart() const noexcept
@@ -3271,6 +3300,32 @@ void ApplicationModel::setRecordingsFolderUrl(const QUrl& url)
     setRecordingsFolder(url.isLocalFile() ? url.toLocalFile() : url.toString());
 }
 
+void ApplicationModel::setSkipQuietRecordingParts(bool enabled)
+{
+    if (m_skipQuietRecordingParts == enabled) return;
+    m_skipQuietRecordingParts = enabled;
+    QSettings().setValue(skipQuietRecordingPartsSetting, enabled);
+    emit recordingSettingsChanged();
+}
+
+void ApplicationModel::setRecordingPreRollSeconds(int seconds)
+{
+    const int clamped = std::clamp(seconds, 0, 10);
+    if (m_recordingPreRollSeconds == clamped) return;
+    m_recordingPreRollSeconds = clamped;
+    QSettings().setValue(recordingPreRollSecondsSetting, clamped);
+    emit recordingSettingsChanged();
+}
+
+void ApplicationModel::setRecordingTailSeconds(int seconds)
+{
+    const int clamped = std::clamp(seconds, 0, 30);
+    if (m_recordingTailSeconds == clamped) return;
+    m_recordingTailSeconds = clamped;
+    QSettings().setValue(recordingTailSecondsSetting, clamped);
+    emit recordingSettingsChanged();
+}
+
 void ApplicationModel::openRecordingsFolder()
 {
     if (!m_recordingsFolderValid) {
@@ -3285,7 +3340,9 @@ void ApplicationModel::startAudioRecording()
     if (!recordingCanStart() || !m_runtime) {
         return;
     }
-    m_runtime->startAudioRecording(m_recordingsFolder);
+    m_runtime->startAudioRecording(m_recordingsFolder,
+        m_skipQuietRecordingParts, m_recordingPreRollSeconds,
+        m_recordingTailSeconds);
 }
 
 void ApplicationModel::stopAudioRecording()
@@ -3865,6 +3922,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     const quint64 previousAudioOverflowEvents = m_audioOverflowEvents;
     const quint64 previousAudioUnderrunEvents = m_audioUnderrunEvents;
     const bool previousRecordingActive = m_recordingActive;
+    const bool previousRecordingWriting = m_recordingWriting;
     const bool previousRecordingFailed = m_recordingFailed;
     const quint64 previousRecordingElapsedSeconds = m_recordingElapsedSeconds;
     const quint64 previousRecordingDroppedFrames = m_recordingDroppedFrames;
@@ -3931,6 +3989,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_audioOverflowEvents = snapshot.audioOverflowEvents;
     m_audioUnderrunEvents = snapshot.audioUnderrunEvents;
     m_recordingActive = snapshot.recordingActive;
+    m_recordingWriting = snapshot.recordingWriting;
     m_recordingFailed = snapshot.recordingFailed;
     m_recordingElapsedSeconds = snapshot.recordingElapsedSeconds;
     m_recordingDroppedFrames = snapshot.recordingDroppedFrames;
@@ -4119,6 +4178,7 @@ void ApplicationModel::applyRuntimeSnapshot(
         emit audioStateChanged();
     }
     if (previousRecordingActive != m_recordingActive ||
+        previousRecordingWriting != m_recordingWriting ||
         previousRecordingFailed != m_recordingFailed ||
         previousRecordingElapsedSeconds != m_recordingElapsedSeconds ||
         previousRecordingDroppedFrames != m_recordingDroppedFrames ||
