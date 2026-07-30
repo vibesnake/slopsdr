@@ -151,12 +151,13 @@ speed is panel height divided by visible seconds. Changing it remaps only the
 waterfall timeline; the live spectrum, Max-hold accumulation, FFT cadence, and
 horizontal FFT resolution continue unchanged.
 
-Live waterfall rows are selected every 80 ms from the newest FFT data. There
-is no multi-row startup wait and no 1 s or 2.5 s batch delay: those values set
-the visible time span and scrolling speed. If display work falls behind,
-obsolete pending rows are coalesced so the next row remains current. The
-timestamp-driven 16 ms renderer continues scrolling smoothly between incoming
-rows without fabricating duplicates.
+Live waterfall presentation targets 60 real FFT rows per second when available.
+Normal delivery preserves FIFO row order, so short bursts remain distinct; it
+does not impose a multi-row startup wait or a 1 s or 2.5 s batch delay. Those
+history values set the visible time span and scrolling speed. If GUI work falls
+behind, the bounded pending delivery coalesces to the newest compatible row to
+bound catch-up latency, without fabricating duplicate rows. The timestamp-driven
+renderer continues scrolling smoothly between incoming rows.
 
 Drag the subtle horizontal handle between **Spectrum** and **Waterfall** to
 resize the two panels. Drag upward for more waterfall space or downward for
@@ -428,6 +429,30 @@ The application initially selects the desktop's default audio output, but it
 does not open it until reception starts. Use the always-visible **Audio device**
 control to choose another output. **Volume** applies software gain from 0 to
 100 percent, and **Mute** outputs silence without changing the saved volume.
+
+### Recordings
+
+Choose a writable persistent recordings folder in **Settings**. **Record audio**
+saves received analog or decoded audio as 48 kHz, 16-bit stereo WAV. The
+recording taps audio before speaker volume and mute, and remains active across
+manual and scanner retunes. With **Skip quiet parts**, it starts armed, keeps a
+bounded squelch-driven pre-roll, writes while squelch is open, and retains the
+configured tail; longer quiet gaps are omitted. The default pre-roll is 1 second
+and tail is 2 seconds, within bounded settings limits.
+
+**Record scanner activity** creates separate squelch-gated WAV clips while a
+scanner is active, with JSON sidecars containing target, mode, scanner source,
+timing, format, and duration. Scanner clips use the same pre-roll/tail behavior
+and can coexist with manual audio recording. The scanner executes normally;
+scanner recording is an optional capture of its activity.
+
+**Record IQ** captures the full device bandwidth independently of WAV recording.
+Each segment is a collision-safe `.raw` file containing interleaved little-endian
+float32 complex samples (`cf32_le`) and a JSON sidecar with center frequency,
+sample rate, format, counts, timing, and device identity. Hardware-center or
+capture-rate changes start a new segment; listening-only changes and scanner
+steps within the same capture do not. IQ samples are handed off from the DSP
+backend through bounded buffers and written by a background service.
 
 Receiver output is 48 kHz stereo. AM, NFM, WFM, USB, and LSB use mode-specific
 mono filtering and correction and are duplicated into both output channels;

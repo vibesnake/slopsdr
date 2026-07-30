@@ -44,6 +44,29 @@ and `QAudioSink` lifecycle remain in `platform/AudioOutputService`. The service
 is constructed and used on the receiver runtime thread. QML only displays
 confirmed application-model state and sends control requests.
 
+## Recording path
+
+The receiver runtime sends analog or decoded 48 kHz stereo samples to the WAV
+recording service before sending them to `AudioOutputService`. Consequently,
+recordings contain received audio before speaker volume and mute; changing
+either playback control does not alter an active recording. The WAV service
+converts samples to 16-bit stereo PCM and writes them on its own bounded,
+background writer thread. It remains active across manual and scanner retunes.
+
+Manual **Skip quiet parts** uses the receiver squelch gate to keep a bounded
+pre-roll, open the file when squelch opens, and retain a bounded tail after it
+closes. Longer quiet intervals are omitted. Scanner activity uses the same
+squelch-gated service to produce separate filtered-audio clips and JSON
+sidecars; it can run alongside manual recording.
+
+Full-bandwidth IQ is a separate path: the GNU Radio backend publishes complex
+samples to a bounded buffer only while IQ capture is enabled, the receiver
+runtime drains that handoff, and `IqRecordingService` writes interleaved
+little-endian float32 I/Q (`cf32_le`) to `.raw` with a JSON sidecar on its own
+writer thread. A hardware-center or capture-rate change finalizes the current
+segment and starts another; listening-only tuning does not. IQ capture is
+therefore not confined to an unwritable flowgraph-local buffer.
+
 ## DSP chains
 
 Analog paths begin after frequency translation, channel decimation, the

@@ -157,6 +157,7 @@ synthetic source + throttle OR explicitly selected device source
   |          -> bounded DSD-FME process-input queue
   `-> configured sample window/hop generator -> selected Hann FFT -> calibrated magnitude
        -> bounded display-frame sink
+  `-> bounded full-bandwidth complex-IQ sample buffer -> receiver runtime IQ recorder
 ```
 
 The translating filter uses `listening frequency - center frequency` as its
@@ -211,11 +212,14 @@ bins with a 4,096 default, without changing the full visible span. Requested
 and backend-effective sizes remain distinct if plan allocation requires
 fallback. Runtime changes reconnect only this branch and leave the audio path
 and source active. Long windows cap FFT and waterfall cadence to
-non-overlapping frames. Raw IQ remains inside the flowgraph. Audio uses a
-bounded 48 kHz transport consumed
-by the platform Qt Multimedia service; `docs/AUDIO.md` defines its processing
-and buffering policy. The receiver worker owns the DSD-FME process service and
-moves bounded discriminator and decoded-audio chunks without allowing process
-I/O to block GNU Radio or wideband display delivery. The desktop composition
-owns the selected GNU Radio backend on a dedicated receiver thread; `--mock`
-selects the mock backend deliberately.
+non-overlapping frames. When IQ capture is enabled, the flowgraph publishes
+full-bandwidth complex samples through a bounded handoff; the receiver worker
+drains that handoff and a platform writer stores interleaved `cf32_le` samples
+in `.raw` files with JSON sidecars. Audio uses a bounded 48 kHz transport
+consumed by the platform Qt Multimedia service; `docs/AUDIO.md` defines its
+processing, recording, and buffering policy. The receiver worker owns scanner
+execution, recording services, and the DSD-FME process service, and moves
+bounded data without allowing file or process I/O to block GNU Radio or
+wideband display delivery. The desktop composition owns the selected GNU Radio
+backend on a dedicated receiver thread; `--mock` selects the mock backend
+deliberately.
