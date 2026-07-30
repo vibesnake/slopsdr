@@ -4422,6 +4422,35 @@ ApplicationWindow {
                 font.pixelSize: 10
             }
 
+            Button {
+                id: iqRecordingButton
+                objectName: "iqRecordingButton"
+                implicitHeight: 30
+                text: root.applicationModel.iqRecordingActive
+                      ? qsTr("Stop IQ") : qsTr("Record IQ")
+                enabled: root.applicationModel.iqRecordingActive
+                         || root.applicationModel.iqRecordingCanStart
+                Accessible.name: text
+                onClicked: {
+                    if (root.applicationModel.iqRecordingActive)
+                        root.applicationModel.stopIqRecording()
+                    else
+                        root.applicationModel.startIqRecording()
+                }
+            }
+
+            Label {
+                objectName: "iqRecordingStatusLabel"
+                visible: root.applicationModel.iqRecordingActive
+                text: qsTr("IQ %1 · drop %2")
+                      .arg(root.applicationModel.iqRecordingElapsedText)
+                      .arg(root.applicationModel.iqRecordingDroppedSamples)
+                color: root.applicationModel.iqRecordingDroppedSamples > 0
+                       ? "#fecaca" : root.secondaryTextColor
+                font.bold: true
+                font.pixelSize: 10
+            }
+
             Label {
                 objectName: "scannerRecordingStatusLabel"
                 visible: root.applicationModel.scannerRecordingArmed

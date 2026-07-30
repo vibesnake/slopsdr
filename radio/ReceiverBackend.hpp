@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <chrono>
+#include <complex>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -268,6 +269,21 @@ public:
         return 0;
     }
     [[nodiscard]] virtual std::uint64_t audioDroppedSamples() const
+    {
+        return 0;
+    }
+    virtual void setFullBandwidthIqCaptureEnabled(bool enabled)
+    {
+        static_cast<void>(enabled);
+    }
+    [[nodiscard]] virtual std::vector<std::complex<float>> takeFullBandwidthIqSamples(
+        std::size_t maximumSamples)
+    {
+        static_cast<void>(maximumSamples);
+        return {};
+    }
+    virtual void clearFullBandwidthIqSamples() {}
+    [[nodiscard]] virtual std::uint64_t fullBandwidthIqDroppedSamples() const
     {
         return 0;
     }

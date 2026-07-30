@@ -526,6 +526,7 @@ public slots:
         if (m_recording) {
             m_recording->stop();
         }
+        stopIqRecording();
         finalizeScannerRecording();
         m_backend.reset();
         m_audioOutput.reset();
@@ -826,6 +827,7 @@ public slots:
         if (m_recording) {
             m_recording->stop();
         }
+        stopIqRecording();
         finalizeScannerRecording();
         if (!m_backend) {
             if (m_dsdFme) {
@@ -957,6 +959,89 @@ public slots:
         publishSnapshot(true);
     }
 
+    void startIqRecording(const QString& directory)
+    {
+        if (!m_backend || !m_backend->state().running || !m_iqRecording) {
+            m_statusText = QStringLiteral("Reception must be active before IQ recording");
+            publishSnapshot(false);
+            return;
+        }
+        m_backend->clearFullBandwidthIqSamples();
+        m_lastBackendIqDroppedSamples = m_backend->fullBandwidthIqDroppedSamples();
+        const auto& state = m_backend->state();
+        const bool started = m_iqRecording->start({
+            .directory = std::filesystem::path(directory.toStdString()),
+            .centerFrequencyHz = state.centerFrequency,
+            .sampleRate = m_backend->effectiveSampleRate(),
+            .deviceIdentifier = m_selectedDeviceIdentifier.toStdString(),
+        });
+        if (started) {
+            m_backend->setFullBandwidthIqCaptureEnabled(true);
+            m_iqSegmentSampleRate = m_backend->effectiveSampleRate();
+        }
+        m_statusText = started
+            ? QStringLiteral("Recording IQ %1").arg(QString::fromStdString(
+                  m_iqRecording->state().filePath.filename().string()))
+            : QString::fromStdString(m_iqRecording->state().statusText);
+        log(started ? 1 : 3, QStringLiteral("IQ recording"), m_statusText);
+        publishSnapshot(started);
+    }
+
+    void stopIqRecording()
+    {
+        if (!m_iqRecording) return;
+        if (m_backend) {
+            m_backend->setFullBandwidthIqCaptureEnabled(false);
+            serviceIqRecording();
+            m_backend->clearFullBandwidthIqSamples();
+        }
+        const bool wasActive = m_iqRecording->state().active;
+        m_iqRecording->stop();
+        if (wasActive) {
+            m_statusText = QString::fromStdString(m_iqRecording->state().statusText);
+            log(m_iqRecording->state().failed ? 3 : 1,
+                QStringLiteral("IQ recording"), m_statusText);
+        }
+    }
+
+    void serviceIqRecording()
+    {
+        if (!m_iqRecording || !m_iqRecording->state().active || !m_backend) return;
+        const auto dropped = m_backend->fullBandwidthIqDroppedSamples();
+        if (dropped > m_lastBackendIqDroppedSamples) {
+            m_iqRecording->addDroppedSamples(dropped - m_lastBackendIqDroppedSamples);
+        }
+        m_lastBackendIqDroppedSamples = dropped;
+        for (;;) {
+            auto samples = m_backend->takeFullBandwidthIqSamples(131'072);
+            if (samples.empty()) break;
+            m_iqRecording->enqueue(samples);
+            if (samples.size() < 131'072) break;
+        }
+        if (m_iqRecording->state().failed) {
+            m_backend->setFullBandwidthIqCaptureEnabled(false);
+            m_iqRecording->stop();
+            m_statusText = QString::fromStdString(m_iqRecording->state().statusText);
+            log(3, QStringLiteral("IQ recording"),
+                m_statusText);
+            publishSnapshot(false);
+        }
+    }
+
+    void segmentIqRecordingIfCaptureChanged(
+        const radio::ReceiverState& previous)
+    {
+        if (!m_iqRecording || !m_iqRecording->state().active || !m_backend) return;
+        const auto& current = m_backend->state();
+        if (previous.centerFrequency == current.centerFrequency &&
+            previous.sampleRate == current.sampleRate &&
+            m_backend->effectiveSampleRate() == m_iqSegmentSampleRate) return;
+        const QString directory = QString::fromStdString(
+            m_iqRecording->state().filePath.parent_path().string());
+        stopIqRecording();
+        startIqRecording(directory);
+    }
+
     void setScannerActivityRecording(
         const ScannerActivityRecordingRequest& request)
     {
@@ -1064,6 +1149,7 @@ public slots:
             return;
         }
         try {
+            const auto previousState = m_backend->state();
             const auto result = m_backend->setCenterFrequency(frequency);
             if (result.succeeded() && result.stateChanged) {
                 m_backend->clearAudioSamples();
@@ -1071,6 +1157,7 @@ public slots:
                 if (m_audioOutput) {
                     m_audioOutput->flush();
                 }
+                segmentIqRecordingIfCaptureChanged(previousState);
             }
             emit scannerCenterFrequencyRequestCompleted(
                 frequency,
@@ -1116,11 +1203,13 @@ public slots:
             return;
         }
         if (m_backend) {
+            const auto previousState = m_backend->state();
             m_waterfallDelivery.stop();
             m_spectrumMetricsTimer.invalidate();
             const auto result = m_backend->setSampleRate(sampleRate);
             if (result.succeeded()) {
                 flushDecoderAfterRetune();
+                segmentIqRecordingIfCaptureChanged(previousState);
             }
             if (m_audioOutput) {
                 m_audioOutput->flush();
@@ -2310,6 +2399,7 @@ private:
             publishSnapshot(false);
             return false;
         }
+        const auto previousState = m_backend->state();
         const auto result = operation(*m_backend);
         if (result.succeeded() && result.stateChanged) {
             m_backend->clearAudioSamples();
@@ -2317,6 +2407,7 @@ private:
             if (m_audioOutput) {
                 m_audioOutput->flush();
             }
+            segmentIqRecordingIfCaptureChanged(previousState);
         }
         if (result.succeeded()) {
             persistCurrentReceiverControls();
@@ -2397,6 +2488,7 @@ private:
                 ? std::optional<platform::AudioOutputState>(m_audioOutput->state())
                 : std::nullopt;
         if (m_backend && !m_ppmCalibrationRunning) {
+            serviceIqRecording();
             if (auto runtimeError = m_backend->takeRuntimeError()) {
                 if (m_audioOutput) {
                     m_audioOutput->stop();
@@ -3132,6 +3224,14 @@ private:
                                             !scannerRecording.writing;
             snapshot.scannerRecordingWriting = scannerRecording.writing;
         }
+        if (m_iqRecording) {
+            const auto iq = m_iqRecording->state();
+            snapshot.iqRecordingActive = iq.active;
+            snapshot.iqRecordingFailed = iq.failed;
+            snapshot.iqRecordingElapsedSeconds = iq.elapsedSeconds;
+            snapshot.iqRecordingDroppedSamples = iq.droppedSamples;
+            snapshot.iqRecordingStatusText = QString::fromStdString(iq.statusText);
+        }
         snapshot.deviceState = m_deviceState;
         snapshot.backendDescription = m_backendDescription;
         snapshot.statusText = m_statusText;
@@ -3243,11 +3343,15 @@ private:
         std::make_unique<platform::WavRecordingService>();
     std::unique_ptr<platform::WavRecordingService> m_scannerRecording =
         std::make_unique<platform::WavRecordingService>();
+    std::unique_ptr<platform::IqRecordingService> m_iqRecording =
+        std::make_unique<platform::IqRecordingService>();
     ScannerActivityRecordingRequest m_scannerRecordingRequest;
     QDateTime m_scannerClipStartedAt;
     bool m_scannerClipWriting = false;
     bool m_lastPublishedRecordingWriting = false;
     quint64 m_lastPublishedRecordingElapsedSeconds = 0;
+    quint64 m_lastBackendIqDroppedSamples = 0;
+    quint64 m_iqSegmentSampleRate = 0;
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
     std::vector<devices::DeviceDescriptor> m_devices;
     std::optional<devices::DeviceDescriptor> m_selectedCapabilities;
@@ -3391,6 +3495,18 @@ ReceiverRuntime::ReceiverRuntime(
         &ReceiverRuntime::stopAudioRecordingRequested,
         m_worker,
         &Worker::stopAudioRecording,
+        Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::startIqRecordingRequested,
+        m_worker,
+        &Worker::startIqRecording,
+        Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::stopIqRecordingRequested,
+        m_worker,
+        &Worker::stopIqRecording,
         Qt::QueuedConnection);
     connect(
         this,
@@ -3721,6 +3837,16 @@ void ReceiverRuntime::startAudioRecording(const QString& directory,
 void ReceiverRuntime::stopAudioRecording()
 {
     emit stopAudioRecordingRequested();
+}
+
+void ReceiverRuntime::startIqRecording(const QString& directory)
+{
+    emit startIqRecordingRequested(directory);
+}
+
+void ReceiverRuntime::stopIqRecording()
+{
+    emit stopIqRecordingRequested();
 }
 
 void ReceiverRuntime::setScannerActivityRecording(

@@ -321,6 +321,14 @@ reception or playback. Recording remains active across manual and scanner
 retunes and finalizes on receiver stop or application shutdown. Settings keeps
 a persistent writable recordings folder, browse/open-folder actions, and clear
 validation text; it does not add a sidebar pane.
+The footer also contains compact **Record IQ** and **Stop IQ** controls for
+manual full-bandwidth capture. IQ capture is independent of WAV and scanner
+recording, remains available while scanning, and taps the device complex stream
+before translation, filtering, decimation, demodulation, squelch, or audio.
+Each `.cf32` segment stores interleaved little-endian float32 I/Q plus a JSON
+sidecar. Hardware-center or capture-rate changes split into a new segment;
+listening-only changes do not. Elapsed time, dropped samples, and write errors
+remain visible without interrupting reception.
 The Recording settings also offers disabled-by-default **Record scanner
 activity**. While a scanner owns tuning it arms independent per-activity clips;
 the footer shows **SCAN REC ARMED** while waiting and red **SCAN REC** while

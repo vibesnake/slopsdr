@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <complex>
 #include <mutex>
 #include <span>
 #include <vector>
@@ -41,6 +42,26 @@ private:
     std::size_t m_size = 0;
     std::uint64_t m_totalProducedSamples = 0;
     std::uint64_t m_totalDroppedSamples = 0;
+};
+
+class ComplexSampleBuffer final
+{
+public:
+    explicit ComplexSampleBuffer(std::size_t capacity);
+
+    void push(std::span<const std::complex<float>> samples);
+    [[nodiscard]] std::vector<std::complex<float>> take(std::size_t maximumSamples);
+    void clear();
+    void setEnabled(bool enabled) noexcept;
+    [[nodiscard]] std::uint64_t totalDroppedSamples() const;
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<std::complex<float>> m_storage;
+    std::size_t m_readIndex = 0;
+    std::size_t m_size = 0;
+    std::uint64_t m_totalDroppedSamples = 0;
+    bool m_enabled = false;
 };
 
 }  // namespace sdr::radio

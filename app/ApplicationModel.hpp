@@ -175,6 +175,11 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString recordingElapsedText READ recordingElapsedText NOTIFY recordingStateChanged)
     Q_PROPERTY(QString recordingStatusText READ recordingStatusText NOTIFY recordingStateChanged)
     Q_PROPERTY(quint64 recordingDroppedFrames READ recordingDroppedFrames NOTIFY recordingStateChanged)
+    Q_PROPERTY(bool iqRecordingActive READ iqRecordingActive NOTIFY recordingStateChanged)
+    Q_PROPERTY(bool iqRecordingCanStart READ iqRecordingCanStart NOTIFY recordingStateChanged)
+    Q_PROPERTY(QString iqRecordingElapsedText READ iqRecordingElapsedText NOTIFY recordingStateChanged)
+    Q_PROPERTY(quint64 iqRecordingDroppedSamples READ iqRecordingDroppedSamples NOTIFY recordingStateChanged)
+    Q_PROPERTY(QString iqRecordingStatusText READ iqRecordingStatusText NOTIFY recordingStateChanged)
     Q_PROPERTY(quint64 tuningWheelStep READ tuningWheelStep WRITE setTuningWheelStep NOTIFY tuningWheelStepChanged)
 
 public:
@@ -329,6 +334,11 @@ public:
     [[nodiscard]] QString recordingElapsedText() const;
     [[nodiscard]] QString recordingStatusText() const;
     [[nodiscard]] quint64 recordingDroppedFrames() const noexcept;
+    [[nodiscard]] bool iqRecordingActive() const noexcept;
+    [[nodiscard]] bool iqRecordingCanStart() const noexcept;
+    [[nodiscard]] QString iqRecordingElapsedText() const;
+    [[nodiscard]] quint64 iqRecordingDroppedSamples() const noexcept;
+    [[nodiscard]] QString iqRecordingStatusText() const;
     [[nodiscard]] const std::vector<sdr::radio::FrequencyRange>&
     deviceSampleRateRanges() const noexcept;
     [[nodiscard]] quint64 tuningWheelStep() const noexcept;
@@ -423,6 +433,8 @@ public slots:
     void openRecordingsFolder();
     void startAudioRecording();
     void stopAudioRecording();
+    void startIqRecording();
+    void stopIqRecording();
     QString beginAddCurrentBookmark(int parentVisibleRow = -1);
     bool confirmAddCurrentBookmark(const QString& name);
     void cancelAddCurrentBookmark();
@@ -865,6 +877,11 @@ private:
     quint64 m_recordingDroppedFrames = 0;
     QString m_recordingStatusText = QStringLiteral("Recording idle");
     QString m_recordingFilePath;
+    bool m_iqRecordingActive = false;
+    bool m_iqRecordingFailed = false;
+    quint64 m_iqRecordingElapsedSeconds = 0;
+    quint64 m_iqRecordingDroppedSamples = 0;
+    QString m_iqRecordingStatusText = QStringLiteral("IQ recording idle");
     quint64 m_tuningWheelStep = 10'000;
     sdr::app::FrequencyViewport m_frequencyViewport;
     quint64 m_waterfallZoomEvents = 0;

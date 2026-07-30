@@ -109,6 +109,11 @@ sdr_enable_warnings(wav_recording_service_tests)
 
 add_test(NAME wav_recording_service_tests COMMAND wav_recording_service_tests)
 
+add_executable(iq_recording_service_tests IqRecordingServiceTest.cpp)
+target_link_libraries(iq_recording_service_tests PRIVATE sdr_platform_audio Qt6::Test)
+sdr_enable_warnings(iq_recording_service_tests)
+add_test(NAME iq_recording_service_tests COMMAND iq_recording_service_tests)
+
 add_executable(dsd_fme_process_tests DsdFmeProcessServiceTest.cpp)
 target_link_libraries(
     dsd_fme_process_tests

@@ -646,6 +646,38 @@ private:
     std::vector<float> m_boundedSamples;
 };
 
+class ComplexSampleSink final : public gr::sync_block
+{
+public:
+    using sptr = std::shared_ptr<ComplexSampleSink>;
+
+    static sptr make(std::shared_ptr<radio::ComplexSampleBuffer> samples)
+    {
+        return gnuradio::make_block_sptr<ComplexSampleSink>(std::move(samples));
+    }
+
+    explicit ComplexSampleSink(std::shared_ptr<radio::ComplexSampleBuffer> samples)
+        : gr::sync_block("bounded_full_bandwidth_iq_sink",
+              gr::io_signature::make(1, 1, sizeof(gr_complex)),
+              gr::io_signature::make(0, 0, 0))
+        , m_samples(std::move(samples))
+    {
+    }
+
+    int work(int itemCount, gr_vector_const_void_star& inputItems,
+        gr_vector_void_star&) override
+    {
+        const auto* input = static_cast<const gr_complex*>(inputItems.front());
+        m_samples->push(std::span<const std::complex<float>>(
+            reinterpret_cast<const std::complex<float>*>(input),
+            static_cast<std::size_t>(itemCount)));
+        return itemCount;
+    }
+
+private:
+    std::shared_ptr<radio::ComplexSampleBuffer> m_samples;
+};
+
 class RmsDiagnosticSink final : public gr::sync_block
 {
 public:
@@ -1134,6 +1166,7 @@ public:
             std::uint64_t tuningGeneration,
             std::shared_ptr<radio::AudioSampleBuffer> sharedAudioSamples,
             std::shared_ptr<radio::AudioSampleBuffer> sharedDecoderInputSamples,
+            std::shared_ptr<radio::ComplexSampleBuffer> sharedIqSamples,
             std::shared_ptr<devices::DeviceController> selectedDevice,
             std::shared_ptr<RuntimeFailureState> sharedRuntimeFailure,
             bool verboseDspMetrics)
@@ -1247,6 +1280,7 @@ public:
                       ? 1U
                       : 0U))
             , audioSink(AudioSampleSink::make(sharedAudioSamples))
+            , iqSink(ComplexSampleSink::make(std::move(sharedIqSamples)))
             , digitalInputNullSink(gr::blocks::null_sink::make(
                   sizeof(gr_complex)))
             , digitalInactiveNullSink(gr::blocks::null_sink::make(
@@ -1318,6 +1352,7 @@ public:
                 widebandSource = captureMetadataTagger;
             }
 
+            topBlock->connect(widebandSource, 0, iqSink, 0);
             topBlock->connect(widebandSource, 0, channelFilter, 0);
             topBlock->connect(channelFilter, 0, squelch, 0);
             topBlock->connect(channelFilter, 0, squelchMeasurement, 0);
@@ -1753,6 +1788,7 @@ public:
         gr::blocks::selector::sptr demodulationSelector;
         gr::blocks::selector::sptr outputRouter;
         AudioSampleSink::sptr audioSink;
+        ComplexSampleSink::sptr iqSink;
         gr::blocks::null_sink::sptr digitalInputNullSink;
         gr::blocks::null_sink::sptr digitalInactiveNullSink;
         gr::blocks::null_sink::sptr digitalOutputNullSink;
@@ -1788,6 +1824,8 @@ public:
               channelAudioBufferCapacity))
         , decoderInputSamples(std::make_shared<radio::AudioSampleBuffer>(
               channelAudioBufferCapacity))
+        , iqSamples(std::make_shared<radio::ComplexSampleBuffer>(
+              2'400'000))
         , runtimeFailure(std::make_shared<RuntimeFailureState>())
         , selectedDevice(std::move(device))
         , m_requestedSpectrumFftSize(m_initialSpectrum.requested.fftSize)
@@ -1824,6 +1862,7 @@ public:
             tuningGeneration,
             audioSamples,
             decoderInputSamples,
+            iqSamples,
             selectedDevice,
             runtimeFailure,
             m_verboseDspMetrics);
@@ -1962,6 +2001,7 @@ public:
     std::shared_ptr<FftFrameProcessor> spectrumProcessor;
     std::shared_ptr<radio::AudioSampleBuffer> audioSamples;
     std::shared_ptr<radio::AudioSampleBuffer> decoderInputSamples;
+    std::shared_ptr<radio::ComplexSampleBuffer> iqSamples;
     std::shared_ptr<RuntimeFailureState> runtimeFailure;
     std::shared_ptr<devices::DeviceController> selectedDevice;
     std::size_t m_requestedSpectrumFftSize = defaultSpectrumFftSize;
@@ -2266,6 +2306,27 @@ std::uint64_t GnuRadioReceiverBackend::audioProducedSamples() const
 std::uint64_t GnuRadioReceiverBackend::audioDroppedSamples() const
 {
     return m_impl->audioSamples->totalDroppedSamples();
+}
+
+void GnuRadioReceiverBackend::setFullBandwidthIqCaptureEnabled(bool enabled)
+{
+    m_impl->iqSamples->setEnabled(enabled);
+}
+
+std::vector<std::complex<float>> GnuRadioReceiverBackend::takeFullBandwidthIqSamples(
+    std::size_t maximumSamples)
+{
+    return m_impl->iqSamples->take(maximumSamples);
+}
+
+void GnuRadioReceiverBackend::clearFullBandwidthIqSamples()
+{
+    m_impl->iqSamples->clear();
+}
+
+std::uint64_t GnuRadioReceiverBackend::fullBandwidthIqDroppedSamples() const
+{
+    return m_impl->iqSamples->totalDroppedSamples();
 }
 
 std::size_t GnuRadioReceiverBackend::audioBufferedSampleCount() const

@@ -144,6 +144,8 @@ add_library(
     platform/DsdFmeProcessService.hpp
     platform/WavRecordingService.cpp
     platform/WavRecordingService.hpp
+    platform/IqRecordingService.cpp
+    platform/IqRecordingService.hpp
     platform/QtAudioSinkBackend.cpp
 )
 target_include_directories(sdr_platform_audio PUBLIC platform)

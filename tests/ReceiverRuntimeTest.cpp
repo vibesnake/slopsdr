@@ -99,6 +99,8 @@ struct RuntimeTrace {
     QStringList dsdArguments;
     std::mutex recordingAudioMutex;
     std::vector<float> recordingAudioSamples;
+    std::mutex recordingIqMutex;
+    std::vector<std::complex<float>> recordingIqSamples;
 };
 
 class RuntimeDsdChild final : public platform::DsdFmeChildProcess
@@ -507,6 +509,33 @@ public:
         ++m_trace->audioFlushes;
     }
 
+    void setFullBandwidthIqCaptureEnabled(bool enabled) override
+    {
+        m_iqCaptureEnabled = enabled;
+        if (!enabled) clearFullBandwidthIqSamples();
+    }
+
+    [[nodiscard]] std::vector<std::complex<float>> takeFullBandwidthIqSamples(
+        std::size_t maximumSamples) override
+    {
+        if (!m_iqCaptureEnabled) return {};
+        std::lock_guard lock(m_trace->recordingIqMutex);
+        const std::size_t count = std::min(maximumSamples,
+            m_trace->recordingIqSamples.size());
+        std::vector<std::complex<float>> result(
+            m_trace->recordingIqSamples.begin(),
+            m_trace->recordingIqSamples.begin() + static_cast<std::ptrdiff_t>(count));
+        m_trace->recordingIqSamples.erase(m_trace->recordingIqSamples.begin(),
+            m_trace->recordingIqSamples.begin() + static_cast<std::ptrdiff_t>(count));
+        return result;
+    }
+
+    void clearFullBandwidthIqSamples() override
+    {
+        std::lock_guard lock(m_trace->recordingIqMutex);
+        m_trace->recordingIqSamples.clear();
+    }
+
     [[nodiscard]] std::optional<radio::OperationResult> takeRuntimeError() override
     {
         if (!m_trace->runtimeFailureAfterStart ||
@@ -706,6 +735,7 @@ private:
     radio::MockReceiverBackend m_delegate;
     radio::ReceiverCapabilities m_capabilities;
     std::size_t m_requestedSpectrumFftSize = 4'096;
+    bool m_iqCaptureEnabled = false;
     std::uint8_t m_nextCalibrationCounterByte = 0;
 };
 
@@ -815,6 +845,7 @@ private slots:
     void recordsMutedAudioAcrossRetunesAndFinalizesOnStop();
     void armsQuietSkippingRecordingAcrossScannerAndRetunes();
     void recordsScannerActivityWithSidecarAlongsideManualRecording();
+    void recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges();
 
 private:
     QTemporaryDir m_settingsDirectory;
@@ -2789,6 +2820,64 @@ void ReceiverRuntimeTest::recordsScannerActivityWithSidecarAlongsideManualRecord
     QVERIFY(json.value(QStringLiteral("duration_seconds")).toDouble() > 0.0);
     QCOMPARE(QDir(recordings.path()).entryList(
                  {QStringLiteral("*.wav")}, QDir::Files).size(), 2);
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware, factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.deviceDisplayNames().size() == 2; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+    model.setRecordingsFolder(recordings.path());
+    model.startIqRecording();
+    QVERIFY(waitUntil([&model] { return model.iqRecordingActive(); }));
+    {
+        std::lock_guard lock(trace->recordingIqMutex);
+        trace->recordingIqSamples = {{0.5F, -0.25F}};
+    }
+    QVERIFY(waitUntil([&trace] {
+        std::lock_guard lock(trace->recordingIqMutex);
+        return trace->recordingIqSamples.empty();
+    }));
+    model.setListeningFrequency(99'500'000);
+    QVERIFY(waitUntil([&model] { return model.listeningFrequency() == 99'500'000; }));
+    QCOMPARE(QDir(recordings.path()).entryList({QStringLiteral("*.cf32")}, QDir::Files).size(), 1);
+    model.setScanLowerFrequency(99'400'000);
+    model.setScanUpperFrequency(99'500'000);
+    model.setScanStepSize(50'000);
+    model.startScan();
+    QVERIFY(waitUntil([&model] { return model.scannerOwnsTuning(); }));
+    QVERIFY(model.iqRecordingActive());
+    model.stopScan();
+    QVERIFY(waitUntil([&model] { return !model.scannerOwnsTuning(); }));
+    model.setCenterFrequencyText(QStringLiteral("102000000"));
+    QVERIFY(waitUntil([&model] { return model.centerFrequency() == 102'000'000; }));
+    QVERIFY(waitUntil([&recordings] {
+        return QDir(recordings.path()).entryList(
+            {QStringLiteral("*.cf32")}, QDir::Files).size() >= 2;
+    }));
+    model.setSampleRate(2'400'000);
+    QVERIFY(waitUntil([&model] { return model.sampleRate() == 2'400'000; }));
+    QVERIFY(waitUntil([&recordings] {
+        return QDir(recordings.path()).entryList(
+            {QStringLiteral("*.cf32")}, QDir::Files).size() >= 3;
+    }));
+    model.stopIqRecording();
+    QVERIFY(waitUntil([&model] { return !model.iqRecordingActive(); }));
+    const auto files = QDir(recordings.path()).entryList(
+        {QStringLiteral("*.cf32")}, QDir::Files);
+    QVERIFY(files.size() >= 2);
+    for (const auto& fileName : files) {
+        const auto jsonName = fileName.left(fileName.size() - 5) + QStringLiteral(".json");
+        QVERIFY(QFile::exists(recordings.filePath(jsonName)));
+    }
     runtime.shutdown();
 }
 

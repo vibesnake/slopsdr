@@ -1969,6 +1969,37 @@ quint64 ApplicationModel::recordingDroppedFrames() const noexcept
     return m_recordingDroppedFrames;
 }
 
+bool ApplicationModel::iqRecordingActive() const noexcept
+{
+    return m_iqRecordingActive;
+}
+
+bool ApplicationModel::iqRecordingCanStart() const noexcept
+{
+    return receiverRunning() && m_recordingsFolderValid && !m_iqRecordingActive;
+}
+
+QString ApplicationModel::iqRecordingElapsedText() const
+{
+    const quint64 hours = m_iqRecordingElapsedSeconds / 3'600U;
+    const quint64 minutes = (m_iqRecordingElapsedSeconds / 60U) % 60U;
+    const quint64 seconds = m_iqRecordingElapsedSeconds % 60U;
+    return QStringLiteral("%1:%2:%3")
+        .arg(hours, 2, 10, QLatin1Char('0'))
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(seconds, 2, 10, QLatin1Char('0'));
+}
+
+quint64 ApplicationModel::iqRecordingDroppedSamples() const noexcept
+{
+    return m_iqRecordingDroppedSamples;
+}
+
+QString ApplicationModel::iqRecordingStatusText() const
+{
+    return m_iqRecordingStatusText;
+}
+
 const std::vector<sdr::radio::FrequencyRange>&
 ApplicationModel::deviceSampleRateRanges() const noexcept
 {
@@ -3381,6 +3412,20 @@ void ApplicationModel::stopAudioRecording()
     }
 }
 
+void ApplicationModel::startIqRecording()
+{
+    if (iqRecordingCanStart() && m_runtime) {
+        m_runtime->startIqRecording(m_recordingsFolder);
+    }
+}
+
+void ApplicationModel::stopIqRecording()
+{
+    if (m_runtime) {
+        m_runtime->stopIqRecording();
+    }
+}
+
 QString ApplicationModel::beginAddCurrentBookmark(int parentVisibleRow)
 {
     const auto* demodulator = sdr::radio::DemodulatorRegistry::findByMode(
@@ -3959,6 +4004,11 @@ void ApplicationModel::applyRuntimeSnapshot(
     const quint64 previousRecordingDroppedFrames = m_recordingDroppedFrames;
     const QString previousRecordingStatus = m_recordingStatusText;
     const QString previousRecordingFilePath = m_recordingFilePath;
+    const bool previousIqRecordingActive = m_iqRecordingActive;
+    const bool previousIqRecordingFailed = m_iqRecordingFailed;
+    const quint64 previousIqRecordingElapsedSeconds = m_iqRecordingElapsedSeconds;
+    const quint64 previousIqRecordingDroppedSamples = m_iqRecordingDroppedSamples;
+    const QString previousIqRecordingStatus = m_iqRecordingStatusText;
 
     m_runtimeState = snapshot.receiverState;
     m_runtimeTuningGeneration = snapshot.tuningGeneration;
@@ -4028,6 +4078,11 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_recordingDroppedFrames = snapshot.recordingDroppedFrames;
     m_recordingStatusText = snapshot.recordingStatusText;
     m_recordingFilePath = snapshot.recordingFilePath;
+    m_iqRecordingActive = snapshot.iqRecordingActive;
+    m_iqRecordingFailed = snapshot.iqRecordingFailed;
+    m_iqRecordingElapsedSeconds = snapshot.iqRecordingElapsedSeconds;
+    m_iqRecordingDroppedSamples = snapshot.iqRecordingDroppedSamples;
+    m_iqRecordingStatusText = snapshot.iqRecordingStatusText;
     if (m_recordingDroppedFrames > previousRecordingDroppedFrames) {
         m_applicationLog.post(
             sdr::app::ApplicationLogModel::Warning,
@@ -4042,6 +4097,20 @@ void ApplicationModel::applyRuntimeSnapshot(
             sdr::app::ApplicationLogModel::Error,
             QStringLiteral("Recording"), m_recordingStatusText);
         setStatusText(m_recordingStatusText);
+    }
+    if (m_iqRecordingDroppedSamples > previousIqRecordingDroppedSamples) {
+        m_applicationLog.post(
+            sdr::app::ApplicationLogModel::Warning,
+            QStringLiteral("IQ recording"),
+            QStringLiteral("IQ writer dropped samples; total %1")
+                .arg(m_iqRecordingDroppedSamples));
+    }
+    if (m_iqRecordingFailed &&
+        (previousIqRecordingStatus != m_iqRecordingStatusText ||
+         !previousIqRecordingFailed)) {
+        m_applicationLog.post(sdr::app::ApplicationLogModel::Error,
+            QStringLiteral("IQ recording"), m_iqRecordingStatusText);
+        setStatusText(m_iqRecordingStatusText);
     }
     if (m_audioUnderrunEvents > previousAudioUnderrunEvents) {
         m_applicationLog.post(
@@ -4219,6 +4288,11 @@ void ApplicationModel::applyRuntimeSnapshot(
         previousRecordingDroppedFrames != m_recordingDroppedFrames ||
         previousRecordingStatus != m_recordingStatusText ||
         previousRecordingFilePath != m_recordingFilePath ||
+        previousIqRecordingActive != m_iqRecordingActive ||
+        previousIqRecordingFailed != m_iqRecordingFailed ||
+        previousIqRecordingElapsedSeconds != m_iqRecordingElapsedSeconds ||
+        previousIqRecordingDroppedSamples != m_iqRecordingDroppedSamples ||
+        previousIqRecordingStatus != m_iqRecordingStatusText ||
         previousState.running != m_runtimeState.running) {
         emit recordingStateChanged();
     }
@@ -4227,9 +4301,8 @@ void ApplicationModel::applyRuntimeSnapshot(
         m_runtimeBusy = runtimeBusy;
         emit runtimeBusyChanged();
     }
-    setStatusText(m_recordingFailed
-                      ? m_recordingStatusText
-                      : snapshot.statusText);
+    setStatusText(m_recordingFailed ? m_recordingStatusText
+        : (m_iqRecordingFailed ? m_iqRecordingStatusText : snapshot.statusText));
 }
 
 void ApplicationModel::applyScannerListeningFrequency(

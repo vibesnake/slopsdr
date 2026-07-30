@@ -8,6 +8,7 @@
 #include "DsdFmeProcessService.hpp"
 #include "ReceiverBackend.hpp"
 #include "WavRecordingService.hpp"
+#include "IqRecordingService.hpp"
 
 #include <QObject>
 #include <QString>
@@ -97,6 +98,11 @@ struct ReceiverRuntimeSnapshot {
     quint64 recordingDroppedFrames = 0;
     QString recordingStatusText = QStringLiteral("Recording idle");
     QString recordingFilePath;
+    bool iqRecordingActive = false;
+    bool iqRecordingFailed = false;
+    quint64 iqRecordingElapsedSeconds = 0;
+    quint64 iqRecordingDroppedSamples = 0;
+    QString iqRecordingStatusText = QStringLiteral("IQ recording idle");
     bool scannerRecordingArmed = false;
     bool scannerRecordingWriting = false;
     quint64 audioOverflowEvents = 0;
@@ -167,6 +173,8 @@ public slots:
     void startAudioRecording(const QString& directory, bool skipQuietParts,
         int preRollSeconds, int tailSeconds);
     void stopAudioRecording();
+    void startIqRecording(const QString& directory);
+    void stopIqRecording();
     void setScannerActivityRecording(
         const sdr::app::ScannerActivityRecordingRequest& request);
     void setDsdFmeBinaryPath(const QString& path);
@@ -241,6 +249,8 @@ signals:
     void startAudioRecordingRequested(const QString& directory, bool skipQuietParts,
         int preRollSeconds, int tailSeconds);
     void stopAudioRecordingRequested();
+    void startIqRecordingRequested(const QString& directory);
+    void stopIqRecordingRequested();
     void setScannerActivityRecordingRequested(
         const sdr::app::ScannerActivityRecordingRequest& request);
     void setDsdFmeBinaryPathRequested(const QString& path);

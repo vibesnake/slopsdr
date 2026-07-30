@@ -59,6 +59,11 @@ public:
     void clearAudioSamples() override;
     [[nodiscard]] std::uint64_t audioProducedSamples() const override;
     [[nodiscard]] std::uint64_t audioDroppedSamples() const override;
+    void setFullBandwidthIqCaptureEnabled(bool enabled) override;
+    [[nodiscard]] std::vector<std::complex<float>> takeFullBandwidthIqSamples(
+        std::size_t maximumSamples) override;
+    void clearFullBandwidthIqSamples() override;
+    [[nodiscard]] std::uint64_t fullBandwidthIqDroppedSamples() const override;
     [[nodiscard]] std::size_t audioBufferedSampleCount() const override;
     [[nodiscard]] std::vector<float> takeDecoderInputSamples(
         std::size_t maximumSamples) override;
