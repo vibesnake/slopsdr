@@ -58,7 +58,7 @@ void IqRecordingServiceTest::writesInterleavedLittleEndianCf32AndMetadata()
     const auto state = recorder.state();
     QVERIFY(!state.active);
     QVERIFY(!state.failed);
-    QCOMPARE(state.filePath.extension().string(), std::string(".cf32"));
+    QCOMPARE(state.filePath.extension().string(), std::string(".raw"));
     const QByteArray data = contents(state.filePath);
     QCOMPARE(data.size(), 16);
     QCOMPARE(floatAt(data, 0), 0.5F);
@@ -69,7 +69,7 @@ void IqRecordingServiceTest::writesInterleavedLittleEndianCf32AndMetadata()
     QCOMPARE(json.value(QStringLiteral("hardware_center_frequency_hz")).toInteger(),
              qint64{145'000'000});
     QCOMPARE(json.value(QStringLiteral("sample_rate_hz")).toInteger(), qint64{2'400'000});
-    QCOMPARE(json.value(QStringLiteral("sample_format")).toString(), QStringLiteral("cf32"));
+    QCOMPARE(json.value(QStringLiteral("sample_format")).toString(), QStringLiteral("cf32_le"));
     QCOMPARE(json.value(QStringLiteral("byte_order")).toString(), QStringLiteral("little-endian"));
     QCOMPARE(json.value(QStringLiteral("written_sample_count")).toInteger(), qint64{2});
     QCOMPARE(json.value(QStringLiteral("dropped_sample_count")).toInteger(), qint64{0});

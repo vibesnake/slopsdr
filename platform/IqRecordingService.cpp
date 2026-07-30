@@ -129,10 +129,10 @@ std::filesystem::path IqRecordingService::makeUniquePath(const IqRecordingReques
          << "sps_full-iq";
     const auto base = request.directory / name.str();
     auto candidate = base;
-    candidate += ".cf32";
+    candidate += ".raw";
     for (unsigned suffix = 1; std::filesystem::exists(candidate); ++suffix) {
         candidate = base;
-        candidate += "_" + std::to_string(suffix) + ".cf32";
+        candidate += "_" + std::to_string(suffix) + ".raw";
     }
     return candidate;
 }
@@ -208,7 +208,7 @@ void IqRecordingService::finalizeLocked() noexcept
                  << "  \"end_timestamp\": \"" << timestampNow() << "\",\n"
                  << "  \"hardware_center_frequency_hz\": " << m_request.centerFrequencyHz << ",\n"
                  << "  \"sample_rate_hz\": " << m_request.sampleRate << ",\n"
-                 << "  \"sample_format\": \"cf32\",\n"
+                 << "  \"sample_format\": \"cf32_le\",\n"
                  << "  \"byte_order\": \"little-endian\",\n"
                  << "  \"written_sample_count\": " << m_state.writtenSamples << ",\n"
                  << "  \"duration_seconds\": " << duration << ",\n"

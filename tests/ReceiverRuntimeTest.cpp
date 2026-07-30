@@ -2848,7 +2848,7 @@ void ReceiverRuntimeTest::recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges()
     }));
     model.setListeningFrequency(99'500'000);
     QVERIFY(waitUntil([&model] { return model.listeningFrequency() == 99'500'000; }));
-    QCOMPARE(QDir(recordings.path()).entryList({QStringLiteral("*.cf32")}, QDir::Files).size(), 1);
+    QCOMPARE(QDir(recordings.path()).entryList({QStringLiteral("*.raw")}, QDir::Files).size(), 1);
     model.setScanLowerFrequency(99'400'000);
     model.setScanUpperFrequency(99'500'000);
     model.setScanStepSize(50'000);
@@ -2861,21 +2861,21 @@ void ReceiverRuntimeTest::recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges()
     QVERIFY(waitUntil([&model] { return model.centerFrequency() == 102'000'000; }));
     QVERIFY(waitUntil([&recordings] {
         return QDir(recordings.path()).entryList(
-            {QStringLiteral("*.cf32")}, QDir::Files).size() >= 2;
+            {QStringLiteral("*.raw")}, QDir::Files).size() >= 2;
     }));
     model.setSampleRate(2'400'000);
     QVERIFY(waitUntil([&model] { return model.sampleRate() == 2'400'000; }));
     QVERIFY(waitUntil([&recordings] {
         return QDir(recordings.path()).entryList(
-            {QStringLiteral("*.cf32")}, QDir::Files).size() >= 3;
+            {QStringLiteral("*.raw")}, QDir::Files).size() >= 3;
     }));
     model.stopIqRecording();
     QVERIFY(waitUntil([&model] { return !model.iqRecordingActive(); }));
     const auto files = QDir(recordings.path()).entryList(
-        {QStringLiteral("*.cf32")}, QDir::Files);
+        {QStringLiteral("*.raw")}, QDir::Files);
     QVERIFY(files.size() >= 2);
     for (const auto& fileName : files) {
-        const auto jsonName = fileName.left(fileName.size() - 5) + QStringLiteral(".json");
+        const auto jsonName = fileName.left(fileName.size() - 4) + QStringLiteral(".json");
         QVERIFY(QFile::exists(recordings.filePath(jsonName)));
     }
     runtime.shutdown();

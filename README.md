@@ -34,8 +34,8 @@ When **Record scanner activity** is enabled, scanner squelch activity is saved
 as separate filtered-audio WAV clips with JSON sidecars describing the target,
 mode, scanner source, and clip duration.
 Use the footer **Record IQ** control to capture full-bandwidth complex samples
-independently of WAV and scanner clips. Each collision-safe `.cf32` segment is
-interleaved little-endian float32 I/Q with a JSON sidecar; hardware-center or
+independently of WAV and scanner clips. Each collision-safe `.raw` segment is
+interleaved little-endian float32 I/Q (`cf32_le`) with a JSON sidecar; hardware-center or
 capture-rate changes create a new segment, while listening-only changes do not.
 Analog reception is supported in AM, NFM, WFM, USB, and LSB. DMR/P25 remains
 experimental and requires a separately installed DSD-FME executable; it is not

@@ -325,8 +325,8 @@ The footer also contains compact **Record IQ** and **Stop IQ** controls for
 manual full-bandwidth capture. IQ capture is independent of WAV and scanner
 recording, remains available while scanning, and taps the device complex stream
 before translation, filtering, decimation, demodulation, squelch, or audio.
-Each `.cf32` segment stores interleaved little-endian float32 I/Q plus a JSON
-sidecar. Hardware-center or capture-rate changes split into a new segment;
+Each `.raw` segment stores interleaved little-endian float32 I/Q (`cf32_le`)
+plus a JSON sidecar. Hardware-center or capture-rate changes split into a new segment;
 listening-only changes do not. Elapsed time, dropped samples, and write errors
 remain visible without interrupting reception.
 The Recording settings also offers disabled-by-default **Record scanner
