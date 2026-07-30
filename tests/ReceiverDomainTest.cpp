@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 vibesnake
 
-#include "MockReceiverBackend.hpp"
+#include "AudioSampleBuffer.hpp"
 #include "FrequencyMapping.hpp"
+#include "MockReceiverBackend.hpp"
 #include "ReceiverStateModel.hpp"
 
 #include <QtTest>
 
 #include <array>
 #include <cmath>
+#include <complex>
 
 using sdr::radio::DemodulationMode;
 using sdr::radio::MockReceiverBackend;
@@ -41,6 +43,7 @@ private slots:
     void validatesGain();
     void capsMockWaterfallCadenceForLongFftWindows();
     void keepsLifecycleStateOnBackendFailure();
+    void preservesAcceptedIqSamplesWhenCaptureStops();
 };
 
 void ReceiverDomainTest::startsAndStops()
@@ -73,6 +76,20 @@ void ReceiverDomainTest::repeatedStartAndStopAreIdempotent()
     QVERIFY(repeatedStop.succeeded());
     QVERIFY(!repeatedStop.stateChanged);
     QVERIFY(!receiver.state().running);
+}
+
+void ReceiverDomainTest::preservesAcceptedIqSamplesWhenCaptureStops()
+{
+    sdr::radio::ComplexSampleBuffer buffer(2);
+    buffer.setEnabled(true);
+    buffer.push(std::array<std::complex<float>, 1>{std::complex<float>{0.5F, -0.25F}});
+
+    buffer.setEnabled(false);
+    buffer.push(std::array<std::complex<float>, 1>{std::complex<float>{1.0F, 1.0F}});
+
+    const auto samples = buffer.take(2);
+    QCOMPARE(samples.size(), std::size_t{1});
+    QVERIFY((samples.front() == std::complex<float>{0.5F, -0.25F}));
 }
 
 void ReceiverDomainTest::changesCenterFrequencyAndRecentersListening()

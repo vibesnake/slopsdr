@@ -157,10 +157,6 @@ void ComplexSampleBuffer::setEnabled(bool enabled) noexcept
 {
     std::scoped_lock lock(m_mutex);
     m_enabled = enabled;
-    if (!enabled) {
-        m_readIndex = 0;
-        m_size = 0;
-    }
 }
 
 std::uint64_t ComplexSampleBuffer::totalDroppedSamples() const
