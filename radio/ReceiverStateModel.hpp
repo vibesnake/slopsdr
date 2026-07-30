@@ -9,6 +9,10 @@
 
 namespace sdr::radio {
 
+[[nodiscard]] std::optional<double> estimateOneShotSquelchThreshold(
+    std::span<const double> signalStrengthSamplesDb,
+    const ReceiverLimits& limits) noexcept;
+
 class ReceiverStateModel final
 {
 public:
@@ -30,10 +34,7 @@ public:
     [[nodiscard]] OperationResult setDemodulationMode(DemodulationMode mode);
     [[nodiscard]] OperationResult setSquelchLevel(double squelchLevelDb);
     [[nodiscard]] OperationResult enableManualSquelch();
-    [[nodiscard]] OperationResult enableAutomaticSquelch();
     [[nodiscard]] OperationResult disableSquelch();
-    [[nodiscard]] OperationResult updateAutomaticSquelchEstimate(
-        std::span<const double> powerSamplesDb);
 
 private:
     [[nodiscard]] static OperationResult success(

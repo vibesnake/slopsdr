@@ -33,8 +33,8 @@ private slots:
     void changesEverySupportedMode();
     void appliesModeSpecificFilterRules();
     void setsManualSquelch();
-    void enablesAutomaticSquelch();
-    void estimatesAutomaticSquelchDeterministically();
+    void estimatesOneShotSquelchWithMarginAndSpikeRejection();
+    void clampsOneShotSquelchAndRejectsUnavailableSamples();
     void returnsToSavedManualSquelch();
     void disablesSquelch();
     void validatesFilterWidth();
@@ -283,35 +283,36 @@ void ReceiverDomainTest::setsManualSquelch()
     QVERIFY(receiver.state().squelchMode == SquelchMode::Manual);
 }
 
-void ReceiverDomainTest::enablesAutomaticSquelch()
+void ReceiverDomainTest::estimatesOneShotSquelchWithMarginAndSpikeRejection()
 {
+    constexpr double samples[]{-101.0, -100.0, -99.0, -98.0, -20.0};
+    const auto threshold = sdr::radio::estimateOneShotSquelchThreshold(
+        samples, sdr::radio::ReceiverLimits{});
+    QVERIFY(threshold.has_value());
+    QCOMPARE(*threshold, -97.0);
+
     MockReceiverBackend receiver;
-
-    const auto result = receiver.enableAutomaticSquelch();
-    QVERIFY(result.succeeded());
-    QVERIFY(result.stateChanged);
-    QVERIFY(receiver.state().squelchMode == SquelchMode::Automatic);
-    QCOMPARE(receiver.state().squelchLevelDb, -95.0);
-
-    const auto repeatedResult = receiver.enableAutomaticSquelch();
-    QVERIFY(repeatedResult.succeeded());
-    QVERIFY(!repeatedResult.stateChanged);
+    QVERIFY(receiver.setSquelchLevel(*threshold).succeeded());
+    constexpr double laterSignal[]{-40.0, -39.0, -38.0};
+    const auto laterThreshold = sdr::radio::estimateOneShotSquelchThreshold(
+        laterSignal, receiver.limits());
+    QVERIFY(laterThreshold.has_value());
+    QCOMPARE(receiver.state().squelchLevelDb, -97.0);
 }
 
-void ReceiverDomainTest::estimatesAutomaticSquelchDeterministically()
+void ReceiverDomainTest::clampsOneShotSquelchAndRejectsUnavailableSamples()
 {
-    sdr::radio::ReceiverStateModel model;
-    constexpr double samples[]{-110.0, -90.0, -100.0, -80.0, -105.0};
-
-    QVERIFY(model.updateAutomaticSquelchEstimate(samples).succeeded());
-    QCOMPARE(model.state().automaticSquelchNoiseFloorDb, -110.0);
-    QVERIFY(model.enableAutomaticSquelch().succeeded());
-    QCOMPARE(model.state().squelchLevelDb, -104.0);
-
-    constexpr double updated[]{-96.0, -92.0, -94.0, -90.0, -98.0};
-    QVERIFY(model.updateAutomaticSquelchEstimate(updated).succeeded());
-    QCOMPARE(model.state().automaticSquelchNoiseFloorDb, -98.0);
-    QCOMPARE(model.state().squelchLevelDb, -92.0);
+    sdr::radio::ReceiverLimits limits;
+    limits.minimumSquelchDb = -100.0;
+    limits.maximumSquelchDb = -10.0;
+    constexpr double high[]{-2.0, -1.0, 0.0};
+    constexpr double low[]{-150.0, -140.0, -130.0};
+    constexpr double invalid[]{NAN, INFINITY, -INFINITY};
+    QCOMPARE(
+        *sdr::radio::estimateOneShotSquelchThreshold(high, limits), -10.0);
+    QCOMPARE(
+        *sdr::radio::estimateOneShotSquelchThreshold(low, limits), -100.0);
+    QVERIFY(!sdr::radio::estimateOneShotSquelchThreshold(invalid, limits));
 }
 
 void ReceiverDomainTest::returnsToSavedManualSquelch()
@@ -319,10 +320,6 @@ void ReceiverDomainTest::returnsToSavedManualSquelch()
     MockReceiverBackend receiver;
 
     QVERIFY(receiver.setSquelchLevel(-67.0).succeeded());
-    QVERIFY(receiver.enableAutomaticSquelch().succeeded());
-    QVERIFY(receiver.enableManualSquelch().succeeded());
-    QVERIFY(receiver.state().squelchMode == SquelchMode::Manual);
-    QCOMPARE(receiver.state().squelchLevelDb, -67.0);
 
     QVERIFY(receiver.disableSquelch().succeeded());
     QVERIFY(receiver.enableManualSquelch().succeeded());
@@ -333,7 +330,6 @@ void ReceiverDomainTest::disablesSquelch()
 {
     MockReceiverBackend receiver;
 
-    QVERIFY(receiver.enableAutomaticSquelch().succeeded());
     const auto result = receiver.disableSquelch();
     QVERIFY(result.succeeded());
     QVERIFY(result.stateChanged);

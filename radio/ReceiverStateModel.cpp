@@ -11,8 +11,6 @@
 namespace sdr::radio {
 namespace {
 
-constexpr double automaticSquelchMarginDb = 6.0;
-
 FilterWidthRange unconstrainedFilterWidthRange(DemodulationMode mode) noexcept
 {
     switch (mode) {
@@ -32,6 +30,34 @@ FilterWidthRange unconstrainedFilterWidthRange(DemodulationMode mode) noexcept
 }
 
 }  // namespace
+
+std::optional<double> estimateOneShotSquelchThreshold(
+    std::span<const double> signalStrengthSamplesDb,
+    const ReceiverLimits& limits) noexcept
+{
+    std::vector<double> finiteSamples;
+    finiteSamples.reserve(signalStrengthSamplesDb.size());
+    for (const double sample : signalStrengthSamplesDb) {
+        if (std::isfinite(sample)) {
+            finiteSamples.push_back(sample);
+        }
+    }
+    if (finiteSamples.empty()) {
+        return std::nullopt;
+    }
+
+    std::ranges::sort(finiteSamples);
+    const std::size_t middle = finiteSamples.size() / 2;
+    const double measuredLevel = finiteSamples.size() % 2 == 0
+                                     ? (finiteSamples[middle - 1] +
+                                        finiteSamples[middle]) /
+                                           2.0
+                                     : finiteSamples[middle];
+    return std::clamp(
+        measuredLevel + 2.0,
+        limits.minimumSquelchDb,
+        limits.maximumSquelchDb);
+}
 
 ReceiverStateModel::ReceiverStateModel(ReceiverLimits limits)
     : m_limits(std::move(limits))
@@ -315,65 +341,11 @@ OperationResult ReceiverStateModel::enableManualSquelch()
     return success(stateChanged, "Manual squelch enabled");
 }
 
-OperationResult ReceiverStateModel::enableAutomaticSquelch()
-{
-    const double threshold = std::clamp(
-        m_state.automaticSquelchNoiseFloorDb + automaticSquelchMarginDb,
-        m_limits.minimumSquelchDb,
-        m_limits.maximumSquelchDb);
-    const bool stateChanged = m_state.squelchMode != SquelchMode::Automatic ||
-                              m_state.squelchLevelDb != threshold;
-    m_state.squelchMode = SquelchMode::Automatic;
-    m_state.squelchLevelDb = threshold;
-    return success(
-        stateChanged,
-        "Automatic squelch enabled at estimated noise floor plus 6 dB");
-}
-
 OperationResult ReceiverStateModel::disableSquelch()
 {
     const bool stateChanged = m_state.squelchMode != SquelchMode::Disabled;
     m_state.squelchMode = SquelchMode::Disabled;
     return success(stateChanged, "Squelch disabled");
-}
-
-OperationResult ReceiverStateModel::updateAutomaticSquelchEstimate(
-    std::span<const double> powerSamplesDb)
-{
-    std::vector<double> finiteSamples;
-    finiteSamples.reserve(powerSamplesDb.size());
-    for (const double sample : powerSamplesDb) {
-        if (std::isfinite(sample)) {
-            finiteSamples.push_back(sample);
-        }
-    }
-    if (finiteSamples.empty()) {
-        return failure(
-            ReceiverError::SquelchLevelOutOfRange,
-            "Automatic squelch requires at least one finite power sample");
-    }
-
-    std::ranges::sort(finiteSamples);
-    const std::size_t percentileIndex = (finiteSamples.size() - 1) / 5;
-    const double noiseFloor = std::clamp(
-        finiteSamples[percentileIndex],
-        m_limits.minimumSquelchDb,
-        m_limits.maximumSquelchDb);
-    const double threshold = std::clamp(
-        noiseFloor + automaticSquelchMarginDb,
-        m_limits.minimumSquelchDb,
-        m_limits.maximumSquelchDb);
-    const bool automatic = m_state.squelchMode == SquelchMode::Automatic;
-    const bool stateChanged = noiseFloor != m_state.automaticSquelchNoiseFloorDb ||
-                              (automatic && threshold != m_state.squelchLevelDb);
-    m_state.automaticSquelchNoiseFloorDb = noiseFloor;
-    if (automatic) {
-        m_state.squelchLevelDb = threshold;
-    }
-    return success(
-        stateChanged,
-        automatic ? "Automatic squelch threshold updated from noise estimate"
-                  : "Automatic squelch noise estimate updated");
 }
 
 OperationResult ReceiverStateModel::success(

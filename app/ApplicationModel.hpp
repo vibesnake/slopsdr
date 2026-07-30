@@ -131,7 +131,7 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString demodulationModeName READ demodulationModeName NOTIFY demodulationModeChanged)
     Q_PROPERTY(QStringList demodulationModes READ demodulationModes CONSTANT)
     Q_PROPERTY(double squelchLevel READ squelchLevel NOTIFY squelchStateChanged)
-    Q_PROPERTY(bool automaticSquelchEnabled READ automaticSquelchEnabled NOTIFY squelchStateChanged)
+    Q_PROPERTY(bool autoSquelchAvailable READ autoSquelchAvailable NOTIFY squelchStateChanged)
     Q_PROPERTY(bool squelchDisabled READ squelchDisabled NOTIFY squelchStateChanged)
     Q_PROPERTY(QString squelchStateText READ squelchStateText NOTIFY squelchStateChanged)
     Q_PROPERTY(bool receiverRunning READ receiverRunning NOTIFY receiverRunningChanged)
@@ -269,7 +269,7 @@ public:
     [[nodiscard]] QString demodulationModeName() const;
     [[nodiscard]] QStringList demodulationModes() const;
     [[nodiscard]] double squelchLevel() const noexcept;
-    [[nodiscard]] bool automaticSquelchEnabled() const noexcept;
+    [[nodiscard]] bool autoSquelchAvailable() const noexcept;
     [[nodiscard]] bool squelchDisabled() const noexcept;
     [[nodiscard]] QString squelchStateText() const;
     [[nodiscard]] bool receiverRunning() const noexcept;
@@ -417,8 +417,7 @@ public slots:
     void setDemodulationModeIndex(int modeIndex);
     void setSquelchLevel(double squelchLevelDb);
     void enableManualSquelch();
-    void enableAutomaticSquelch();
-    void setAutomaticSquelchEnabled(bool enabled);
+    void autoSquelch();
     void disableSquelch();
     void setSquelchDisabled(bool disabled);
 
@@ -709,6 +708,8 @@ private:
     QString m_scanPresetStatusMessage;
     bool m_scanBoundsFollowCapture = true;
     bool m_runtimeSquelchOpen = false;
+    bool m_squelchMeasurementAvailable = false;
+    bool m_autoSquelchRunning = false;
     sdr::app::CurrentPassbandScanner m_scanner;
     struct PendingScanStart {
         quint64 centerFrequency = 0;

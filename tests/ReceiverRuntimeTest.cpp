@@ -57,7 +57,6 @@ struct RuntimeTrace {
     int modeApplications = 0;
     int squelchLevelApplications = 0;
     int manualSquelchApplications = 0;
-    int automaticSquelchApplications = 0;
     int disabledSquelchApplications = 0;
     std::vector<std::string> receiverOperationOrder;
     bool failOpen = false;
@@ -72,6 +71,7 @@ struct RuntimeTrace {
     bool unconfirmedPpmCapabilities = false;
     bool failPpmCorrection = false;
     std::optional<double> effectiveManualPpmCorrection;
+    std::optional<double> squelchSignalStrengthDb = -54.0;
     std::string discoveryDriver = "mock";
     bool calibrationActive = false;
     int calibrationBegins = 0;
@@ -392,6 +392,15 @@ public:
         return m_delegate.state();
     }
 
+    [[nodiscard]] std::optional<double> squelchSignalStrengthDb()
+        const noexcept override
+    {
+        return m_trace->squelchSignalStrengthDb.has_value() &&
+                       m_delegate.state().running
+                   ? m_trace->squelchSignalStrengthDb
+                   : std::nullopt;
+    }
+
     [[nodiscard]] std::uint64_t effectiveSampleRate() const noexcept override
     {
         return m_trace->effectiveSampleRate;
@@ -584,11 +593,6 @@ public:
         ++m_trace->manualSquelchApplications;
         return m_delegate.enableManualSquelch();
     }
-    [[nodiscard]] radio::OperationResult enableAutomaticSquelch() override
-    {
-        ++m_trace->automaticSquelchApplications;
-        return m_delegate.enableAutomaticSquelch();
-    }
     [[nodiscard]] radio::OperationResult disableSquelch() override
     {
         ++m_trace->disabledSquelchApplications;
@@ -760,6 +764,7 @@ private slots:
     void validatesPersistedSpectrumFftSize();
     void keepsSpectrumCadenceStableAcrossVisibleHistoryChanges();
     void persistsAndRestoresReceiverAndSquelchControls();
+    void measuresOneShotSquelchForBoundedWindowAndKeepsItManual();
     void scannerRetunesStayFocusedResponsiveAndBounded();
     void wideRangeBlockRetunesAvoidGlobalReceiverReconfiguration();
     void migratesLegacyDemodulatorOrdinalToStableId();
@@ -1376,6 +1381,43 @@ void ReceiverRuntimeTest::defaultsGainToTwentyDbWithoutPersistingIt()
     runtime.shutdown();
 }
 
+void ReceiverRuntimeTest::measuresOneShotSquelchForBoundedWindowAndKeepsItManual()
+{
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] {
+        return model.receiverRunning() && model.autoSquelchAvailable();
+    }));
+
+    const int applicationsBefore = trace->squelchLevelApplications;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    model.autoSquelch();
+    QVERIFY(waitUntil([&model] {
+        return model.statusText().startsWith(QStringLiteral("Squelch set to"));
+    }, 2'000));
+    QVERIFY(elapsed.elapsed() >= 350);
+    QVERIFY(elapsed.elapsed() < 1'000);
+    QCOMPARE(model.squelchLevel(), -52.0);
+    QCOMPARE(trace->squelchLevelApplications, applicationsBefore + 1);
+    QVERIFY(model.squelchStateText() == QStringLiteral("Manual"));
+    QCOMPARE(
+        QSettings().value(QStringLiteral("receiver/squelchThresholdDb"))
+            .toDouble(),
+        -52.0);
+
+    QTest::qWait(150);
+    QCOMPARE(model.squelchLevel(), -52.0);
+    QCOMPARE(trace->squelchLevelApplications, applicationsBefore + 1);
+    runtime.shutdown();
+}
+
 void ReceiverRuntimeTest::persistsAndRestoresReceiverAndSquelchControls()
 {
     {
@@ -1515,8 +1557,6 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
         trace->squelchLevelApplications;
     const int manualSquelchApplicationsBeforeScan =
         trace->manualSquelchApplications;
-    const int automaticSquelchApplicationsBeforeScan =
-        trace->automaticSquelchApplications;
     const int disabledSquelchApplicationsBeforeScan =
         trace->disabledSquelchApplications;
     const int audioFlushesBeforeScan = trace->audioFlushes;
@@ -1580,9 +1620,6 @@ void ReceiverRuntimeTest::scannerRetunesStayFocusedResponsiveAndBounded()
         trace->squelchLevelApplications, squelchLevelApplicationsBeforeScan);
     QCOMPARE(
         trace->manualSquelchApplications, manualSquelchApplicationsBeforeScan);
-    QCOMPARE(
-        trace->automaticSquelchApplications,
-        automaticSquelchApplicationsBeforeScan);
     QCOMPARE(
         trace->disabledSquelchApplications,
         disabledSquelchApplicationsBeforeScan);

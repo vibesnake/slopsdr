@@ -77,6 +77,8 @@ private slots:
     void rejectsScannerRangesThatCannotFitAfterCentering();
     void centersScannerRangeWithIntegerMidpoint();
     void givesActiveScannerExclusiveTuningControl();
+    void disablesAutoForUnavailableMeasurementAndScannerOwnership();
+    void autoSquelchDoesNotMutateLoadedBookmark();
     void persistsAndValidatesDsdFmeBinaryPath();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
     void updatesBookmarksByStableIdentityAndPreservesMetadata();
@@ -1202,6 +1204,66 @@ void ApplicationModelTest::centersScannerRangeWithIntegerMidpoint()
     QCOMPARE(model.scanUpperFrequency(), upper);
     QCOMPARE(model.scanCurrentFrequency(), lower);
     QCOMPARE(model.listeningFrequency(), lower);
+}
+
+void ApplicationModelTest::disablesAutoForUnavailableMeasurementAndScannerOwnership()
+{
+    auto unavailable = std::make_unique<sdr::radio::MockReceiverBackend>(
+        sdr::radio::MockReceiverConfiguration{
+            .squelchSignalStrengthDb = std::nullopt});
+    ApplicationModel unavailableModel(std::move(unavailable));
+    unavailableModel.startReception();
+    QVERIFY(!unavailableModel.autoSquelchAvailable());
+    unavailableModel.autoSquelch();
+    QVERIFY(unavailableModel.statusText().contains(QStringLiteral("unavailable")));
+
+    ApplicationModel model;
+    model.startReception();
+    QVERIFY(model.autoSquelchAvailable());
+    const quint64 lower = model.centerFrequency() + 4'000;
+    model.setScanLowerFrequency(lower);
+    model.setScanUpperFrequency(lower + 20'000);
+    model.setScanStepSize(10'000);
+    model.setScanDwellMilliseconds(100'000);
+    QVERIFY(model.scanCanStart());
+    model.startScan();
+    QVERIFY(model.scannerOwnsTuning());
+    QVERIFY(!model.autoSquelchAvailable());
+    model.autoSquelch();
+    QVERIFY(model.statusText().contains(QStringLiteral("exclusive tuning")));
+    model.stopScan();
+}
+
+void ApplicationModelTest::autoSquelchDoesNotMutateLoadedBookmark()
+{
+    auto backend = std::make_unique<sdr::radio::MockReceiverBackend>(
+        sdr::radio::MockReceiverConfiguration{
+            .squelchSignalStrengthDb = -60.0});
+    ApplicationModel model(std::move(backend));
+    auto* bookmarks = qobject_cast<sdr::app::BookmarkTreeModel*>(
+        model.bookmarkModel());
+    QVERIFY(bookmarks);
+    sdr::app::BookmarkData bookmark;
+    bookmark.name = QStringLiteral("Saved threshold");
+    bookmark.listeningFrequency = 100'000'000;
+    bookmark.demodulatorId = QStringLiteral("am");
+    bookmark.filterLowHz = -5'000;
+    bookmark.filterHighHz = 5'000;
+    bookmark.squelchThresholdDb = -80.0;
+    bookmark.squelchEnabled = true;
+    const QString uuid = bookmarks->addBookmark(-1, bookmark);
+    QVERIFY(!uuid.isEmpty());
+
+    model.startReception();
+    model.tuneBookmark(bookmarks->visibleRowForUuid(uuid));
+    QVERIFY(model.bookmarkUpdateAvailable());
+    model.autoSquelch();
+    QCOMPARE(model.squelchLevel(), -58.0);
+    const auto unchanged = bookmarks->bookmarkAt(
+        bookmarks->visibleRowForUuid(uuid));
+    QVERIFY(unchanged.has_value());
+    QCOMPARE(unchanged->squelchThresholdDb, -80.0);
+    QVERIFY(model.bookmarkUpdateAvailable());
 }
 
 void ApplicationModelTest::givesActiveScannerExclusiveTuningControl()
@@ -2724,15 +2786,9 @@ void ApplicationModelTest::forwardsControlsToMockBackend()
 
     model.setSquelchLevel(-62.0);
     QCOMPARE(model.squelchLevel(), -62.0);
-    QVERIFY(!model.automaticSquelchEnabled());
-    QVERIFY(!model.squelchDisabled());
-
-    model.enableAutomaticSquelch();
-    QVERIFY(model.automaticSquelchEnabled());
     QVERIFY(!model.squelchDisabled());
 
     model.disableSquelch();
-    QVERIFY(!model.automaticSquelchEnabled());
     QVERIFY(model.squelchDisabled());
 }
 
@@ -2762,9 +2818,6 @@ void ApplicationModelTest::exposesModeSpecificControls()
     QCOMPARE(model.demodulationModeName(), QStringLiteral("LSB"));
 
     model.setSquelchLevel(-64.0);
-    model.enableAutomaticSquelch();
-    QVERIFY(model.squelchStateText().startsWith(QStringLiteral("Automatic")));
-    model.setAutomaticSquelchEnabled(false);
     QCOMPARE(model.squelchLevel(), -64.0);
     QCOMPARE(model.squelchStateText(), QStringLiteral("Manual"));
     model.disableSquelch();

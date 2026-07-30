@@ -49,6 +49,7 @@ constexpr auto ppmCorrectionsByDeviceSettingsPrefix =
     "receiver/ppmByDevice/";
 constexpr std::size_t ppmCalibrationReadBufferBytes = 1'048'576;
 constexpr int ppmCalibrationReadTimeoutMilliseconds = 50;
+constexpr int autoSquelchMeasurementWindowMilliseconds = 400;
 
 bool supportedSpectrumFftSize(std::size_t fftSize) noexcept
 {
@@ -807,6 +808,8 @@ public slots:
 
     void stopReception()
     {
+        m_autoSquelchRunning = false;
+        m_autoSquelchSamples.clear();
         m_waterfallDelivery.stop();
         m_spectrumMetricsTimer.invalidate();
         if (!m_backend) {
@@ -1516,11 +1519,30 @@ public slots:
         });
     }
 
-    void enableAutomaticSquelch()
+    void autoSquelch()
     {
-        applySquelchOperation([](radio::ReceiverBackend& backend) {
-            return backend.enableAutomaticSquelch();
-        });
+        if (m_autoSquelchRunning) {
+            return;
+        }
+        if (!m_backend || !m_backend->state().running) {
+            m_statusText = QStringLiteral(
+                "Start reception before measuring squelch");
+            publishSnapshot(false);
+            return;
+        }
+        const auto measurement = m_backend->squelchSignalStrengthDb();
+        if (!measurement.has_value() || !std::isfinite(*measurement)) {
+            m_statusText = QStringLiteral(
+                "Squelch signal strength is unavailable");
+            publishSnapshot(false);
+            return;
+        }
+        m_autoSquelchRunning = true;
+        m_autoSquelchSamples.clear();
+        m_autoSquelchElapsed.start();
+        m_statusText = QStringLiteral("Measuring squelch…");
+        sampleAutoSquelch();
+        publishSnapshot(true);
     }
 
     void disableSquelch()
@@ -2235,6 +2257,53 @@ private:
         }
     }
 
+    void sampleAutoSquelch()
+    {
+        if (!m_autoSquelchRunning) {
+            return;
+        }
+        if (!m_backend || !m_backend->state().running) {
+            m_autoSquelchRunning = false;
+            m_autoSquelchSamples.clear();
+            m_statusText = QStringLiteral(
+                "Squelch measurement stopped with reception");
+            publishSnapshot(false);
+            return;
+        }
+
+        if (const auto measurement = m_backend->squelchSignalStrengthDb();
+            measurement.has_value() && std::isfinite(*measurement)) {
+            m_autoSquelchSamples.push_back(*measurement);
+        }
+        if (!m_autoSquelchElapsed.isValid() ||
+            m_autoSquelchElapsed.elapsed() <
+                autoSquelchMeasurementWindowMilliseconds) {
+            return;
+        }
+
+        const auto threshold = radio::estimateOneShotSquelchThreshold(
+            m_autoSquelchSamples, m_backend->limits());
+        m_autoSquelchRunning = false;
+        m_autoSquelchElapsed.invalidate();
+        m_autoSquelchSamples.clear();
+        if (!threshold.has_value()) {
+            m_statusText = QStringLiteral(
+                "Squelch signal strength was unavailable");
+            publishSnapshot(false);
+            return;
+        }
+
+        const auto result = m_backend->setSquelchLevel(*threshold);
+        if (result.succeeded()) {
+            persistCurrentReceiverControls();
+            m_statusText = QStringLiteral("Squelch set to %1 dB")
+                               .arg(*threshold, 0, 'f', 0);
+        } else {
+            m_statusText = QString::fromStdString(result.message);
+        }
+        publishSnapshot(result.succeeded());
+    }
+
     void pollBackend()
     {
         const std::optional<platform::AudioOutputState> previousAudioState =
@@ -2282,11 +2351,22 @@ private:
                 static_cast<void>(m_waterfallDelivery.enqueue(std::move(frame)));
             }
             const bool squelchOpen = m_backend->squelchOpen();
+            const bool measurementAvailable =
+                [this] {
+                    const auto measurement =
+                        m_backend->squelchSignalStrengthDb();
+                    return measurement.has_value() &&
+                           std::isfinite(*measurement);
+                }();
             if (!m_lastPublishedSquelchOpen.has_value() ||
-                *m_lastPublishedSquelchOpen != squelchOpen) {
+                *m_lastPublishedSquelchOpen != squelchOpen ||
+                !m_lastPublishedSquelchMeasurement.has_value() ||
+                *m_lastPublishedSquelchMeasurement != measurementAvailable) {
                 m_lastPublishedSquelchOpen = squelchOpen;
+                m_lastPublishedSquelchMeasurement = measurementAvailable;
                 publishSnapshot(true);
             }
+            sampleAutoSquelch();
         }
         reportSpectrumMetrics();
         if (m_audioOutput &&
@@ -2711,6 +2791,13 @@ private:
             snapshot.receiverLimits = m_backend->limits();
             snapshot.receiverCapabilities = m_backend->capabilities();
             snapshot.squelchOpen = m_backend->squelchOpen();
+            snapshot.squelchMeasurementAvailable =
+                [this] {
+                    const auto measurement =
+                        m_backend->squelchSignalStrengthDb();
+                    return measurement.has_value() &&
+                           std::isfinite(*measurement);
+                }();
             snapshot.effectiveSampleRate = m_backend->effectiveSampleRate();
             snapshot.tuningGeneration = m_backend->tuningGeneration();
             const auto spectrumMetrics = m_backend->spectrumProcessingMetrics();
@@ -2799,6 +2886,7 @@ private:
         snapshot.automaticPpmCalibrationSupported =
             automaticPpmCalibrationAvailable();
         snapshot.ppmCalibrationRunning = m_ppmCalibrationRunning;
+        snapshot.autoSquelchRunning = m_autoSquelchRunning;
         snapshot.ppmCalibrationStatus = m_ppmCalibrationStatus;
         snapshot.ppmCalibrationProgressPercent =
             m_ppmCalibrationProgressPercent;
@@ -2890,6 +2978,10 @@ private:
     ApplicationLogHandler m_applicationLogHandler;
     std::unique_ptr<radio::ReceiverBackend> m_backend;
     std::optional<bool> m_lastPublishedSquelchOpen;
+    std::optional<bool> m_lastPublishedSquelchMeasurement;
+    bool m_autoSquelchRunning = false;
+    QElapsedTimer m_autoSquelchElapsed;
+    std::vector<double> m_autoSquelchSamples;
     std::unique_ptr<platform::AudioOutputService> m_audioOutput;
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
     std::vector<devices::DeviceDescriptor> m_devices;
@@ -3074,7 +3166,7 @@ ReceiverRuntime::ReceiverRuntime(
     connect(this, &ReceiverRuntime::setDemodulationModeRequested, m_worker, &Worker::setDemodulationMode, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::setSquelchLevelRequested, m_worker, &Worker::setSquelchLevel, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::enableManualSquelchRequested, m_worker, &Worker::enableManualSquelch, Qt::QueuedConnection);
-    connect(this, &ReceiverRuntime::enableAutomaticSquelchRequested, m_worker, &Worker::enableAutomaticSquelch, Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::autoSquelchRequested, m_worker, &Worker::autoSquelch, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::disableSquelchRequested, m_worker, &Worker::disableSquelch, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::applyBookmarkRequested, m_worker, &Worker::applyBookmark, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::applyScannerBookmarkRequested, m_worker,
@@ -3334,10 +3426,10 @@ void ReceiverRuntime::enableManualSquelch()
     emit enableManualSquelchRequested();
 }
 
-void ReceiverRuntime::enableAutomaticSquelch()
+void ReceiverRuntime::autoSquelch()
 {
-    markPending(QStringLiteral("Enabling automatic squelch…"));
-    emit enableAutomaticSquelchRequested();
+    markPending(QStringLiteral("Measuring squelch…"));
+    emit autoSquelchRequested();
 }
 
 void ReceiverRuntime::disableSquelch()

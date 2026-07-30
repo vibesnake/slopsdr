@@ -28,7 +28,6 @@ enum class DemodulationMode {
 enum class SquelchMode {
     Disabled,
     Manual,
-    Automatic,
 };
 
 enum class ReceiverError {
@@ -99,7 +98,6 @@ struct ReceiverState {
     DemodulationMode demodulationMode = DemodulationMode::Am;
     double squelchLevelDb = -80.0;
     double manualSquelchLevelDb = -80.0;
-    double automaticSquelchNoiseFloorDb = -100.0;
     SquelchMode squelchMode = SquelchMode::Manual;
     bool running = false;
 };
@@ -188,6 +186,14 @@ public:
     [[nodiscard]] virtual bool squelchOpen() const noexcept
     {
         return false;
+    }
+    // This is the smoothed post-channel-filter signal-strength measurement
+    // used by the live power-squelch gate. It is absent until reception has
+    // produced a valid measurement.
+    [[nodiscard]] virtual std::optional<double> squelchSignalStrengthDb()
+        const noexcept
+    {
+        return std::nullopt;
     }
     [[nodiscard]] virtual std::optional<SpectrumFrame> takeLatestSpectrumFrame() = 0;
     [[nodiscard]] virtual std::vector<SpectrumFrame> takePendingSpectrumFrames(
@@ -329,7 +335,6 @@ public:
     [[nodiscard]] virtual OperationResult setDemodulationMode(DemodulationMode mode) = 0;
     [[nodiscard]] virtual OperationResult setSquelchLevel(double squelchLevelDb) = 0;
     [[nodiscard]] virtual OperationResult enableManualSquelch() = 0;
-    [[nodiscard]] virtual OperationResult enableAutomaticSquelch() = 0;
     [[nodiscard]] virtual OperationResult disableSquelch() = 0;
 };
 

@@ -64,6 +64,18 @@ GNU Radio, closes the device stream, and joins the receiver worker thread before
 exit. Device, flowgraph, and disconnection failures are shown in the status bar;
 controls continue to display confirmed backend state.
 
+## Squelch
+
+Adjust the **Squelch** slider manually at any time during reception. **Auto**
+collects the live signal-strength measurement used by the squelch gate for a
+short 400 ms window, rejects brief spikes, adds a 2 dB margin, clamps the
+result to the valid range, and reports the selected threshold in the status
+line. It is a one-shot action: manual adjustment remains available afterward
+and no continuous adaptation occurs. Auto is disabled while stopped, before a
+valid measurement is available, or while a scanner owns tuning. It does not use
+FFT display values and does not alter a loaded bookmark; choose **Update
+Bookmark** explicitly to save the new live threshold there.
+
 ## Capture bandwidth
 
 **Capture bandwidth** is the spectrum width received from the SDR at once, not
@@ -255,7 +267,7 @@ Single-click an item to select it. Double-click a bookmark or select it and
 press **Tune** to restore its frequency, requested gain, mode, oriented filter,
 and saved manual/disabled squelch settings. Older bookmarks without saved
 squelch fields keep the receiver's current squelch settings. Unavailable modes cannot be tuned. Tuning
-does not start a stopped receiver, run Automatic Squelch, or clear waterfall
+does not start a stopped receiver, run Auto Squelch, or clear waterfall
 history; a running receiver uses its live update paths.
 
 Groups expand independently and remember their state.

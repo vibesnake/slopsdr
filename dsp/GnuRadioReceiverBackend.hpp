@@ -40,6 +40,8 @@ public:
     [[nodiscard]] std::uint64_t effectiveSampleRate() const noexcept override;
     [[nodiscard]] std::uint64_t tuningGeneration() const noexcept override;
     [[nodiscard]] bool squelchOpen() const noexcept override;
+    [[nodiscard]] std::optional<double> squelchSignalStrengthDb()
+        const noexcept override;
     [[nodiscard]] std::optional<radio::SpectrumFrame> takeLatestSpectrumFrame() override;
     [[nodiscard]] std::vector<radio::SpectrumFrame> takePendingSpectrumFrames(
         std::size_t maximumFrames) override;
@@ -85,7 +87,6 @@ public:
     [[nodiscard]] radio::OperationResult setSquelchLevel(
         double squelchLevelDb) override;
     [[nodiscard]] radio::OperationResult enableManualSquelch() override;
-    [[nodiscard]] radio::OperationResult enableAutomaticSquelch() override;
     [[nodiscard]] radio::OperationResult disableSquelch() override;
 
     [[nodiscard]] double frequencyTranslationOffsetHz() const noexcept;

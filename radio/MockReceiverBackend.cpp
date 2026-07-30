@@ -17,9 +17,6 @@ MockReceiverBackend::MockReceiverBackend(
     , m_configuration(configuration)
     , m_capabilities{configuration.ppmCorrectionSupported}
 {
-    constexpr double mockNoiseSamplesDb[]{
-        -102.0, -101.0, -100.0, -99.0, -98.0, -97.0, -68.0, -55.0};
-    static_cast<void>(m_model.updateAutomaticSquelchEstimate(mockNoiseSamplesDb));
     publishSyntheticSpectrumFrame();
 }
 
@@ -46,6 +43,16 @@ std::uint64_t MockReceiverBackend::tuningGeneration() const noexcept
 bool MockReceiverBackend::squelchOpen() const noexcept
 {
     return m_configuration.squelchOpen;
+}
+
+std::optional<double> MockReceiverBackend::squelchSignalStrengthDb()
+    const noexcept
+{
+    if (!state().running || !m_configuration.squelchSignalStrengthDb.has_value() ||
+        !std::isfinite(*m_configuration.squelchSignalStrengthDb)) {
+        return std::nullopt;
+    }
+    return m_configuration.squelchSignalStrengthDb;
 }
 
 std::optional<SpectrumFrame> MockReceiverBackend::takeLatestSpectrumFrame()
@@ -252,11 +259,6 @@ OperationResult MockReceiverBackend::setSquelchLevel(double squelchLevelDb)
 OperationResult MockReceiverBackend::enableManualSquelch()
 {
     return finish(m_model.enableManualSquelch());
-}
-
-OperationResult MockReceiverBackend::enableAutomaticSquelch()
-{
-    return finish(m_model.enableAutomaticSquelch());
 }
 
 OperationResult MockReceiverBackend::disableSquelch()

@@ -4160,8 +4160,7 @@ ApplicationWindow {
                         from: -160
                         to: 0
                         value: root.applicationModel.squelchLevel
-                        enabled: !root.applicationModel.automaticSquelchEnabled &&
-                                 !root.applicationModel.squelchDisabled &&
+                        enabled: !root.applicationModel.squelchDisabled &&
                                  root.applicationModel.backendReady &&
                                  !root.applicationModel.runtimeBusy
                         onMoved: root.applicationModel.setSquelchLevel(value)
@@ -4177,14 +4176,14 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     spacing: 6
 
-                    CheckBox {
-                        Layout.fillWidth: true
+                    Button {
+                        Layout.preferredWidth: 52
                         implicitHeight: root.controlHeight
-                        text: qsTr("Automatic squelch")
-                        checked: root.applicationModel.automaticSquelchEnabled
-                        enabled: root.applicationModel.backendReady &&
+                        text: qsTr("Auto")
+                        enabled: root.applicationModel.autoSquelchAvailable &&
+                                 !root.applicationModel.scannerOwnsTuning &&
                                  !root.applicationModel.runtimeBusy
-                        onClicked: root.applicationModel.setAutomaticSquelchEnabled(checked)
+                        onClicked: root.applicationModel.autoSquelch()
                     }
                     CheckBox {
                         Layout.fillWidth: true

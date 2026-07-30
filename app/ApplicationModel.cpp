@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <span>
 #include <utility>
 
 namespace {
@@ -1647,9 +1648,19 @@ double ApplicationModel::squelchLevel() const noexcept
     return receiverState().squelchLevelDb;
 }
 
-bool ApplicationModel::automaticSquelchEnabled() const noexcept
+bool ApplicationModel::autoSquelchAvailable() const noexcept
 {
-    return receiverState().squelchMode == sdr::radio::SquelchMode::Automatic;
+    const bool measurementAvailable =
+        m_runtime
+            ? m_squelchMeasurementAvailable
+            : ([this] {
+                  const auto measurement =
+                      m_receiver->squelchSignalStrengthDb();
+                  return measurement.has_value() &&
+                         std::isfinite(*measurement);
+              }());
+    return receiverRunning() && measurementAvailable &&
+           !m_autoSquelchRunning && !scannerOwnsTuning();
 }
 
 bool ApplicationModel::squelchDisabled() const noexcept
@@ -1665,9 +1676,6 @@ QString ApplicationModel::squelchStateText() const
         return QStringLiteral("Disabled (open)");
     case SquelchMode::Manual:
         return QStringLiteral("Manual");
-    case SquelchMode::Automatic:
-        return QStringLiteral("Automatic · %1 dB")
-            .arg(receiverState().squelchLevelDb, 0, 'f', 0);
     }
     return QStringLiteral("Unknown");
 }
@@ -3584,22 +3592,37 @@ void ApplicationModel::enableManualSquelch()
     applyOperation(previousState, m_receiver->enableManualSquelch());
 }
 
-void ApplicationModel::enableAutomaticSquelch()
+void ApplicationModel::autoSquelch()
 {
+    if (scannerOwnsTuning()) {
+        setStatusText(QStringLiteral(
+            "Scanner has exclusive tuning control; stop scanning before Auto"));
+        return;
+    }
     if (m_runtime) {
-        m_runtime->enableAutomaticSquelch();
+        m_runtime->autoSquelch();
+        return;
+    }
+    const auto measurement = m_receiver->squelchSignalStrengthDb();
+    if (!receiverRunning() || !measurement.has_value() ||
+        !std::isfinite(*measurement)) {
+        setStatusText(QStringLiteral("Squelch signal strength is unavailable"));
         return;
     }
     const auto previousState = m_receiver->state();
-    applyOperation(previousState, m_receiver->enableAutomaticSquelch());
-}
-
-void ApplicationModel::setAutomaticSquelchEnabled(bool enabled)
-{
-    if (enabled) {
-        enableAutomaticSquelch();
+    const auto threshold = sdr::radio::estimateOneShotSquelchThreshold(
+        std::span<const double>(&*measurement, 1), m_receiver->limits());
+    if (!threshold.has_value()) {
+        setStatusText(QStringLiteral("Squelch signal strength is unavailable"));
+        return;
+    }
+    const auto result = m_receiver->setSquelchLevel(*threshold);
+    notifyStateChanges(previousState, m_receiver->state(), result.succeeded());
+    if (result.succeeded()) {
+        setStatusText(QStringLiteral("Squelch set to %1 dB")
+                          .arg(*threshold, 0, 'f', 0));
     } else {
-        enableManualSquelch();
+        setStatusText(QString::fromStdString(result.message));
     }
 }
 
@@ -3667,6 +3690,9 @@ void ApplicationModel::applyRuntimeSnapshot(
     const bool previousAutomaticPpmCalibrationSupported =
         m_automaticPpmCalibrationSupported;
     const bool previousPpmCalibrationRunning = m_ppmCalibrationRunning;
+    const bool previousAutoSquelchRunning = m_autoSquelchRunning;
+    const bool previousSquelchMeasurementAvailable =
+        m_squelchMeasurementAvailable;
     const QString previousPpmCalibrationStatus =
         m_ppmCalibrationStatus;
     const int previousPpmCalibrationProgressPercent =
@@ -3726,6 +3752,8 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_automaticPpmCalibrationSupported =
         snapshot.automaticPpmCalibrationSupported;
     m_ppmCalibrationRunning = snapshot.ppmCalibrationRunning;
+    m_autoSquelchRunning = snapshot.autoSquelchRunning;
+    m_squelchMeasurementAvailable = snapshot.squelchMeasurementAvailable;
     m_ppmCalibrationStatus = snapshot.ppmCalibrationStatus;
     m_ppmCalibrationProgressPercent =
         snapshot.ppmCalibrationProgressPercent;
@@ -3882,6 +3910,11 @@ void ApplicationModel::applyRuntimeSnapshot(
         resetSpectrumFrame();
         emit waterfallReset();
     }
+    if (previousAutoSquelchRunning != m_autoSquelchRunning ||
+        previousSquelchMeasurementAvailable !=
+            m_squelchMeasurementAvailable) {
+        emit squelchStateChanged();
+    }
     if (previousRequestedGain != m_requestedGainDb) {
         emit requestedGainChanged();
     }
@@ -3905,8 +3938,9 @@ void ApplicationModel::applyRuntimeSnapshot(
         previousAudioUnderrunEvents != m_audioUnderrunEvents) {
         emit audioStateChanged();
     }
-    if (m_runtimeBusy != m_ppmCalibrationRunning) {
-        m_runtimeBusy = m_ppmCalibrationRunning;
+    const bool runtimeBusy = m_ppmCalibrationRunning || m_autoSquelchRunning;
+    if (m_runtimeBusy != runtimeBusy) {
+        m_runtimeBusy = runtimeBusy;
         emit runtimeBusyChanged();
     }
     setStatusText(snapshot.statusText);

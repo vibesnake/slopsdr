@@ -846,8 +846,7 @@ void GnuRadioReceiverBackendTest::updatesModesFiltersAndSquelchWhileRunning()
         sdr::radio::DemodulationMode::Lsb).succeeded());
 
     QVERIFY(receiver.setSquelchLevel(-70.0).succeeded());
-    QVERIFY(receiver.enableAutomaticSquelch().succeeded());
-    QCOMPARE(receiver.state().squelchLevelDb, -94.0);
+    QVERIFY(receiver.squelchSignalStrengthDb().has_value());
     QVERIFY(receiver.disableSquelch().succeeded());
     QVERIFY(receiver.enableManualSquelch().succeeded());
     QCOMPARE(receiver.state().squelchLevelDb, -70.0);

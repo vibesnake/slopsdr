@@ -63,6 +63,8 @@ struct ReceiverRuntimeSnapshot {
     bool mockMode = false;
     bool automaticPpmCalibrationSupported = false;
     bool ppmCalibrationRunning = false;
+    bool autoSquelchRunning = false;
+    bool squelchMeasurementAvailable = false;
     QString ppmCalibrationStatus = QStringLiteral("idle");
     int ppmCalibrationProgressPercent = 0;
     quint64 ppmCalibrationDisplayResetGeneration = 0;
@@ -157,7 +159,7 @@ public slots:
     void setDemodulationMode(int mode);
     void setSquelchLevel(double squelchLevelDb);
     void enableManualSquelch();
-    void enableAutomaticSquelch();
+    void autoSquelch();
     void disableSquelch();
     void applyBookmark(quint64 frequency, double requestedGainDb,
         int demodulationMode, quint64 filterWidth,
@@ -225,7 +227,7 @@ signals:
     void setDemodulationModeRequested(int mode);
     void setSquelchLevelRequested(double squelchLevelDb);
     void enableManualSquelchRequested();
-    void enableAutomaticSquelchRequested();
+    void autoSquelchRequested();
     void disableSquelchRequested();
     void applyBookmarkRequested(quint64 frequency, double requestedGainDb,
         int demodulationMode, quint64 filterWidth,

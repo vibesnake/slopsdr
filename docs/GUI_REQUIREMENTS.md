@@ -164,7 +164,7 @@ must keep all of these visible:
 * Filter width
 * Demodulation mode
 * Squelch level
-* Automatic squelch
+* One-shot Auto squelch button
 * Disable or remove squelch
 * PPM correction
 * Current center frequency
@@ -409,7 +409,7 @@ that starts dragging. The dragged row follows the pointer, edge proximity
 auto-scrolls the list, and Escape cancels without changing the model.
 Double-click and Tune apply available bookmarks through asynchronous receiver
 controls without
-starting a stopped receiver, invoking one-shot Automatic Squelch, or clearing
+starting a stopped receiver, invoking one-shot Auto Squelch, or clearing
 waterfall history. Unknown demodulator bookmarks remain editable but cannot be
 tuned. Bookmark files may omit the squelch fields for legacy data; such
 bookmarks remain loadable and leave the current receiver squelch unchanged.

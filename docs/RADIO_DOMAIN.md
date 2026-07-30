@@ -80,9 +80,8 @@ preference.
 Invalid gain, PPM, filter, and squelch requests are rejected without state
 changes. PPM requests are also rejected when a backend does not advertise
 frequency-correction support. Setting a manual squelch level selects manual
-squelch and saves that threshold. Automatic and disabled squelch are explicit,
-mutually exclusive states; returning from either one to manual restores the
-saved manual threshold.
+squelch and saves that threshold. Disabled squelch remains an explicit state;
+returning to manual restores the saved manual threshold.
 
 ### Automatic PPM calibration
 
@@ -108,20 +107,19 @@ or serial. A saved correction is applied immediately after open and before the
 first normal center tune. No global correction is shared by dongles, and an
 unsuccessful calibration never overwrites the previous saved value.
 
-### Automatic squelch
+### One-shot Auto squelch
 
-The automatic-squelch estimator is deterministic. A backend submits a bounded
-set of recent channel-power measurements in dB. Non-finite samples are removed,
-the remaining samples are sorted, and the sample at
-`floor((count - 1) * 0.20)` is the noise-floor estimate. The opening threshold
-is that estimate plus 6 dB, constrained to the receiver's -160 through 0 dB
-squelch range. New estimates update the active automatic threshold but never
-overwrite the saved manual value.
+Auto is a one-time receiver operation. The runtime samples the smoothed
+post-channel-filter signal-strength measurement used by the power-squelch gate
+for 400 ms, rejects brief spikes with a median, adds 2 dB, and clamps the
+threshold to the receiver's -160 through 0 dB squelch range. It then applies the
+result as the normal manual threshold; no adaptive or continuous mode remains.
+The operation is unavailable while stopped, before a valid measurement exists,
+or while a scanner owns tuning. It never reads FFT display values.
 
-The mock supplies a fixed deterministic measurement set, producing a -95 dB
-threshold. The GNU Radio backend currently uses its configured conservative
--100 dB noise-floor seed, producing a -94 dB threshold; it does not claim
-continuous live hardware noise estimation. No estimation is done in QML.
+The live threshold is persisted like a manual change. A loaded bookmark is not
+modified by Auto; use **Update Bookmark** explicitly to save the new value to
+that bookmark. No estimation is done in QML.
 Disabled squelch applies the backend's fully-open -160 dB threshold and the UI
 labels this state `Disabled (open)`.
 

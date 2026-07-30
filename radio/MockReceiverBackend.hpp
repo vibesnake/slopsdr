@@ -6,6 +6,7 @@
 #include "ReceiverStateModel.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace sdr::radio {
 
@@ -14,6 +15,7 @@ struct MockReceiverConfiguration {
     bool startSucceeds = true;
     bool stopSucceeds = true;
     bool squelchOpen = false;
+    std::optional<double> squelchSignalStrengthDb = -100.0;
 };
 
 class MockReceiverBackend final : public ReceiverBackend
@@ -28,6 +30,8 @@ public:
     [[nodiscard]] const ReceiverState& state() const noexcept override;
     [[nodiscard]] std::uint64_t tuningGeneration() const noexcept override;
     [[nodiscard]] bool squelchOpen() const noexcept override;
+    [[nodiscard]] std::optional<double> squelchSignalStrengthDb()
+        const noexcept override;
     [[nodiscard]] std::optional<SpectrumFrame> takeLatestSpectrumFrame() override;
     [[nodiscard]] SpectrumProcessingMetrics spectrumProcessingMetrics()
         const override;
@@ -52,7 +56,6 @@ public:
     [[nodiscard]] OperationResult setDemodulationMode(DemodulationMode mode) override;
     [[nodiscard]] OperationResult setSquelchLevel(double squelchLevelDb) override;
     [[nodiscard]] OperationResult enableManualSquelch() override;
-    [[nodiscard]] OperationResult enableAutomaticSquelch() override;
     [[nodiscard]] OperationResult disableSquelch() override;
 
 private:

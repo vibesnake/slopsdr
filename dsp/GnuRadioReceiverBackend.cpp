@@ -728,6 +728,70 @@ private:
     double m_peak = 0.0;
 };
 
+class SquelchSignalStrengthState final
+{
+public:
+    void publish(double signalStrengthDb) noexcept
+    {
+        m_latestDb.store(signalStrengthDb, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] std::optional<double> latest() const noexcept
+    {
+        const double value = m_latestDb.load(std::memory_order_relaxed);
+        return std::isfinite(value) ? std::optional<double>(value)
+                                    : std::nullopt;
+    }
+
+private:
+    std::atomic<double> m_latestDb{-std::numeric_limits<double>::infinity()};
+};
+
+class SquelchSignalStrengthSink final : public gr::sync_block
+{
+public:
+    using sptr = std::shared_ptr<SquelchSignalStrengthSink>;
+
+    static sptr make(std::shared_ptr<SquelchSignalStrengthState> state)
+    {
+        return gnuradio::make_block_sptr<SquelchSignalStrengthSink>(
+            std::move(state));
+    }
+
+    explicit SquelchSignalStrengthSink(
+        std::shared_ptr<SquelchSignalStrengthState> state)
+        : gr::sync_block(
+              "squelch_signal_strength",
+              gr::io_signature::make(1, 1, sizeof(gr_complex)),
+              gr::io_signature::make(0, 0, 0))
+        , m_state(std::move(state))
+    {
+    }
+
+    int work(
+        int itemCount,
+        gr_vector_const_void_star& inputItems,
+        gr_vector_void_star&) override
+    {
+        const auto* input = static_cast<const gr_complex*>(inputItems.front());
+        double sumPower = 0.0;
+        for (int index = 0; index < itemCount; ++index) {
+            sumPower += std::norm(input[index]);
+        }
+        if (itemCount > 0 && std::isfinite(sumPower) && sumPower > 0.0) {
+            const double meanPower = sumPower / static_cast<double>(itemCount);
+            const double signalStrengthDb = 10.0 * std::log10(meanPower);
+            if (std::isfinite(signalStrengthDb)) {
+                m_state->publish(signalStrengthDb);
+            }
+        }
+        return itemCount;
+    }
+
+private:
+    std::shared_ptr<SquelchSignalStrengthState> m_state;
+};
+
 class SpectrumWindowGenerator final : public gr::block
 {
 public:
@@ -1092,6 +1156,9 @@ public:
                   translationOffsetHz(state),
                   static_cast<double>(effectiveSampleRate)))
             , squelch(gr::analog::pwr_squelch_cc::make(squelchThresholdDb(state)))
+            , squelchSignalStrength(std::make_shared<SquelchSignalStrengthState>())
+            , squelchMeasurement(SquelchSignalStrengthSink::make(
+                  squelchSignalStrength))
             , demodulationInputSelector(gr::blocks::selector::make(
                   sizeof(gr_complex),
                   0,
@@ -1253,6 +1320,7 @@ public:
 
             topBlock->connect(widebandSource, 0, channelFilter, 0);
             topBlock->connect(channelFilter, 0, squelch, 0);
+            topBlock->connect(channelFilter, 0, squelchMeasurement, 0);
             topBlock->connect(squelch, 0, demodulationInputSelector, 0);
             topBlock->connect(demodulationInputSelector, 0, amAgc, 0);
             topBlock->connect(amAgc, 0, amDemodulator, 0);
@@ -1462,6 +1530,12 @@ public:
             return squelch->unmuted();
         }
 
+        [[nodiscard]] std::optional<double> squelchSignalStrengthDb()
+            const noexcept
+        {
+            return squelchSignalStrength->latest();
+        }
+
         void updateOutputRouteForMode(radio::DemodulationMode mode)
         {
             outputRouter->set_output_index(
@@ -1649,6 +1723,8 @@ public:
         CaptureMetadataTagger::sptr captureMetadataTagger;
         gr::filter::freq_xlating_fir_filter_ccc::sptr channelFilter;
         gr::analog::pwr_squelch_cc::sptr squelch;
+        std::shared_ptr<SquelchSignalStrengthState> squelchSignalStrength;
+        SquelchSignalStrengthSink::sptr squelchMeasurement;
         gr::blocks::selector::sptr demodulationInputSelector;
         gr::analog::agc3_cc::sptr amAgc;
         gr::blocks::complex_to_mag::sptr amDemodulator;
@@ -1964,6 +2040,12 @@ std::uint64_t GnuRadioReceiverBackend::tuningGeneration() const noexcept
 bool GnuRadioReceiverBackend::squelchOpen() const noexcept
 {
     return m_impl->flowgraph->squelchOpen();
+}
+
+std::optional<double> GnuRadioReceiverBackend::squelchSignalStrengthDb()
+    const noexcept
+{
+    return m_impl->flowgraph->squelchSignalStrengthDb();
 }
 
 std::optional<radio::SpectrumFrame> GnuRadioReceiverBackend::takeLatestSpectrumFrame()
@@ -2508,17 +2590,6 @@ radio::OperationResult GnuRadioReceiverBackend::setSquelchLevel(
     return m_impl->apply(
         [squelchLevelDb](radio::ReceiverStateModel& model) {
             return model.setSquelchLevel(squelchLevelDb);
-        },
-        [](Impl::Flowgraph& flowgraph, const radio::ReceiverState& state) {
-            flowgraph.updateSquelch(state);
-        });
-}
-
-radio::OperationResult GnuRadioReceiverBackend::enableAutomaticSquelch()
-{
-    return m_impl->apply(
-        [](radio::ReceiverStateModel& model) {
-            return model.enableAutomaticSquelch();
         },
         [](Impl::Flowgraph& flowgraph, const radio::ReceiverState& state) {
             flowgraph.updateSquelch(state);
