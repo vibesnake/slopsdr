@@ -5,13 +5,13 @@ cmake_minimum_required(VERSION 3.22)
 
 project(
     slopsdr
-    VERSION 0.10.3
+    VERSION 0.10.4
     DESCRIPTION "slopSDR software-defined radio receiver"
     LANGUAGES CXX
 )
 
 set(SDR_RECEIVER_VERSION_SUFFIX "")
-set(SDR_RECEIVER_RELEASE_DATE "2026-07-29")
+set(SDR_RECEIVER_RELEASE_DATE "2026-07-30")
 
 include(GNUInstallDirs)
 
