@@ -3107,17 +3107,37 @@ ApplicationWindow {
                         CheckBox {
                             objectName: "skipQuietRecordingPartsCheckBox"
                             Layout.fillWidth: true
+                            implicitHeight: root.controlHeight
+                            spacing: 8
                             text: qsTr("Skip quiet parts")
                             checked: root.applicationModel.skipQuietRecordingParts
                             onToggled: root.applicationModel.skipQuietRecordingParts = checked
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled
+                                       ? root.primaryTextColor
+                                       : root.secondaryTextColor
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
 
                         CheckBox {
                             objectName: "recordScannerActivityCheckBox"
                             Layout.fillWidth: true
+                            implicitHeight: root.controlHeight
+                            spacing: 8
                             text: qsTr("Record scanner activity")
                             checked: root.applicationModel.recordScannerActivity
                             onToggled: root.applicationModel.recordScannerActivity = checked
+
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.enabled
+                                       ? root.primaryTextColor
+                                       : root.secondaryTextColor
+                                verticalAlignment: Text.AlignVCenter
+                            }
                         }
 
                         RowLayout {
