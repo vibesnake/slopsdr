@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QJsonDocument>
 #include <QSignalSpy>
 #include <QSettings>
 #include <QThread>
@@ -813,6 +814,7 @@ private slots:
     void stopsBackendAndJoinsWorkerDuringShutdown();
     void recordsMutedAudioAcrossRetunesAndFinalizesOnStop();
     void armsQuietSkippingRecordingAcrossScannerAndRetunes();
+    void recordsScannerActivityWithSidecarAlongsideManualRecording();
 
 private:
     QTemporaryDir m_settingsDirectory;
@@ -2727,6 +2729,66 @@ void ReceiverRuntimeTest::armsQuietSkippingRecordingAcrossScannerAndRetunes()
     const QByteArray bytes = file.readAll();
     QCOMPARE(bytes.size(), 48);
     QCOMPARE(bytes.mid(44, 2), QByteArray::fromHex("0040"));
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::recordsScannerActivityWithSidecarAlongsideManualRecording()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware, factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.deviceDisplayNames().size() == 2; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+    model.setRecordingsFolder(recordings.path());
+    model.setRecordingPreRollSeconds(0);
+    model.setRecordingTailSeconds(0);
+    model.startAudioRecording();
+    QVERIFY(waitUntil([&model] { return model.recordingActive(); }));
+    model.setRecordScannerActivity(true);
+    model.setScanLowerFrequency(99'400'000);
+    model.setScanUpperFrequency(99'500'000);
+    model.setScanStepSize(50'000);
+    model.startScan();
+    QVERIFY(waitUntil([&model] { return model.scannerOwnsTuning(); }));
+    QVERIFY(waitUntil([&model] { return model.scannerRecordingArmed(); }));
+    trace->recordingSquelchOpen.store(true);
+    {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        trace->recordingAudioSamples = {0.5F};
+    }
+    QVERIFY(waitUntil([&model] { return model.scannerRecordingWriting(); }));
+    trace->recordingSquelchOpen.store(false);
+    {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        trace->recordingAudioSamples = {0.1F};
+    }
+    QVERIFY(waitUntil([&model] { return model.scannerRecordingArmed(); }));
+    QVERIFY(model.recordingActive());
+    model.stopScan();
+    QVERIFY(waitUntil([&model] { return !model.scannerOwnsTuning(); }));
+    model.stopAudioRecording();
+    QVERIFY(waitUntil([&model] { return !model.recordingActive(); }));
+    const QStringList sidecars = QDir(recordings.path()).entryList(
+        {QStringLiteral("*_scanner-filtered-audio.json")}, QDir::Files);
+    QCOMPARE(sidecars.size(), 1);
+    QFile sidecar(recordings.filePath(sidecars.front()));
+    QVERIFY(sidecar.open(QIODevice::ReadOnly));
+    const auto json = QJsonDocument::fromJson(sidecar.readAll()).object();
+    QVERIFY(json.contains(QStringLiteral("start_time")));
+    QVERIFY(json.contains(QStringLiteral("end_time")));
+    QVERIFY(json.value(QStringLiteral("listening_frequency_hz")).toInteger() > 0);
+    QVERIFY(!json.value(QStringLiteral("mode")).toString().isEmpty());
+    QVERIFY(!json.value(QStringLiteral("scanner_source")).toString().isEmpty());
+    QCOMPARE(json.value(QStringLiteral("wav_format")).toObject()
+                 .value(QStringLiteral("channels")).toInt(), 2);
+    QVERIFY(json.value(QStringLiteral("duration_seconds")).toDouble() > 0.0);
+    QCOMPARE(QDir(recordings.path()).entryList(
+                 {QStringLiteral("*.wav")}, QDir::Files).size(), 2);
     runtime.shutdown();
 }
 

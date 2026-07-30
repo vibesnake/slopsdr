@@ -1416,11 +1416,13 @@ void ApplicationModelTest::persistsAndValidatesRecordingsFolder()
     const QString skipKey = QStringLiteral("recording/skipQuietParts");
     const QString preRollKey = QStringLiteral("recording/preRollSeconds");
     const QString tailKey = QStringLiteral("recording/tailSeconds");
+    const QString scannerKey = QStringLiteral("recording/scannerActivity");
     QSettings settings;
     settings.remove(key);
     settings.remove(skipKey);
     settings.remove(preRollKey);
     settings.remove(tailKey);
+    settings.remove(scannerKey);
     settings.sync();
 
     QTemporaryDir directory;
@@ -1437,9 +1439,11 @@ void ApplicationModelTest::persistsAndValidatesRecordingsFolder()
         QVERIFY(!model.skipQuietRecordingParts());
         QCOMPARE(model.recordingPreRollSeconds(), 1);
         QCOMPARE(model.recordingTailSeconds(), 2);
+        QVERIFY(!model.recordScannerActivity());
         model.setSkipQuietRecordingParts(true);
         model.setRecordingPreRollSeconds(99);
         model.setRecordingTailSeconds(-2);
+        model.setRecordScannerActivity(true);
     }
     {
         ApplicationModel restored;
@@ -1448,6 +1452,7 @@ void ApplicationModelTest::persistsAndValidatesRecordingsFolder()
         QVERIFY(restored.skipQuietRecordingParts());
         QCOMPARE(restored.recordingPreRollSeconds(), 10);
         QCOMPARE(restored.recordingTailSeconds(), 0);
+        QVERIFY(restored.recordScannerActivity());
         restored.setRecordingsFolder(invalidPath);
         QCOMPARE(restored.recordingsFolderStatus(),
                  QStringLiteral("Folder does not exist"));
@@ -1457,6 +1462,7 @@ void ApplicationModelTest::persistsAndValidatesRecordingsFolder()
     settings.remove(skipKey);
     settings.remove(preRollKey);
     settings.remove(tailKey);
+    settings.remove(scannerKey);
     settings.sync();
 }
 

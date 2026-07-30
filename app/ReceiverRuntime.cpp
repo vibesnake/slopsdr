@@ -17,6 +17,10 @@
 #include <QMetaObject>
 #include <QSettings>
 #include <QTimer>
+#include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
 
 #include <algorithm>
 #include <array>
@@ -520,6 +524,7 @@ public slots:
         if (m_recording) {
             m_recording->stop();
         }
+        finalizeScannerRecording();
         m_backend.reset();
         m_audioOutput.reset();
         m_dsdFme.reset();
@@ -819,6 +824,7 @@ public slots:
         if (m_recording) {
             m_recording->stop();
         }
+        finalizeScannerRecording();
         if (!m_backend) {
             if (m_dsdFme) {
                 m_dsdFme->stop();
@@ -945,6 +951,26 @@ public slots:
             m_lastPublishedRecordingElapsedSeconds = state.elapsedSeconds;
             m_statusText = QString::fromStdString(state.statusText);
             log(state.failed ? 3 : 1, QStringLiteral("Recording"), m_statusText);
+        }
+        publishSnapshot(true);
+    }
+
+    void setScannerActivityRecording(
+        const ScannerActivityRecordingRequest& request)
+    {
+        const bool usable = request.enabled && request.scannerActive &&
+                            !request.directory.trimmed().isEmpty() &&
+                            m_backend && m_backend->state().running;
+        const bool targetChanged = m_scannerRecordingRequest.frequencyHz !=
+                                       request.frequencyHz ||
+                                   m_scannerRecordingRequest.bookmarkIdentifier !=
+                                       request.bookmarkIdentifier;
+        if (!usable || targetChanged) {
+            finalizeScannerRecording();
+        }
+        m_scannerRecordingRequest = request;
+        if (usable && !m_scannerRecording->state().active) {
+            startScannerRecording();
         }
         publishSnapshot(true);
     }
@@ -2575,6 +2601,7 @@ private:
                 m_recording->enqueueStereo(decoded, m_backend->squelchOpen());
                 publishRecordingStateIfChanged();
             }
+            serviceScannerRecording(decoded, m_backend->squelchOpen(), true);
             if (m_audioOutput) {
                 m_audioOutput->enqueueStereo(decoded);
             }
@@ -2591,6 +2618,7 @@ private:
                 m_recording->enqueueMono(audio, m_backend->squelchOpen());
                 publishRecordingStateIfChanged();
             }
+            serviceScannerRecording(audio, m_backend->squelchOpen(), false);
             if (m_audioOutput) {
                 m_audioOutput->enqueueMono(audio);
             }
@@ -2634,6 +2662,96 @@ private:
             m_lastPublishedRecordingWriting = state.writing;
             m_lastPublishedRecordingElapsedSeconds = state.elapsedSeconds;
             publishSnapshot(true);
+        }
+    }
+
+    void startScannerRecording()
+    {
+        const bool started = m_scannerRecording->start({
+            .directory = std::filesystem::path(
+                m_scannerRecordingRequest.directory.toStdString()),
+            .frequencyHz = m_scannerRecordingRequest.frequencyHz,
+            .modeName = m_scannerRecordingRequest.modeName.toStdString(),
+            .scannerActivity = true,
+            .skipQuietParts = true,
+            .preRollSeconds = static_cast<std::uint32_t>(std::clamp(
+                m_scannerRecordingRequest.preRollSeconds, 0, 10)),
+            .tailSeconds = static_cast<std::uint32_t>(std::clamp(
+                m_scannerRecordingRequest.tailSeconds, 0, 30)),
+        });
+        if (started) {
+            m_scannerClipStartedAt = QDateTime::currentDateTimeUtc();
+            m_scannerClipWriting = false;
+        } else {
+            log(3, QStringLiteral("Scanner recording"),
+                QString::fromStdString(m_scannerRecording->state().statusText));
+        }
+    }
+
+    void serviceScannerRecording(std::span<const float> samples,
+        bool voiceOpen, bool stereo)
+    {
+        if (!m_scannerRecording->state().active || samples.empty()) {
+            return;
+        }
+        if (stereo) {
+            m_scannerRecording->enqueueStereo(samples, voiceOpen);
+        } else {
+            m_scannerRecording->enqueueMono(samples, voiceOpen);
+        }
+        const auto state = m_scannerRecording->state();
+        if (state.writing && !m_scannerClipWriting) {
+            m_scannerClipStartedAt = QDateTime::currentDateTimeUtc();
+            m_scannerClipWriting = true;
+        }
+        if (state.failed) {
+            log(3, QStringLiteral("Scanner recording"),
+                QString::fromStdString(state.statusText));
+            finalizeScannerRecording();
+        } else if (!state.writing && state.writtenFrames > 0) {
+            finalizeScannerRecording();
+            if (m_scannerRecordingRequest.enabled &&
+                m_scannerRecordingRequest.scannerActive) {
+                startScannerRecording();
+            }
+        }
+    }
+
+    void finalizeScannerRecording()
+    {
+        if (!m_scannerRecording || !m_scannerRecording->state().active) {
+            return;
+        }
+        m_scannerRecording->stop();
+        const auto state = m_scannerRecording->state();
+        if (state.writtenFrames == 0) {
+            std::error_code error;
+            std::filesystem::remove(state.filePath, error);
+            return;
+        }
+        QJsonObject format{{QStringLiteral("sample_rate_hz"), 48000},
+            {QStringLiteral("channels"), 2},
+            {QStringLiteral("bits_per_sample"), 16}};
+        QJsonObject sidecar{{QStringLiteral("start_time"),
+                                m_scannerClipStartedAt.toString(Qt::ISODateWithMs)},
+            {QStringLiteral("end_time"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+            {QStringLiteral("listening_frequency_hz"),
+                static_cast<qint64>(m_scannerRecordingRequest.frequencyHz)},
+            {QStringLiteral("mode"), m_scannerRecordingRequest.modeName},
+            {QStringLiteral("scanner_source"), m_scannerRecordingRequest.source},
+            {QStringLiteral("bookmark_name"), m_scannerRecordingRequest.bookmarkName},
+            {QStringLiteral("bookmark_identifier"), m_scannerRecordingRequest.bookmarkIdentifier},
+            {QStringLiteral("wav_format"), format},
+            {QStringLiteral("duration_seconds"),
+                static_cast<double>(state.writtenFrames) / 48'000.0}};
+        auto sidecarPath = state.filePath;
+        sidecarPath.replace_extension(".json");
+        QSaveFile file(QString::fromStdString(sidecarPath.string()));
+        if (!file.open(QIODevice::WriteOnly) ||
+            file.write(QJsonDocument(sidecar).toJson(QJsonDocument::Compact)) < 0 ||
+            !file.commit()) {
+            log(3, QStringLiteral("Scanner recording"),
+                QStringLiteral("Could not write scanner recording sidecar"));
         }
     }
 
@@ -3006,6 +3124,12 @@ private:
             snapshot.recordingStatusText = QString::fromStdString(recording.statusText);
             snapshot.recordingFilePath = QString::fromStdString(recording.filePath.string());
         }
+        if (m_scannerRecording) {
+            const auto scannerRecording = m_scannerRecording->state();
+            snapshot.scannerRecordingArmed = scannerRecording.active &&
+                                            !scannerRecording.writing;
+            snapshot.scannerRecordingWriting = scannerRecording.writing;
+        }
         snapshot.deviceState = m_deviceState;
         snapshot.backendDescription = m_backendDescription;
         snapshot.statusText = m_statusText;
@@ -3115,6 +3239,11 @@ private:
     std::unique_ptr<platform::AudioOutputService> m_audioOutput;
     std::unique_ptr<platform::WavRecordingService> m_recording =
         std::make_unique<platform::WavRecordingService>();
+    std::unique_ptr<platform::WavRecordingService> m_scannerRecording =
+        std::make_unique<platform::WavRecordingService>();
+    ScannerActivityRecordingRequest m_scannerRecordingRequest;
+    QDateTime m_scannerClipStartedAt;
+    bool m_scannerClipWriting = false;
     bool m_lastPublishedRecordingWriting = false;
     quint64 m_lastPublishedRecordingElapsedSeconds = 0;
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
@@ -3202,6 +3331,7 @@ ReceiverRuntime::ReceiverRuntime(
           verboseAudioMetrics))
 {
     qRegisterMetaType<ReceiverRuntimeSnapshot>();
+    qRegisterMetaType<ScannerActivityRecordingRequest>();
     m_worker->moveToThread(&m_workerThread);
 
     connect(
@@ -3259,6 +3389,12 @@ ReceiverRuntime::ReceiverRuntime(
         &ReceiverRuntime::stopAudioRecordingRequested,
         m_worker,
         &Worker::stopAudioRecording,
+        Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::setScannerActivityRecordingRequested,
+        m_worker,
+        &Worker::setScannerActivityRecording,
         Qt::QueuedConnection);
     connect(
         this,
@@ -3583,6 +3719,12 @@ void ReceiverRuntime::startAudioRecording(const QString& directory,
 void ReceiverRuntime::stopAudioRecording()
 {
     emit stopAudioRecordingRequested();
+}
+
+void ReceiverRuntime::setScannerActivityRecording(
+    const ScannerActivityRecordingRequest& request)
+{
+    emit setScannerActivityRecordingRequested(request);
 }
 
 void ReceiverRuntime::setDsdFmeBinaryPath(const QString& path)

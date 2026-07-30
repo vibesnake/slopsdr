@@ -30,6 +30,9 @@ across scanner and manual retunes. Choose the persistent recordings folder in
 **Settings**. Optional **Skip quiet parts** arms a recording until the receiver
 squelch opens, then saves bounded pre-roll and a configurable tail in the same
 WAV while omitting longer quiet gaps.
+When **Record scanner activity** is enabled, scanner squelch activity is saved
+as separate filtered-audio WAV clips with JSON sidecars describing the target,
+mode, scanner source, and clip duration.
 Analog reception is supported in AM, NFM, WFM, USB, and LSB. DMR/P25 remains
 experimental and requires a separately installed DSD-FME executable; it is not
 the focus of this stable release.

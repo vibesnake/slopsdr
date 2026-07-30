@@ -321,6 +321,14 @@ reception or playback. Recording remains active across manual and scanner
 retunes and finalizes on receiver stop or application shutdown. Settings keeps
 a persistent writable recordings folder, browse/open-folder actions, and clear
 validation text; it does not add a sidebar pane.
+The Recording settings also offers disabled-by-default **Record scanner
+activity**. While a scanner owns tuning it arms independent per-activity clips;
+the footer shows **SCAN REC ARMED** while waiting and red **SCAN REC** while
+writing. Scanner clips use the same bounded pre-roll and tail rules as manual
+quiet skipping, split before a different target, coexist with manual recording,
+and finalize on scanner stop or shutdown. Each completed scanner WAV has a
+sanitized, non-overwriting scanner filename and JSON sidecar with timing,
+target, mode, scanner/bookmark source, WAV format, and duration.
 
 Receiver Controls reserves the filter-width selector's widest supported text
 and keeps normal state/value changes from changing the pane geometry. Detailed

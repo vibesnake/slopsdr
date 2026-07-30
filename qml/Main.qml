@@ -3112,6 +3112,14 @@ ApplicationWindow {
                             onToggled: root.applicationModel.skipQuietRecordingParts = checked
                         }
 
+                        CheckBox {
+                            objectName: "recordScannerActivityCheckBox"
+                            Layout.fillWidth: true
+                            text: qsTr("Record scanner activity")
+                            checked: root.applicationModel.recordScannerActivity
+                            onToggled: root.applicationModel.recordScannerActivity = checked
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
@@ -4391,6 +4399,18 @@ ApplicationWindow {
                 text: root.applicationModel.recordingElapsedText
                 color: root.applicationModel.recordingWriting
                        ? "#fecaca" : root.secondaryTextColor
+                font.pixelSize: 10
+            }
+
+            Label {
+                objectName: "scannerRecordingStatusLabel"
+                visible: root.applicationModel.scannerRecordingArmed
+                         || root.applicationModel.scannerRecordingWriting
+                text: root.applicationModel.scannerRecordingWriting
+                      ? qsTr("SCAN REC") : qsTr("SCAN REC ARMED")
+                color: root.applicationModel.scannerRecordingWriting
+                       ? "#fecaca" : root.secondaryTextColor
+                font.bold: true
                 font.pixelSize: 10
             }
 

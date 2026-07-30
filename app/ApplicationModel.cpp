@@ -85,6 +85,7 @@ constexpr auto recordingsFolderSetting = "recording/folder";
 constexpr auto skipQuietRecordingPartsSetting = "recording/skipQuietParts";
 constexpr auto recordingPreRollSecondsSetting = "recording/preRollSeconds";
 constexpr auto recordingTailSecondsSetting = "recording/tailSeconds";
+constexpr auto recordScannerActivitySetting = "recording/scannerActivity";
 constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
 constexpr double defaultSettingsPanelWidth = 320.0;
@@ -844,6 +845,7 @@ void ApplicationModel::restorePersistedDisplaySettings()
         settings.value(recordingPreRollSecondsSetting, 1).toInt(), 0, 10);
     m_recordingTailSeconds = std::clamp(
         settings.value(recordingTailSecondsSetting, 2).toInt(), 0, 30);
+    m_recordScannerActivity = settings.value(recordScannerActivitySetting, false).toBool();
 }
 
 void ApplicationModel::restorePersistedScanSettings()
@@ -1628,6 +1630,11 @@ int ApplicationModel::recordingTailSeconds() const noexcept
     return m_recordingTailSeconds;
 }
 
+bool ApplicationModel::recordScannerActivity() const noexcept
+{
+    return m_recordScannerActivity;
+}
+
 QVariantList ApplicationModel::bookmarkDemodulators() const
 {
     QVariantList options;
@@ -1924,6 +1931,16 @@ bool ApplicationModel::recordingActive() const noexcept
 bool ApplicationModel::recordingWriting() const noexcept
 {
     return m_recordingWriting;
+}
+
+bool ApplicationModel::scannerRecordingArmed() const noexcept
+{
+    return m_scannerRecordingArmed;
+}
+
+bool ApplicationModel::scannerRecordingWriting() const noexcept
+{
+    return m_scannerRecordingWriting;
 }
 
 bool ApplicationModel::recordingCanStart() const noexcept
@@ -3291,6 +3308,7 @@ void ApplicationModel::setRecordingsFolder(const QString& path)
     m_recordingsFolderStatus = status;
     m_recordingsFolderValid = valid;
     QSettings().setValue(recordingsFolderSetting, m_recordingsFolder);
+    syncScannerActivityRecording();
     emit recordingsFolderChanged();
     emit recordingStateChanged();
 }
@@ -3314,6 +3332,7 @@ void ApplicationModel::setRecordingPreRollSeconds(int seconds)
     if (m_recordingPreRollSeconds == clamped) return;
     m_recordingPreRollSeconds = clamped;
     QSettings().setValue(recordingPreRollSecondsSetting, clamped);
+    syncScannerActivityRecording();
     emit recordingSettingsChanged();
 }
 
@@ -3323,6 +3342,16 @@ void ApplicationModel::setRecordingTailSeconds(int seconds)
     if (m_recordingTailSeconds == clamped) return;
     m_recordingTailSeconds = clamped;
     QSettings().setValue(recordingTailSecondsSetting, clamped);
+    syncScannerActivityRecording();
+    emit recordingSettingsChanged();
+}
+
+void ApplicationModel::setRecordScannerActivity(bool enabled)
+{
+    if (m_recordScannerActivity == enabled) return;
+    m_recordScannerActivity = enabled;
+    QSettings().setValue(recordScannerActivitySetting, enabled);
+    syncScannerActivityRecording();
     emit recordingSettingsChanged();
 }
 
@@ -3923,6 +3952,8 @@ void ApplicationModel::applyRuntimeSnapshot(
     const quint64 previousAudioUnderrunEvents = m_audioUnderrunEvents;
     const bool previousRecordingActive = m_recordingActive;
     const bool previousRecordingWriting = m_recordingWriting;
+    const bool previousScannerRecordingArmed = m_scannerRecordingArmed;
+    const bool previousScannerRecordingWriting = m_scannerRecordingWriting;
     const bool previousRecordingFailed = m_recordingFailed;
     const quint64 previousRecordingElapsedSeconds = m_recordingElapsedSeconds;
     const quint64 previousRecordingDroppedFrames = m_recordingDroppedFrames;
@@ -3990,6 +4021,8 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_audioUnderrunEvents = snapshot.audioUnderrunEvents;
     m_recordingActive = snapshot.recordingActive;
     m_recordingWriting = snapshot.recordingWriting;
+    m_scannerRecordingArmed = snapshot.scannerRecordingArmed;
+    m_scannerRecordingWriting = snapshot.scannerRecordingWriting;
     m_recordingFailed = snapshot.recordingFailed;
     m_recordingElapsedSeconds = snapshot.recordingElapsedSeconds;
     m_recordingDroppedFrames = snapshot.recordingDroppedFrames;
@@ -4179,6 +4212,8 @@ void ApplicationModel::applyRuntimeSnapshot(
     }
     if (previousRecordingActive != m_recordingActive ||
         previousRecordingWriting != m_recordingWriting ||
+        previousScannerRecordingArmed != m_scannerRecordingArmed ||
+        previousScannerRecordingWriting != m_scannerRecordingWriting ||
         previousRecordingFailed != m_recordingFailed ||
         previousRecordingElapsedSeconds != m_recordingElapsedSeconds ||
         previousRecordingDroppedFrames != m_recordingDroppedFrames ||
@@ -5569,6 +5604,7 @@ void ApplicationModel::tuneScannerTo(quint64 frequency)
 
 void ApplicationModel::notifyScanCurrentFrequencyChanged()
 {
+    syncScannerActivityRecording();
     if (m_bookmarkScanSession) {
         emit bookmarkScannerChanged();
         return;
@@ -5579,6 +5615,42 @@ void ApplicationModel::notifyScanCurrentFrequencyChanged()
     }
     m_lastNotifiedScanCurrentFrequency = frequency;
     emit scanCurrentFrequencyChanged();
+}
+
+void ApplicationModel::syncScannerActivityRecording()
+{
+    if (!m_runtime) return;
+    sdr::app::ScannerActivityRecordingRequest request;
+    request.scannerActive = scannerOwnsTuning();
+    request.enabled = m_recordScannerActivity && m_recordingsFolderValid;
+    request.directory = m_recordingsFolder;
+    request.preRollSeconds = m_recordingPreRollSeconds;
+    request.tailSeconds = m_recordingTailSeconds;
+    request.modeName = demodulationModeName();
+    if (m_bookmarkScanSession) {
+        request.source = QStringLiteral("bookmark");
+        const auto index = static_cast<std::size_t>(m_scanner.currentFrequency());
+        if (index < m_bookmarkScanBookmarks.size()) {
+            const auto& entry = m_bookmarkScanBookmarks[index];
+            request.frequencyHz = entry.bookmark.listeningFrequency;
+            request.bookmarkName = entry.bookmark.name;
+            request.bookmarkIdentifier = entry.uuid;
+            if (const auto mode = sdr::radio::DemodulatorRegistry::resolve(
+                    entry.bookmark.demodulatorId.toStdString())) {
+                if (const auto* descriptor =
+                        sdr::radio::DemodulatorRegistry::findByMode(*mode)) {
+                    request.modeName = QString::fromStdString(
+                        std::string(descriptor->displayName));
+                }
+            }
+        }
+    } else {
+        request.frequencyHz = m_scanner.currentFrequency();
+        request.source = m_scanTypeIndex == wideRangeScanTypeIndex
+                             ? QStringLiteral("wide-range")
+                             : QStringLiteral("current-passband");
+    }
+    m_runtime->setScannerActivityRecording(request);
 }
 
 void ApplicationModel::scannerDwellElapsed()
@@ -5813,6 +5885,10 @@ void ApplicationModel::beginScannerAfterCentering(
 
 void ApplicationModel::stopScanner(const QString& status)
 {
+    if (m_runtime) {
+        sdr::app::ScannerActivityRecordingRequest request;
+        m_runtime->setScannerActivityRecording(request);
+    }
     const bool stoppedBookmarkScanner = m_bookmarkScanSession;
     m_scanDwellTimer.stop();
     m_scanResumeTimer.stop();

@@ -178,7 +178,9 @@ std::filesystem::path WavRecordingService::makeUniquePath(
     std::ostringstream name;
     name << std::put_time(&local, "%Y%m%d_%H%M%S") << '_'
          << request.frequencyHz << "Hz_"
-         << sanitizeName(request.modeName) << "_filtered-audio";
+         << sanitizeName(request.modeName)
+         << (request.scannerActivity ? "_scanner-filtered-audio"
+                                     : "_filtered-audio");
     const std::filesystem::path base = request.directory / name.str();
     std::filesystem::path candidate = base;
     candidate += ".wav";

@@ -25,6 +25,19 @@
 
 namespace sdr::app {
 
+struct ScannerActivityRecordingRequest {
+    bool scannerActive = false;
+    bool enabled = false;
+    QString directory;
+    int preRollSeconds = 1;
+    int tailSeconds = 2;
+    quint64 frequencyHz = 0;
+    QString modeName;
+    QString source;
+    QString bookmarkName;
+    QString bookmarkIdentifier;
+};
+
 struct ReceiverRuntimeSnapshot {
     radio::ReceiverState receiverState;
     radio::ReceiverLimits receiverLimits;
@@ -84,6 +97,8 @@ struct ReceiverRuntimeSnapshot {
     quint64 recordingDroppedFrames = 0;
     QString recordingStatusText = QStringLiteral("Recording idle");
     QString recordingFilePath;
+    bool scannerRecordingArmed = false;
+    bool scannerRecordingWriting = false;
     quint64 audioOverflowEvents = 0;
     quint64 audioUnderrunEvents = 0;
     quintptr workerThreadToken = 0;
@@ -152,6 +167,8 @@ public slots:
     void startAudioRecording(const QString& directory, bool skipQuietParts,
         int preRollSeconds, int tailSeconds);
     void stopAudioRecording();
+    void setScannerActivityRecording(
+        const sdr::app::ScannerActivityRecordingRequest& request);
     void setDsdFmeBinaryPath(const QString& path);
     void startReception();
     void stopReception();
@@ -224,6 +241,8 @@ signals:
     void startAudioRecordingRequested(const QString& directory, bool skipQuietParts,
         int preRollSeconds, int tailSeconds);
     void stopAudioRecordingRequested();
+    void setScannerActivityRecordingRequested(
+        const sdr::app::ScannerActivityRecordingRequest& request);
     void setDsdFmeBinaryPathRequested(const QString& path);
     void startReceptionRequested();
     void stopReceptionRequested();
@@ -298,3 +317,4 @@ private:
 }  // namespace sdr::app
 
 Q_DECLARE_METATYPE(sdr::app::ReceiverRuntimeSnapshot)
+Q_DECLARE_METATYPE(sdr::app::ScannerActivityRecordingRequest)

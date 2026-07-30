@@ -22,6 +22,7 @@ struct WavRecordingRequest {
     std::filesystem::path directory;
     std::uint64_t frequencyHz = 0;
     std::string modeName;
+    bool scannerActivity = false;
     bool skipQuietParts = false;
     std::uint32_t preRollSeconds = 1;
     std::uint32_t tailSeconds = 2;
