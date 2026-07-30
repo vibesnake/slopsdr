@@ -3,46 +3,15 @@
 
 #include "SpectrumAverager.hpp"
 
-#include "SpectrumAmplitudeScale.hpp"
-
 #include <algorithm>
 #include <cmath>
 
 namespace sdr::gui {
 namespace {
 
-constexpr double minimumTimeConstantSeconds = 0.080;
-constexpr double maximumTimeConstantSeconds = 4.0;
+constexpr double minimumTimeConstantSeconds = 0.008;
+constexpr double maximumTimeConstantSeconds = 1.8;
 constexpr double nanosecondsPerSecond = 1'000'000'000.0;
-
-float linearPowerForNormalizedSpectrum(float normalizedMagnitude) noexcept
-{
-    const float safeNormalized = std::isfinite(normalizedMagnitude)
-                                     ? std::clamp(
-                                           normalizedMagnitude, 0.0F, 1.0F)
-                                     : 0.0F;
-    const float dbfs = normalizedSpectrumFloorDbfs +
-                       safeNormalized *
-                           (normalizedSpectrumCeilingDbfs -
-                            normalizedSpectrumFloorDbfs);
-    return std::pow(10.0F, dbfs / 10.0F);
-}
-
-float normalizedSpectrumForLinearPower(float linearPower) noexcept
-{
-    const float floorPower =
-        std::pow(10.0F, normalizedSpectrumFloorDbfs / 10.0F);
-    const float safePower = std::isfinite(linearPower)
-                                ? std::clamp(linearPower, floorPower, 1.0F)
-                                : floorPower;
-    const float dbfs = 10.0F * std::log10(safePower);
-    return std::clamp(
-        (dbfs - normalizedSpectrumFloorDbfs) /
-            (normalizedSpectrumCeilingDbfs -
-             normalizedSpectrumFloorDbfs),
-        0.0F,
-        1.0F);
-}
 
 }  // namespace
 
@@ -69,8 +38,7 @@ void SpectrumAverager::setStrength(int strength) noexcept
 void SpectrumAverager::reset() noexcept
 {
     m_metadata = {};
-    m_linearPowerAccumulator.clear();
-    m_normalizedOutput.clear();
+    m_normalizedAccumulator.clear();
 }
 
 std::span<const float> SpectrumAverager::process(
@@ -92,10 +60,10 @@ std::span<const float> SpectrumAverager::process(
         metadata.timestampNanoseconds == 0 ||
         m_metadata.timestampNanoseconds == 0) {
         initialize(normalizedMagnitudes, metadata);
-        return m_normalizedOutput;
+        return m_normalizedAccumulator;
     }
     if (metadata.timestampNanoseconds <= m_metadata.timestampNanoseconds) {
-        return m_normalizedOutput;
+        return m_normalizedAccumulator;
     }
 
     const double elapsedSeconds =
@@ -108,35 +76,37 @@ std::span<const float> SpectrumAverager::process(
     const float newFrameWeight = static_cast<float>(
         1.0 - std::exp(-elapsedSeconds / timeConstant));
 
-    // Input values are a linear mapping of dBFS. Convert to linear power for
-    // the EMA, then convert back only for the display-ready output.
+    // Normalized spectrum values are linear on the displayed dBFS axis, so
+    // direct averaging gives symmetric-looking rise and fall behavior.
     for (std::size_t index = 0;
          index < normalizedMagnitudes.size();
          ++index) {
-        const float currentPower =
-            linearPowerForNormalizedSpectrum(normalizedMagnitudes[index]);
-        float& accumulated = m_linearPowerAccumulator[index];
-        accumulated += (currentPower - accumulated) * newFrameWeight;
-        m_normalizedOutput[index] =
-            normalizedSpectrumForLinearPower(accumulated);
+        const float current = std::isfinite(normalizedMagnitudes[index])
+                                  ? std::clamp(
+                                        normalizedMagnitudes[index],
+                                        0.0F,
+                                        1.0F)
+                                  : 0.0F;
+        float& average = m_normalizedAccumulator[index];
+        average += (current - average) * newFrameWeight;
     }
     m_metadata.timestampNanoseconds = metadata.timestampNanoseconds;
-    return m_normalizedOutput;
+    return m_normalizedAccumulator;
 }
 
 bool SpectrumAverager::initialized() const noexcept
 {
-    return !m_linearPowerAccumulator.empty();
+    return !m_normalizedAccumulator.empty();
 }
 
 std::size_t SpectrumAverager::binCount() const noexcept
 {
-    return m_linearPowerAccumulator.size();
+    return m_normalizedAccumulator.size();
 }
 
 std::size_t SpectrumAverager::storageValueCount() const noexcept
 {
-    return m_linearPowerAccumulator.size() + m_normalizedOutput.size();
+    return m_normalizedAccumulator.size();
 }
 
 double SpectrumAverager::timeConstantSecondsForStrength(
@@ -153,7 +123,7 @@ double SpectrumAverager::timeConstantSecondsForStrength(
                                 maximumStrength -
                                 (minimumStrength + 1));
     // Exponential spacing keeps the low end useful while still reaching a
-    // strong four-second average without a large insensitive slider region.
+    // strong 1.8-second average without a large insensitive slider region.
     return minimumTimeConstantSeconds *
            std::pow(
                maximumTimeConstantSeconds /
@@ -165,19 +135,14 @@ void SpectrumAverager::initialize(
     std::span<const float> normalizedMagnitudes,
     SpectrumAveragingMetadata metadata)
 {
-    m_linearPowerAccumulator.resize(normalizedMagnitudes.size());
-    m_normalizedOutput.resize(normalizedMagnitudes.size());
+    m_normalizedAccumulator.resize(normalizedMagnitudes.size());
     for (std::size_t index = 0;
          index < normalizedMagnitudes.size();
          ++index) {
-        m_linearPowerAccumulator[index] =
-            linearPowerForNormalizedSpectrum(normalizedMagnitudes[index]);
-        m_normalizedOutput[index] = std::isfinite(normalizedMagnitudes[index])
-                                        ? std::clamp(
-                                              normalizedMagnitudes[index],
-                                              0.0F,
-                                              1.0F)
-                                        : 0.0F;
+        m_normalizedAccumulator[index] =
+            std::isfinite(normalizedMagnitudes[index])
+                ? std::clamp(normalizedMagnitudes[index], 0.0F, 1.0F)
+                : 0.0F;
     }
     m_metadata = metadata;
 }

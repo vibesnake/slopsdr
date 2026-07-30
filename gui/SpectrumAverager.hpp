@@ -48,8 +48,7 @@ private:
 
     int m_strength = minimumStrength;
     SpectrumAveragingMetadata m_metadata;
-    std::vector<float> m_linearPowerAccumulator;
-    std::vector<float> m_normalizedOutput;
+    std::vector<float> m_normalizedAccumulator;
 };
 
 }  // namespace sdr::gui

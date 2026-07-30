@@ -249,12 +249,13 @@ processing. Zoomed enlargement remains nearest-bin/flat-hold.
 
 The persisted spectrum **AVG** control uses integer strengths from 0 through
 100. Zero is an exact bypass with no residual accumulator. Enabled positions
-map exponentially from an 80 ms time constant at 1 to 4 seconds at 100, keeping
+map exponentially from an 8 ms time constant at 1 to 1.8 seconds at 100, keeping
 the lower range useful while providing strong smoothing at the maximum.
 Each accepted live spectrum frame uses its acquisition timestamp to calculate
 `1 - exp(-elapsed / time constant)` and updates one bounded per-bin accumulator
-in linear power. Conversion back to display-normalized dBFS occurs only after
-the average. Enabling initializes from the newest frame rather than zero.
+directly from the normalized display values. These values are linear on the
+displayed dBFS axis, so direct averaging gives symmetric-looking rise and fall.
+Enabling initializes from the newest frame rather than zero.
 Changing strength applies to subsequent live frames without restarting
 reception or rebuilding DSP.
 

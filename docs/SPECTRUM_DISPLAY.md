@@ -240,15 +240,16 @@ white lines with a subtle dark contrast stroke and no fill.
 
 The independent persisted **AVG** slider affects only the live spectrum trace.
 Position 0 bypasses averaging and clears residual state. Positions 1 through
-100 use an exponential 80 ms through 4 s time-constant mapping, which provides
+100 use an exponential 8 ms through 1.8 s time-constant mapping, which provides
 fine useful adjustment near the low end and strong smoothing at the maximum.
 For each compatible frame, the display processor calculates
 `alpha = 1 - exp(-elapsed / time constant)` from acquisition timestamps. It
-converts the display-normalized dBFS bins to linear power, updates one bounded
-EMA accumulator matching the FFT bin count, and converts back to normalized
-dBFS only for the live trace. The first enabled frame initializes the
-accumulator directly, avoiding a fade from zero. Compatible frames reuse the
-established buffers and no historical frame queue is introduced.
+updates one bounded EMA accumulator matching the FFT bin count directly from
+the normalized display values. These values are linear on the displayed dBFS
+axis, giving symmetric-looking rise and fall without a physical-power
+conversion. The first enabled frame initializes the accumulator directly,
+avoiding a fade from zero. Compatible frames reuse the established buffers and
+no historical frame queue is introduced.
 
 Hardware-center or tuning-generation changes, sample-rate or FFT-bin-count
 changes, receiver restart, and device change reset the spectrum average.

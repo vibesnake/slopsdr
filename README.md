@@ -16,9 +16,9 @@ pane supports Current passband and Wide range scanning with persistent named
 presets.
 
 The Spectrum header includes independent persisted **Max** and **AVG**
-controls. AVG applies timestamp-based linear-power smoothing only to the live
-spectrum trace; its minimum is an exact bypass and it never changes waterfall
-data.
+controls. AVG applies timestamp-based smoothing directly to normalized values
+on the displayed dBFS axis, only to the live spectrum trace; its minimum is an
+exact bypass and it never changes waterfall data.
 
 The Bookmarks pane supports updating bookmarks, saved squelch, and scanning
 bookmarks in their saved order. Receiver Controls keep a stable layout with

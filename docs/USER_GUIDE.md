@@ -116,13 +116,14 @@ up, the status line warns about dropped rows.
 Use the compact **AVG** slider beside **Max** in the Spectrum header to steady
 only the live spectrum trace. The minimum position is off and displays each
 current frame without residual smoothing. Higher values progressively reduce
-short-term movement; positions 1 through 100 map exponentially from an 80 ms
-to a 4 second averaging time constant, so low settings remain responsive while
+short-term movement; positions 1 through 100 map exponentially from an 8 ms to
+a 1.8 second averaging time constant, so low settings remain responsive while
 the maximum is deliberately strong. The selected value persists.
 
-AVG uses frame timestamps and averages linear signal power rather than dB
-values, so its response remains consistent when FFT cadence changes. Enabling
-it starts from the newest frame without fading up from zero. Hardware retunes,
+AVG uses frame timestamps and averages normalized values directly on the
+displayed dBFS axis, so its rise and fall look symmetric and remain consistent
+when FFT cadence changes. Enabling it starts from the newest frame without
+fading up from zero. Hardware retunes,
 scanner retunes, sample-rate changes, FFT-resolution changes, receiver
 restarts, and device changes begin a fresh average. Listening-frequency,
 filter, mode, zoom, and pan changes within a compatible capture do not.

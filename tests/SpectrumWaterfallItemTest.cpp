@@ -159,12 +159,6 @@ sdr::gui::SpectrumAveragingMetadata averagingMetadata(
     };
 }
 
-float normalizedLinearPower(float normalizedMagnitude)
-{
-    return sdr::gui::linearPowerForNormalizedMagnitude(
-        normalizedMagnitude);
-}
-
 }  // namespace
 
 class SpectrumWaterfallItemTest final : public QObject
@@ -176,8 +170,11 @@ private slots:
     void init();
     void bypassesSpectrumAveragingAtMinimumAndInitializesWithoutFade();
     void progressivelySmoothsMoreAtHigherStrengths();
+    void usesRepresentativeSpectrumAveragingTimeConstants();
     void matchesSpectrumAveragingAcrossFrameRatesAndIrregularIntervals();
-    void appliesStableSpectrumStepsInLinearPower();
+    void appliesStableSpectrumStepsInDisplayDomain();
+    void respondsSymmetricallyToUpwardAndDownwardSteps();
+    void doesNotLeavePeakHoldLikeDisplayDomainTail();
     void resetsSpectrumAverageAtCaptureDiscontinuities();
     void preservesSpectrumAverageAcrossDisplayAndChannelChanges();
     void persistsAndValidatesSpectrumAveragingStrength();
@@ -339,10 +336,31 @@ void SpectrumWaterfallItemTest::
     const auto light = responseForStrength(20);
     const auto medium = responseForStrength(60);
     const auto strong = responseForStrength(100);
-    QVERIFY(normalizedLinearPower(light.front()) >
-            normalizedLinearPower(medium.front()));
-    QVERIFY(normalizedLinearPower(medium.front()) >
-            normalizedLinearPower(strong.front()));
+    QVERIFY(light.front() > medium.front());
+    QVERIFY(medium.front() > strong.front());
+}
+
+void SpectrumWaterfallItemTest::
+    usesRepresentativeSpectrumAveragingTimeConstants()
+{
+    const auto approximately = [](double actual, double expected) {
+        return std::abs(actual - expected) <= expected * 0.02;
+    };
+    QVERIFY(approximately(
+        sdr::gui::SpectrumAverager::timeConstantSecondsForStrength(1),
+        0.008));
+    QVERIFY(approximately(
+        sdr::gui::SpectrumAverager::timeConstantSecondsForStrength(25),
+        0.030));
+    QVERIFY(approximately(
+        sdr::gui::SpectrumAverager::timeConstantSecondsForStrength(50),
+        0.117));
+    QVERIFY(approximately(
+        sdr::gui::SpectrumAverager::timeConstantSecondsForStrength(75),
+        0.458));
+    QVERIFY(approximately(
+        sdr::gui::SpectrumAverager::timeConstantSecondsForStrength(100),
+        1.8));
 }
 
 void SpectrumWaterfallItemTest::
@@ -371,19 +389,16 @@ void SpectrumWaterfallItemTest::
     const auto fiftyFramesPerSecond = responseForIntervals(
         std::vector<std::uint64_t>(50, 20'000'000));
     QVERIFY(std::abs(
-        normalizedLinearPower(tenFramesPerSecond.front()) -
-        normalizedLinearPower(fiftyFramesPerSecond.front())) < 1.0e-5F);
+        tenFramesPerSecond.front() - fiftyFramesPerSecond.front()) < 1.0e-5F);
 
     const auto regular =
         responseForIntervals({100'000'000, 100'000'000, 100'000'000, 100'000'000});
     const auto irregular =
         responseForIntervals({25'000'000, 225'000'000, 50'000'000, 100'000'000});
-    QVERIFY(std::abs(
-        normalizedLinearPower(regular.front()) -
-        normalizedLinearPower(irregular.front())) < 1.0e-5F);
+    QVERIFY(std::abs(regular.front() - irregular.front()) < 1.0e-5F);
 }
 
-void SpectrumWaterfallItemTest::appliesStableSpectrumStepsInLinearPower()
+void SpectrumWaterfallItemTest::appliesStableSpectrumStepsInDisplayDomain()
 {
     sdr::gui::SpectrumAverager averager;
     averager.setStrength(70);
@@ -401,11 +416,10 @@ void SpectrumWaterfallItemTest::appliesStableSpectrumStepsInLinearPower()
         averager,
         step,
         averagingMetadata(step.size(), start + halfLifeNanoseconds));
-    const float halfwayPower = normalizedLinearPower(halfway.front());
-    QVERIFY(std::abs(halfwayPower - 0.5F) < 2.0e-4F);
-    QVERIFY(std::abs(halfway.front() - 0.5F) > 0.4F);
+    const float halfwayValue = halfway.front();
+    QVERIFY(std::abs(halfwayValue - 0.5F) < 2.0e-4F);
 
-    float previousPower = halfwayPower;
+    float previousValue = halfwayValue;
     for (int index = 2; index <= 6; ++index) {
         const auto response = averagedFrame(
             averager,
@@ -414,11 +428,56 @@ void SpectrumWaterfallItemTest::appliesStableSpectrumStepsInLinearPower()
                 step.size(),
                 start + halfLifeNanoseconds *
                             static_cast<std::uint64_t>(index)));
-        const float power = normalizedLinearPower(response.front());
-        QVERIFY(power > previousPower);
-        QVERIFY(power < 1.0F);
-        previousPower = power;
+        const float value = response.front();
+        QVERIFY(value > previousValue);
+        QVERIFY(value < 1.0F);
+        previousValue = value;
     }
+}
+
+void SpectrumWaterfallItemTest::respondsSymmetricallyToUpwardAndDownwardSteps()
+{
+    const std::vector<float> low(2, 0.2F);
+    const std::vector<float> high(2, 0.9F);
+    constexpr std::uint64_t start = 1'000'000'000;
+    constexpr std::uint64_t elapsed = 100'000'000;
+
+    sdr::gui::SpectrumAverager upward;
+    upward.setStrength(65);
+    averagedFrame(upward, low, averagingMetadata(low.size(), start));
+    const float upwardValue = averagedFrame(
+        upward, high, averagingMetadata(high.size(), start + elapsed)).front();
+
+    sdr::gui::SpectrumAverager downward;
+    downward.setStrength(65);
+    averagedFrame(downward, high, averagingMetadata(high.size(), start));
+    const float downwardValue = averagedFrame(
+        downward, low, averagingMetadata(low.size(), start + elapsed)).front();
+
+    const float upwardChange = upwardValue - low.front();
+    const float downwardChange = high.front() - downwardValue;
+    QVERIFY(std::abs(upwardChange - downwardChange) < 1.0e-5F);
+}
+
+void SpectrumWaterfallItemTest::doesNotLeavePeakHoldLikeDisplayDomainTail()
+{
+    sdr::gui::SpectrumAverager averager;
+    averager.setStrength(100);
+    const std::vector<float> peak(2, 1.0F);
+    const std::vector<float> background(2, 0.0F);
+    constexpr std::uint64_t start = 1'000'000'000;
+    constexpr std::uint64_t elapsed = 100'000'000;
+    averagedFrame(averager, peak, averagingMetadata(peak.size(), start));
+    const float afterDisappearance = averagedFrame(
+        averager,
+        background,
+        averagingMetadata(background.size(), start + elapsed)).front();
+    const double weight = 1.0 - std::exp(
+        -static_cast<double>(elapsed) / 1'000'000'000.0 /
+        sdr::gui::SpectrumAverager::timeConstantSecondsForStrength(100));
+    const float expected = static_cast<float>(1.0 - weight);
+    QVERIFY(std::abs(afterDisappearance - expected) < 1.0e-4F);
+    QVERIFY(afterDisappearance < 0.97F);
 }
 
 void SpectrumWaterfallItemTest::resetsSpectrumAverageAtCaptureDiscontinuities()
@@ -477,7 +536,7 @@ void SpectrumWaterfallItemTest::
     QVERIFY(deliverSpectrumFrame(
         item, step, 100'000'000, 2'000'000, 2, 1'100'000'000, 1));
     const float before =
-        normalizedLinearPower(item.m_latestFrame.normalizedMagnitudes.front());
+        item.m_latestFrame.normalizedMagnitudes.front();
 
     model.frequencyViewportChanged();
     model.frequencyViewportChanged();
@@ -490,7 +549,7 @@ void SpectrumWaterfallItemTest::
     QVERIFY(deliverSpectrumFrame(
         item, step, 100'000'000, 2'000'000, 3, 1'200'000'000, 1));
     const float after =
-        normalizedLinearPower(item.m_latestFrame.normalizedMagnitudes.front());
+        item.m_latestFrame.normalizedMagnitudes.front();
     QVERIFY(after > before);
     QVERIFY(after < 1.0F);
 }
@@ -545,8 +604,7 @@ void SpectrumWaterfallItemTest::
     QVERIFY(deliverSpectrumFrame(
         item, step, 100'000'000, 2'000'000, 4, 3'100'000'000, 1));
     QCOMPARE(item.m_latestFrame.sequence, std::uint64_t{4});
-    QVERIFY(normalizedLinearPower(
-                item.m_latestFrame.normalizedMagnitudes.front()) > 0.4F);
+    QVERIFY(item.m_latestFrame.normalizedMagnitudes.front() > 0.4F);
     QCOMPARE(
         item.maximumHoldDbfs().front(),
         sdr::gui::dbfsForNormalizedSpectrum(1.0F));
@@ -602,7 +660,7 @@ void SpectrumWaterfallItemTest::boundsSpectrumAverageStorageUnderRapidInput()
         QCOMPARE(output.size(), frame.size());
     }
     QCOMPARE(averager.binCount(), frame.size());
-    QCOMPARE(averager.storageValueCount(), frame.size() * 2);
+    QCOMPARE(averager.storageValueCount(), frame.size());
 
     const std::vector<float> resized(2'048, 0.25F);
     QCOMPARE(
@@ -613,7 +671,7 @@ void SpectrumWaterfallItemTest::boundsSpectrumAverageStorageUnderRapidInput()
                 resized.size(), 7'000'000'000)),
         resized);
     QCOMPARE(averager.binCount(), resized.size());
-    QCOMPARE(averager.storageValueCount(), resized.size() * 2);
+    QCOMPARE(averager.storageValueCount(), resized.size());
 }
 
 void SpectrumWaterfallItemTest::preservesPeaksWhenReducingBins()
