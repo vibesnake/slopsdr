@@ -3085,6 +3085,95 @@ ApplicationWindow {
 
                 Rectangle {
                     Layout.fillWidth: true
+                    Layout.minimumHeight: recordingSettingsContent.implicitHeight + 20
+                    radius: 5
+                    color: "#111a2b"
+                    border.color: root.panelBorderColor
+
+                    ColumnLayout {
+                        id: recordingSettingsContent
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 7
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Recording")
+                            color: root.primaryTextColor
+                            font.bold: true
+                            font.pixelSize: 12
+                        }
+
+                        CheckBox {
+                            objectName: "skipQuietRecordingPartsCheckBox"
+                            Layout.fillWidth: true
+                            text: qsTr("Skip quiet parts")
+                            checked: root.applicationModel.skipQuietRecordingParts
+                            onToggled: root.applicationModel.skipQuietRecordingParts = checked
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Label { text: qsTr("Pre-roll (s)") }
+                            SpinBox {
+                                objectName: "recordingPreRollSpinBox"
+                                from: 0
+                                to: 10
+                                value: root.applicationModel.recordingPreRollSeconds
+                                onValueModified: root.applicationModel.recordingPreRollSeconds = value
+                            }
+                            Label { text: qsTr("Tail (s)") }
+                            SpinBox {
+                                objectName: "recordingTailSpinBox"
+                                from: 0
+                                to: 30
+                                value: root.applicationModel.recordingTailSeconds
+                                onValueModified: root.applicationModel.recordingTailSeconds = value
+                            }
+                        }
+
+                        TextField {
+                            objectName: "recordingsFolderField"
+                            Layout.fillWidth: true
+                            text: root.applicationModel.recordingsFolder
+                            Accessible.name: qsTr("WAV recordings folder")
+                            onEditingFinished: root.applicationModel.setRecordingsFolder(text)
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Button {
+                                objectName: "browseRecordingsFolderButton"
+                                text: qsTr("Browse")
+                                onClicked: recordingsFolderDialog.open()
+                            }
+
+                            Button {
+                                objectName: "openRecordingsFolderButton"
+                                text: qsTr("Open folder")
+                                enabled: root.applicationModel.recordingsFolderValid
+                                onClicked: root.applicationModel.openRecordingsFolder()
+                            }
+                        }
+
+                        Label {
+                            objectName: "recordingsFolderStatus"
+                            Layout.fillWidth: true
+                            text: root.applicationModel.recordingsFolderStatus
+                            color: root.applicationModel.recordingsFolderValid
+                                   ? "#6ee7b7" : root.listeningColor
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
                     Layout.minimumHeight: ppmCalibrationContent.implicitHeight + 20
                     radius: 5
                     color: "#111a2b"
@@ -3242,95 +3331,6 @@ ApplicationWindow {
                             font.pixelSize: 10
                             wrapMode: Text.WordWrap
                             Accessible.name: qsTr("DSD-FME binary status")
-                        }
-                    }
-                }
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.minimumHeight: recordingSettingsContent.implicitHeight + 20
-                    radius: 5
-                    color: "#111a2b"
-                    border.color: root.panelBorderColor
-
-                    ColumnLayout {
-                        id: recordingSettingsContent
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 7
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("Recording")
-                            color: root.primaryTextColor
-                            font.bold: true
-                            font.pixelSize: 12
-                        }
-
-                        TextField {
-                            objectName: "recordingsFolderField"
-                            Layout.fillWidth: true
-                            text: root.applicationModel.recordingsFolder
-                            Accessible.name: qsTr("WAV recordings folder")
-                            onEditingFinished: root.applicationModel.setRecordingsFolder(text)
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 5
-
-                            Button {
-                                objectName: "browseRecordingsFolderButton"
-                                text: qsTr("Browse")
-                                onClicked: recordingsFolderDialog.open()
-                            }
-
-                            Button {
-                                objectName: "openRecordingsFolderButton"
-                                text: qsTr("Open folder")
-                                enabled: root.applicationModel.recordingsFolderValid
-                                onClicked: root.applicationModel.openRecordingsFolder()
-                            }
-                        }
-
-                        Label {
-                            objectName: "recordingsFolderStatus"
-                            Layout.fillWidth: true
-                            text: root.applicationModel.recordingsFolderStatus
-                            color: root.applicationModel.recordingsFolderValid
-                                   ? "#6ee7b7" : root.listeningColor
-                            font.pixelSize: 10
-                            wrapMode: Text.WordWrap
-                        }
-
-                        CheckBox {
-                            objectName: "skipQuietRecordingPartsCheckBox"
-                            Layout.fillWidth: true
-                            text: qsTr("Skip quiet parts")
-                            checked: root.applicationModel.skipQuietRecordingParts
-                            onToggled: root.applicationModel.skipQuietRecordingParts = checked
-                        }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 8
-
-                            Label { text: qsTr("Pre-roll (s)") }
-                            SpinBox {
-                                objectName: "recordingPreRollSpinBox"
-                                from: 0
-                                to: 10
-                                value: root.applicationModel.recordingPreRollSeconds
-                                onValueModified: root.applicationModel.recordingPreRollSeconds = value
-                            }
-                            Label { text: qsTr("Tail (s)") }
-                            SpinBox {
-                                objectName: "recordingTailSpinBox"
-                                from: 0
-                                to: 30
-                                value: root.applicationModel.recordingTailSeconds
-                                onValueModified: root.applicationModel.recordingTailSeconds = value
-                            }
                         }
                     }
                 }
