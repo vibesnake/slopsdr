@@ -39,6 +39,8 @@ constexpr auto waterfallAggregationSetting = "waterfall/aggregation";
 constexpr auto waterfallOriginalAggregation = "original";
 constexpr auto waterfallAverageAggregation = "average";
 constexpr auto maximumHoldEnabledSetting = "spectrum/maximumHoldEnabled";
+constexpr auto spectrumAveragingStrengthSetting =
+    "spectrum/averagingStrength";
 
 void updateHoldStrokeGeometry(
     QSGGeometryNode& underStroke,
@@ -507,6 +509,19 @@ SpectrumWaterfallItem::SpectrumWaterfallItem(QQuickItem* parent)
     settings.remove(QStringLiteral("spectrum/minimumHoldEnabled"));
     m_maximumHoldEnabled =
         settings.value(maximumHoldEnabledSetting, false).toBool();
+    bool averagingStrengthValid = false;
+    const int storedAveragingStrength =
+        settings.value(spectrumAveragingStrengthSetting, 0)
+            .toInt(&averagingStrengthValid);
+    if (averagingStrengthValid &&
+        storedAveragingStrength >=
+            sdr::gui::SpectrumAverager::minimumStrength &&
+        storedAveragingStrength <=
+            sdr::gui::SpectrumAverager::maximumStrength) {
+        m_spectrumAverager.setStrength(storedAveragingStrength);
+    } else {
+        settings.setValue(spectrumAveragingStrengthSetting, 0);
+    }
     m_scrollTimer.setInterval(16);
     m_scrollTimer.setTimerType(Qt::PreciseTimer);
     connect(&m_scrollTimer, &QTimer::timeout, this, [this] {
@@ -576,6 +591,7 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
     QObject::disconnect(m_receiverRunningConnection);
     QObject::disconnect(m_deviceStateConnection);
     resetSpectrumHolds();
+    resetSpectrumAverage();
     m_applicationModel = typedModel;
     m_waterfallClearedForScannerPause = false;
     if (m_applicationModel) {
@@ -678,12 +694,18 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
             m_applicationModel,
             &ApplicationModel::effectiveSampleRateChanged,
             this,
-            &SpectrumWaterfallItem::resetSpectrumHolds);
+            [this] {
+                resetSpectrumHolds();
+                resetSpectrumAverage();
+            });
         m_spectrumFftSizeConnection = connect(
             m_applicationModel,
             &ApplicationModel::spectrumFftSizeChanged,
             this,
-            &SpectrumWaterfallItem::resetSpectrumHolds);
+            [this] {
+                resetSpectrumHolds();
+                resetSpectrumAverage();
+            });
         m_receiverRunningConnection = connect(
             m_applicationModel,
             &ApplicationModel::receiverRunningChanged,
@@ -693,6 +715,7 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
                 if (running != m_observedReceiverRunning) {
                     m_observedReceiverRunning = running;
                     resetSpectrumHolds();
+                    resetSpectrumAverage();
                 }
             });
         m_deviceStateConnection = connect(
@@ -708,6 +731,7 @@ void SpectrumWaterfallItem::setApplicationModel(QObject* applicationModel)
                     m_observedSelectedDeviceIndex = selectedDeviceIndex;
                     m_observedBackendReady = backendReady;
                     resetSpectrumHolds();
+                    resetSpectrumAverage();
                 }
             });
         if (m_waterfall && m_paused &&
@@ -736,6 +760,7 @@ void SpectrumWaterfallItem::setWaterfall(bool waterfall)
         return;
     }
     m_waterfall = waterfall;
+    resetSpectrumAverage();
     m_modeChanged = true;
     m_frameDirty = !m_latestFrame.normalizedMagnitudes.empty();
     m_projectionDirty = m_waterfallHistory.size() > 0;
@@ -907,6 +932,25 @@ void SpectrumWaterfallItem::setMaximumHoldEnabled(bool enabled)
     QSettings().setValue(maximumHoldEnabledSetting, enabled);
     update();
     emit maximumHoldEnabledChanged();
+}
+
+int SpectrumWaterfallItem::spectrumAveragingStrength() const noexcept
+{
+    return m_spectrumAverager.strength();
+}
+
+void SpectrumWaterfallItem::setSpectrumAveragingStrength(int strength)
+{
+    const int bounded = std::clamp(
+        strength,
+        sdr::gui::SpectrumAverager::minimumStrength,
+        sdr::gui::SpectrumAverager::maximumStrength);
+    if (m_spectrumAverager.strength() == bounded) {
+        return;
+    }
+    m_spectrumAverager.setStrength(bounded);
+    QSettings().setValue(spectrumAveragingStrengthSetting, bounded);
+    emit spectrumAveragingStrengthChanged();
 }
 
 bool SpectrumWaterfallItem::filterWidthAdjustmentActive() const noexcept
@@ -1278,16 +1322,35 @@ void SpectrumWaterfallItem::receiveSpectrumFrame(
     quint64 timestampNanoseconds,
     quint64 tuningGeneration)
 {
-    if (!m_waterfall && !m_paused) {
-        updateSpectrumHolds(
-            normalizedMagnitudes,
-            centerFrequency,
-            sampleRate,
-            fftSize,
-            sequence,
-            timestampNanoseconds);
+    if (!m_waterfall) {
+        const auto rawMagnitudes = std::span<const float>(
+            normalizedMagnitudes.constData(),
+            static_cast<std::size_t>(normalizedMagnitudes.size()));
+        if (!m_paused) {
+            // MAX retains its established raw accepted-capture semantics. AVG
+            // is applied afterward and changes only the live spectrum trace.
+            updateSpectrumHolds(
+                normalizedMagnitudes,
+                centerFrequency,
+                sampleRate,
+                fftSize,
+                sequence,
+                timestampNanoseconds);
+        }
+        const auto displayedMagnitudes = m_spectrumAverager.process(
+            rawMagnitudes,
+            {
+                .centerFrequency = centerFrequency,
+                .sampleRate = sampleRate,
+                .fftSize = static_cast<std::size_t>(fftSize),
+                .timestampNanoseconds = timestampNanoseconds,
+                .tuningGeneration = tuningGeneration,
+            });
+        if (m_paused) {
+            return;
+        }
         setLatestFrame(
-            normalizedMagnitudes,
+            displayedMagnitudes,
             centerFrequency,
             sampleRate,
             fftSize,
@@ -1297,7 +1360,7 @@ void SpectrumWaterfallItem::receiveSpectrumFrame(
         if (!sdr::radio::hasConsistentMetadata(m_latestFrame)) {
             return;
         }
-        updateNoiseFloor();
+        updateNoiseFloor(rawMagnitudes);
         m_frameDirty = true;
         update();
     }
@@ -1314,7 +1377,9 @@ void SpectrumWaterfallItem::receiveWaterfallFrame(
 {
     if (m_waterfall && !m_paused) {
         setLatestFrame(
-            normalizedMagnitudes,
+            std::span<const float>(
+                normalizedMagnitudes.constData(),
+                static_cast<std::size_t>(normalizedMagnitudes.size())),
             centerFrequency,
             sampleRate,
             fftSize,
@@ -1346,7 +1411,7 @@ void SpectrumWaterfallItem::receiveWaterfallFrame(
 }
 
 void SpectrumWaterfallItem::setLatestFrame(
-    const QVector<float>& normalizedMagnitudes,
+    std::span<const float> normalizedMagnitudes,
     quint64 centerFrequency,
     quint64 sampleRate,
     quint64 fftSize,
@@ -1354,17 +1419,15 @@ void SpectrumWaterfallItem::setLatestFrame(
     quint64 timestampNanoseconds,
     quint64 tuningGeneration)
 {
-    m_latestFrame = {
-        .sequence = sequence,
-        .timestampNanoseconds = timestampNanoseconds,
-        .centerFrequency = centerFrequency,
-        .sampleRate = sampleRate,
-        .captureSpan = sampleRate,
-        .fftSize = static_cast<std::size_t>(fftSize),
-        .tuningGeneration = tuningGeneration,
-        .normalizedMagnitudes = std::vector<float>(
-            normalizedMagnitudes.begin(), normalizedMagnitudes.end()),
-    };
+    m_latestFrame.sequence = sequence;
+    m_latestFrame.timestampNanoseconds = timestampNanoseconds;
+    m_latestFrame.centerFrequency = centerFrequency;
+    m_latestFrame.sampleRate = sampleRate;
+    m_latestFrame.captureSpan = sampleRate;
+    m_latestFrame.fftSize = static_cast<std::size_t>(fftSize);
+    m_latestFrame.tuningGeneration = tuningGeneration;
+    m_latestFrame.normalizedMagnitudes.assign(
+        normalizedMagnitudes.begin(), normalizedMagnitudes.end());
 }
 
 bool SpectrumWaterfallItem::frameMatchesCurrentSpectrumGeometry(
@@ -1442,6 +1505,7 @@ void SpectrumWaterfallItem::clearSpectrumFrame()
         return;
     }
     resetSpectrumHolds();
+    resetSpectrumAverage();
     m_latestFrame = {};
     m_noiseScratch.clear();
     m_frameDirty = false;
@@ -1466,6 +1530,11 @@ void SpectrumWaterfallItem::resetSpectrumHolds()
     m_holdLastTimestampNanoseconds = 0;
     m_holdProjectionDirty = false;
     update();
+}
+
+void SpectrumWaterfallItem::resetSpectrumAverage()
+{
+    m_spectrumAverager.reset();
 }
 
 void SpectrumWaterfallItem::clearWaterfallFrames()
@@ -2258,12 +2327,13 @@ float SpectrumWaterfallItem::waterfallDbfsForLinearPower(float power) const noex
         sdr::gui::normalizedMagnitudeForLinearPower(power));
 }
 
-void SpectrumWaterfallItem::updateNoiseFloor()
+void SpectrumWaterfallItem::updateNoiseFloor(
+    std::span<const float> normalizedMagnitudes)
 {
     m_noiseScratch.clear();
     m_noiseScratch.reserve(static_cast<qsizetype>(
-        m_latestFrame.normalizedMagnitudes.size()));
-    for (const float magnitude : m_latestFrame.normalizedMagnitudes) {
+        normalizedMagnitudes.size()));
+    for (const float magnitude : normalizedMagnitudes) {
         if (std::isfinite(magnitude)) {
             m_noiseScratch.push_back(magnitude);
         }

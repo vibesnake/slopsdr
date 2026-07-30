@@ -192,6 +192,8 @@ add_test(NAME waterfall_frame_delivery_tests COMMAND waterfall_frame_delivery_te
 add_executable(
     spectrum_waterfall_item_tests
     SpectrumWaterfallItemTest.cpp
+    ../gui/SpectrumAverager.cpp
+    ../gui/SpectrumAverager.hpp
     ../gui/FrequencyAlignedDisplay.cpp
     ../gui/FrequencyAlignedDisplay.hpp
     ../gui/FilterIndicator.cpp

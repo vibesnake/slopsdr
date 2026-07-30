@@ -238,6 +238,29 @@ Zoom, listening/filter changes, palette and display-range changes, and
 visibility toggles retain them. Enabled holds render last as one-device-pixel
 white lines with a subtle dark contrast stroke and no fill.
 
+The independent persisted **AVG** slider affects only the live spectrum trace.
+Position 0 bypasses averaging and clears residual state. Positions 1 through
+100 use an exponential 80 ms through 4 s time-constant mapping, which provides
+fine useful adjustment near the low end and strong smoothing at the maximum.
+For each compatible frame, the display processor calculates
+`alpha = 1 - exp(-elapsed / time constant)` from acquisition timestamps. It
+converts the display-normalized dBFS bins to linear power, updates one bounded
+EMA accumulator matching the FFT bin count, and converts back to normalized
+dBFS only for the live trace. The first enabled frame initializes the
+accumulator directly, avoiding a fade from zero. Compatible frames reuse the
+established buffers and no historical frame queue is introduced.
+
+Hardware-center or tuning-generation changes, sample-rate or FFT-bin-count
+changes, receiver restart, and device change reset the spectrum average.
+Listening-frequency, filter, demodulation-mode, zoom, and pan changes do not.
+While Spectrum is paused, current coalesced frames may continue updating the
+accumulator, but the displayed trace and Max envelope stay frozen; Resume uses
+the next live frame without replay. MAX processes each raw accepted capture
+before AVG transforms the live trace, preserving its established peak envelope
+independently. The raw frame also continues to drive the separate noise-floor
+estimate. Waterfall delivery, aggregation, history, and pause state never pass
+through spectrum averaging.
+
 Each compact row retains its original timestamp, center, capture span, FFT
 size, sequence, and tuning generation. A viewport-resolution row additionally
 stores its viewport generation, exact visible lower and upper frequencies,

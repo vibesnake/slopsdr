@@ -68,6 +68,11 @@ The spectrum and waterfall follow distinct interaction rules:
   pause/resume toggle immediately before the large display title. Each toggle
   freezes only its renderer, drops frames received while paused, and resumes
   with the next live frame.
+* The Spectrum header places a compact fixed-width **AVG** slider immediately
+  after the existing **Max** button without increasing header height or moving
+  neighboring controls as its value changes. Its minimum disables averaging
+  and its maximum selects the strongest smoothing. Its tooltip reports the
+  current strength and states that only the spectrum trace is affected.
 * Spectrum and waterfall pointer handlers consume wheel input. They must not
   cause ordinary scroll-view movement or vertical page scrolling.
 * Frequency-to-pixel conversion and tuning calculations belong in C++. QML may
@@ -241,6 +246,28 @@ original FFT to the current physical viewport. Changing the selection
 re-renders those retained statistics without clearing history or changing
 timestamps, frequency metadata, zoom, viewport, spectrum, audio, or receiver
 processing. Zoomed enlargement remains nearest-bin/flat-hold.
+
+The persisted spectrum **AVG** control uses integer strengths from 0 through
+100. Zero is an exact bypass with no residual accumulator. Enabled positions
+map exponentially from an 80 ms time constant at 1 to 4 seconds at 100, keeping
+the lower range useful while providing strong smoothing at the maximum.
+Each accepted live spectrum frame uses its acquisition timestamp to calculate
+`1 - exp(-elapsed / time constant)` and updates one bounded per-bin accumulator
+in linear power. Conversion back to display-normalized dBFS occurs only after
+the average. Enabling initializes from the newest frame rather than zero.
+Changing strength applies to subsequent live frames without restarting
+reception or rebuilding DSP.
+
+Spectrum averaging resets for a changed hardware center or tuning generation,
+sample rate, FFT bin count, receiver session, or device. Listening-frequency,
+filter, mode, zoom, and viewport-pan changes retain it when capture metadata
+remains compatible. Frames continue updating the bounded accumulator while
+Spectrum is paused, but the displayed trace and Max envelope remain frozen;
+Resume displays the next current averaged frame without replay. Raw accepted
+captures update the existing Max envelope before AVG is applied to the live
+trace, so both controls retain independent state and semantics. Waterfall
+aggregation, history, pause state, and pixels are never inputs to spectrum
+averaging.
 
 When any scanner owns tuning, pausing the waterfall clears its retained visible
 rows and renders black. A scanner start while Waterfall is already paused does

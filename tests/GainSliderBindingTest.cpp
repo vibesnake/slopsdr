@@ -20,6 +20,7 @@ private slots:
     void reappliesRequestedGainWhenCapabilitiesArrive();
     void keepsReceiverControlsGeometryStableAcrossRuntimeValues();
     void maximumHoldToggleHasDistinctCheckedAndUncheckedStates();
+    void spectrumAveragingSliderKeepsFixedHeaderGeometry();
     void sidebarButtonsKeepNavigationEntriesExclusiveAndExposeScanShell();
     void toolbarUsesEmbeddedSlopSdrLogo();
     void bookmarkNameDialogSelectsSuggestionAndRejectsWhitespace();
@@ -238,6 +239,92 @@ void GainSliderBindingTest::maximumHoldToggleHasDistinctCheckedAndUncheckedState
     const auto checkedText = text->property("color");
     QVERIFY(uncheckedBackground != checkedBackground);
     QVERIFY(uncheckedText != checkedText);
+}
+
+void GainSliderBindingTest::
+    spectrumAveragingSliderKeepsFixedHeaderGeometry()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(
+        R"(
+            import QtQuick
+            import QtQuick.Controls
+            import QtQuick.Layouts
+
+            Item {
+                width: 240
+                height: 28
+
+                RowLayout {
+                    id: controls
+                    objectName: "spectrumHeaderControls"
+                    height: 28
+                    spacing: 4
+
+                    ToolButton {
+                        id: maximumHoldButton
+                        objectName: "maximumHoldButton"
+                        implicitWidth: 44
+                        implicitHeight: 26
+                        text: "Max"
+                    }
+                    Label {
+                        objectName: "spectrumAveragingLabel"
+                        text: "AVG"
+                    }
+                    Slider {
+                        objectName: "spectrumAveragingSlider"
+                        Layout.minimumWidth: 92
+                        Layout.preferredWidth: 92
+                        Layout.maximumWidth: 92
+                        implicitHeight: 26
+                        from: 0
+                        to: 100
+                        stepSize: 1
+                    }
+                }
+            }
+        )",
+        QUrl());
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    const std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto* root = qobject_cast<QQuickItem*>(object.get());
+    auto* controls =
+        object->findChild<QQuickItem*>("spectrumHeaderControls");
+    auto* maximum =
+        object->findChild<QQuickItem*>("maximumHoldButton");
+    auto* label =
+        object->findChild<QQuickItem*>("spectrumAveragingLabel");
+    auto* slider =
+        object->findChild<QQuickItem*>("spectrumAveragingSlider");
+    QVERIFY(root);
+    QVERIFY(controls);
+    QVERIFY(maximum);
+    QVERIFY(label);
+    QVERIFY(slider);
+    QCoreApplication::processEvents();
+
+    const double headerHeight = controls->height();
+    const double sliderWidth = slider->width();
+    QCOMPARE(slider->property("from").toDouble(), 0.0);
+    QCOMPARE(slider->property("to").toDouble(), 100.0);
+    QCOMPARE(sliderWidth, 92.0);
+    QVERIFY(label->mapToItem(root, QPointF()).x() >=
+            maximum->mapToItem(
+                root, QPointF(maximum->width(), 0.0)).x());
+    QVERIFY(slider->mapToItem(root, QPointF()).x() >=
+            label->mapToItem(
+                root, QPointF(label->width(), 0.0)).x());
+
+    for (const int value : {0, 37, 100}) {
+        slider->setProperty("value", value);
+        QCoreApplication::processEvents();
+        QCOMPARE(slider->width(), sliderWidth);
+        QCOMPARE(controls->height(), headerHeight);
+    }
 }
 
 void GainSliderBindingTest::

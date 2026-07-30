@@ -5,6 +5,7 @@
 
 #include "FrequencyAlignedDisplay.hpp"
 #include "FilterIndicator.hpp"
+#include "SpectrumAverager.hpp"
 
 #include <QImage>
 #include <QElapsedTimer>
@@ -17,6 +18,7 @@
 #include <QtQmlIntegration/qqmlintegration.h>
 
 #include <cstdint>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -49,6 +51,7 @@ class SpectrumWaterfallItem : public QQuickItem
     Q_PROPERTY(float noiseFloorDbfs READ noiseFloorDbfs NOTIFY noiseFloorChanged)
     Q_PROPERTY(bool noiseFloorAvailable READ noiseFloorAvailable NOTIFY noiseFloorChanged)
     Q_PROPERTY(bool maximumHoldEnabled READ maximumHoldEnabled WRITE setMaximumHoldEnabled NOTIFY maximumHoldEnabledChanged)
+    Q_PROPERTY(int spectrumAveragingStrength READ spectrumAveragingStrength WRITE setSpectrumAveragingStrength NOTIFY spectrumAveragingStrengthChanged)
     Q_PROPERTY(bool filterWidthAdjustmentActive READ filterWidthAdjustmentActive WRITE setFilterWidthAdjustmentActive NOTIFY filterWidthAdjustmentActiveChanged)
     Q_PROPERTY(QString waterfallAggregation READ waterfallAggregation WRITE setWaterfallAggregation NOTIFY waterfallAggregationChanged)
 
@@ -93,6 +96,8 @@ public:
     [[nodiscard]] bool noiseFloorAvailable() const noexcept;
     [[nodiscard]] bool maximumHoldEnabled() const noexcept;
     void setMaximumHoldEnabled(bool enabled);
+    [[nodiscard]] int spectrumAveragingStrength() const noexcept;
+    void setSpectrumAveragingStrength(int strength);
     [[nodiscard]] bool filterWidthAdjustmentActive() const noexcept;
     void setFilterWidthAdjustmentActive(bool active);
     [[nodiscard]] const QVector<float>& maximumHoldDbfs() const noexcept;
@@ -120,6 +125,7 @@ signals:
     void spectrumRangeChanged();
     void noiseFloorChanged();
     void maximumHoldEnabledChanged();
+    void spectrumAveragingStrengthChanged();
     void filterWidthAdjustmentActiveChanged();
     void waterfallAggregationChanged();
 
@@ -188,7 +194,8 @@ private:
     void synchronizeWaterfallViewport(
         const sdr::radio::SpectrumFrame& capture);
     void invalidateWaterfallViewport();
-    void updateNoiseFloor();
+    void updateNoiseFloor(std::span<const float> normalizedMagnitudes);
+    void resetSpectrumAverage();
     void updateSpectrumHolds(
         const QVector<float>& normalizedMagnitudes,
         quint64 centerFrequency,
@@ -202,7 +209,7 @@ private:
         quint64 fftSize) const noexcept;
     void projectSpectrumHolds();
     void setLatestFrame(
-        const QVector<float>& normalizedMagnitudes,
+        std::span<const float> normalizedMagnitudes,
         quint64 centerFrequency,
         quint64 sampleRate,
         quint64 fftSize,
@@ -237,6 +244,7 @@ private:
     QVector<float> m_noiseScratch;
     QVector<float> m_maximumHoldDbfs;
     QVector<float> m_projectedMaximumHoldDbfs;
+    sdr::gui::SpectrumAverager m_spectrumAverager;
     QImage m_waterfallImage;
     bool m_waterfall = false;
     bool m_paused = false;

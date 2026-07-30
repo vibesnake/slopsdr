@@ -15,6 +15,11 @@ receiver. The center-frequency digits can be edited directly, and the Scan
 pane supports Current passband and Wide range scanning with persistent named
 presets.
 
+The Spectrum header includes independent persisted **Max** and **AVG**
+controls. AVG applies timestamp-based linear-power smoothing only to the live
+spectrum trace; its minimum is an exact bypass and it never changes waterfall
+data.
+
 The Bookmarks pane supports updating bookmarks, saved squelch, and scanning
 bookmarks in their saved order. Receiver Controls keep a stable layout with
 reduced flicker, while configurable Waterfall aggregation and persistent
@@ -165,6 +170,9 @@ history.
 
 The waterfall's primary click selects the listening frequency represented by
 that horizontal position. No drag or double-click is needed for normal tuning.
+The compact spectrum **AVG** slider runs from off at its minimum to strong
+smoothing at its maximum. It remains independent of **Max**, spectrum pause,
+and every waterfall control.
 The persisted visible-history selector includes fast 1-second and 2.5-second
 views. New waterfall data uses an 80 ms live cadence with newest-frame
 retention, so those history choices change scrolling scale without adding a

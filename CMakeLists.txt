@@ -311,6 +311,8 @@ qt_add_qml_module(
     SOURCES
         gui/SpectrumAmplitudeScale.cpp
         gui/SpectrumAmplitudeScale.hpp
+        gui/SpectrumAverager.cpp
+        gui/SpectrumAverager.hpp
         gui/FrequencyAlignedDisplay.cpp
         gui/FrequencyAlignedDisplay.hpp
         gui/FilterIndicator.cpp

@@ -305,6 +305,41 @@ ApplicationWindow {
                     verticalAlignment: Text.AlignVCenter
                 }
             }
+
+            Label {
+                id: spectrumAveragingLabel
+                objectName: "spectrumAveragingLabel"
+                text: qsTr("AVG")
+                color: root.secondaryTextColor
+                font.pixelSize: 11
+                font.bold: true
+                Accessible.name: qsTr("Spectrum averaging")
+            }
+
+            Slider {
+                id: spectrumAveragingSlider
+                objectName: "spectrumAveragingSlider"
+                Layout.minimumWidth: 92
+                Layout.preferredWidth: 92
+                Layout.maximumWidth: 92
+                implicitHeight: 26
+                from: 0
+                to: 100
+                stepSize: 1
+                snapMode: Slider.SnapAlways
+                live: true
+                value: displaySurface.spectrumAveragingStrength
+                Accessible.name: qsTr("Spectrum averaging strength")
+                Accessible.description: qsTr(
+                    "Minimum disables averaging; maximum gives the strongest smoothing. This affects only the spectrum trace.")
+                onMoved: displaySurface.spectrumAveragingStrength =
+                             Math.round(value)
+                ToolTip.visible: hovered || pressed
+                ToolTip.text: value === 0
+                              ? qsTr("AVG 0: off; spectrum trace only")
+                              : qsTr("AVG %1: stronger values steady only the spectrum trace")
+                                    .arg(Math.round(value))
+            }
         }
 
         RowLayout {
