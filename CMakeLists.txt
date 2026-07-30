@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.22)
 
 project(
     slopsdr
-    VERSION 0.10.4
+    VERSION 0.11.0
     DESCRIPTION "slopSDR software-defined radio receiver"
     LANGUAGES CXX
 )

@@ -737,7 +737,7 @@ void GainSliderBindingTest::toolbarUsesEmbeddedSlopSdrLogo()
 
                     Text {
                         objectName: "versionLabel"
-                        text: "v0.10.4"
+                        text: "v0.11.0"
                     }
 
                     Text {
