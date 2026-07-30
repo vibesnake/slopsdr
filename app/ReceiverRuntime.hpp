@@ -51,7 +51,7 @@ struct ReceiverRuntimeSnapshot {
     quint64 effectiveSpectrumFftSize = 4'096;
     double spectrumHertzPerBin = 0.0;
     double effectiveSpectrumFramesPerSecond = 60.0;
-    double effectiveWaterfallRowsPerSecond = 12.5;
+    double effectiveWaterfallRowsPerSecond = 60.0;
     double visibleWaterfallHistorySeconds = 10.0;
     QStringList deviceIdentifiers;
     QStringList deviceDisplayNames;

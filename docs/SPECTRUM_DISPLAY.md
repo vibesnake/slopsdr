@@ -48,13 +48,14 @@ GNU Radio window generator declares its variable relative rate and forecast;
 scheduler batch size does not alter the sample-time selection average.
 
 The runtime drains each backend burst once. The live spectrum receives its
-newest compatible frame immediately. A separate 80 ms waterfall timer selects
-the newest pending compatible frame without startup prefill or oldest-first
-replay; source frames superseded before that tick are counted as coalesced.
-When the FFT window itself permits fewer than 12.5 independent frames per
-second, the timer follows that lower achievable rate and never fabricates
-duplicate rows. Timestamp rendering separates sample-time FFT selection from
-wall-clock waterfall scrolling.
+newest compatible frame immediately. The waterfall presents real FFT rows at
+60 Hz when available, retaining FIFO row order during normal operation so
+short bursts remain distinct. If the FFT window permits fewer than 60
+independent frames per second, the timer follows that lower achievable rate.
+After a bounded post-stall backlog it collapses to the newest compatible row,
+counting superseded rows as coalesced, rather than replaying stale work. It
+never fabricates duplicate rows. Timestamp rendering separates sample-time FFT
+selection from wall-clock waterfall scrolling.
 
 The pending waterfall buffer remains bounded at 64 frames, while the
 cross-thread spectrum and waterfall handoffs each retain at most one latest
@@ -121,8 +122,8 @@ renderer and interactions can be exercised without SDR hardware. It does not
 expose synthetic IQ to the application model.
 
 The receiver runtime polls backend batches every 33 ms on its worker thread.
-The spectrum catches up to the newest frame, while the waterfall samples the
-newest useful frame at its independent 80 ms presentation cadence. Neither path
+The spectrum catches up to the newest frame, while the waterfall retains real
+rows at its independent 60 Hz presentation cadence when available. Neither path
 blocks the producer.
 
 Spectrum delivery is independent of the 5 ms audio-service timer. Display load

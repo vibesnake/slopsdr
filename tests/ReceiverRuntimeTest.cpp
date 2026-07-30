@@ -991,7 +991,7 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
             QStringLiteral("1 s")));
         QVERIFY(model.visibleWaterfallHistoryOptions().contains(
             QStringLiteral("2.5 s")));
-        QCOMPARE(model.effectiveWaterfallRowsPerSecond(), 12.5);
+        QCOMPARE(model.effectiveWaterfallRowsPerSecond(), 60.0);
         model.startReception();
         QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
 
@@ -1004,7 +1004,7 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
             model.setVisibleWaterfallHistorySeconds(seconds);
             QVERIFY(waitUntil([&model, seconds] {
                 return model.visibleWaterfallHistorySeconds() == seconds &&
-                       model.effectiveWaterfallRowsPerSecond() == 12.5;
+                       model.effectiveWaterfallRowsPerSecond() == 60.0;
             }));
             QVERIFY(waitUntil([&spectrumFrames] {
                 return spectrumFrames.count() >= 1;
@@ -1036,7 +1036,7 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
     restored.start();
     QVERIFY2(waitUntil([&restoredModel] {
         return restoredModel.visibleWaterfallHistorySeconds() == 2.5 &&
-               restoredModel.effectiveWaterfallRowsPerSecond() == 12.5;
+               restoredModel.effectiveWaterfallRowsPerSecond() == 60.0;
     }), qPrintable(QStringLiteral("restored source cadence=%1 history=%2")
                        .arg(restoredModel.effectiveWaterfallRowsPerSecond())
                        .arg(restoredModel.visibleWaterfallHistorySeconds())));

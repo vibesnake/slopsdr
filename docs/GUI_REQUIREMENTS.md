@@ -218,7 +218,7 @@ apparent speed is physical height divided by visible seconds. Changing it is a
 waterfall-only time-mapping operation and must not reconfigure the shared FFT
 producer or interrupt live spectrum frames and Max-hold accumulation. FFT-row
 cadence is internal and independent of the selected duration. Live waterfall
-selection targets an 80 ms interval, uses the newest useful shared FFT frame
+selection targets a 60 Hz interval when available, preserves normal FIFO shared FFT rows,
 without startup prefill, and follows a lower non-overlapping FFT rate when
 necessary. Every rebuild
 must initialize exactly one output row per physical viewport pixel. Between

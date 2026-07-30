@@ -183,7 +183,7 @@ The compact spectrum **AVG** slider runs from off at its minimum to strong
 smoothing at its maximum. It remains independent of **Max**, spectrum pause,
 and every waterfall control.
 The persisted visible-history selector includes fast 1-second and 2.5-second
-views. New waterfall data uses an 80 ms live cadence with newest-frame
+views. New waterfall data uses a 60 Hz live cadence with real FFT-row
 retention, so those history choices change scrolling scale without adding a
 one- or 2.5-second startup delay. If Waterfall is paused during any scan, its
 image is blacked until resumed so stale rows cannot represent a newly scanned

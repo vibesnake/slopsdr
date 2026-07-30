@@ -10,6 +10,11 @@
 #include <utility>
 
 namespace sdr::app {
+namespace {
+
+constexpr std::size_t maximumSequentialBacklogRows = 8;
+
+}  // namespace
 
 WaterfallPresentationInterval nextWaterfallPresentationInterval(
     double requestedRowsPerSecond,
@@ -160,7 +165,7 @@ bool WaterfallFrameDelivery::enqueue(radio::SpectrumFrame frame)
     return true;
 }
 
-std::optional<radio::SpectrumFrame> WaterfallFrameDelivery::takeLatestRow()
+std::optional<radio::SpectrumFrame> WaterfallFrameDelivery::takeNextRow()
 {
     if (!m_active) {
         return std::nullopt;
@@ -169,10 +174,16 @@ std::optional<radio::SpectrumFrame> WaterfallFrameDelivery::takeLatestRow()
         ++m_metrics.displayUnderruns;
         return std::nullopt;
     }
-    radio::SpectrumFrame frame = std::move(m_frames.back());
-    m_metrics.coalescedRows +=
-        static_cast<std::uint64_t>(m_frames.size() - 1);
-    m_frames.clear();
+    radio::SpectrumFrame frame;
+    if (m_frames.size() > maximumSequentialBacklogRows) {
+        frame = std::move(m_frames.back());
+        m_metrics.coalescedRows +=
+            static_cast<std::uint64_t>(m_frames.size() - 1);
+        m_frames.clear();
+    } else {
+        frame = std::move(m_frames.front());
+        m_frames.pop_front();
+    }
     ++m_metrics.rowsConsumed;
     return frame;
 }

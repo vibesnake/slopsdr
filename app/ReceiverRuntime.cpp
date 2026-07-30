@@ -39,7 +39,9 @@ constexpr int runtimePollIntervalMilliseconds = 33;
 constexpr int audioServiceIntervalMilliseconds = 5;
 constexpr int centerFrequencyCommandCoalescingMilliseconds = 1;
 constexpr std::size_t minimumWaterfallQueueCapacity = 64;
-constexpr double waterfallLiveRowsPerSecond = 12.5;
+// One retained waterfall row per normal 60 Hz FFT presentation interval keeps
+// short bursts distinct while the bounded delivery queue handles stalls.
+constexpr double waterfallLiveRowsPerSecond = 60.0;
 constexpr int audioDeviceRefreshIntervalMilliseconds = 5'000;
 constexpr std::size_t maximumAudioTransferFrames =
     static_cast<std::size_t>(radio::receiverAudioSampleRate / 50);
@@ -2473,7 +2475,7 @@ private:
             return;
         }
         if (m_waterfallDelivery.size() > 0) {
-            auto frame = m_waterfallDelivery.takeLatestRow();
+            auto frame = m_waterfallDelivery.takeNextRow();
             if (frame) {
                 if (m_waterfallPublishIntervalTimer.isValid()) {
                     m_lastWaterfallPublishedIntervalNanoseconds =

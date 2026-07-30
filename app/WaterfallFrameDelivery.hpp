@@ -43,7 +43,9 @@ public:
     void reset(std::uint64_t sampleRate, std::size_t fftSize = 0);
     void stop();
     [[nodiscard]] bool enqueue(radio::SpectrumFrame frame);
-    [[nodiscard]] std::optional<radio::SpectrumFrame> takeLatestRow();
+    // Retain real FIFO rows during normal delivery. A large post-stall backlog
+    // collapses to newest data to bound latency and catch-up work.
+    [[nodiscard]] std::optional<radio::SpectrumFrame> takeNextRow();
 
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
