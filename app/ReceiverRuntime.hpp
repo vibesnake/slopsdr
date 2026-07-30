@@ -7,6 +7,7 @@
 #include "AudioOutputService.hpp"
 #include "DsdFmeProcessService.hpp"
 #include "ReceiverBackend.hpp"
+#include "WavRecordingService.hpp"
 
 #include <QObject>
 #include <QString>
@@ -76,6 +77,12 @@ struct ReceiverRuntimeSnapshot {
     bool audioReady = false;
     bool audioRunning = false;
     bool decoderRunning = false;
+    bool recordingActive = false;
+    bool recordingFailed = false;
+    quint64 recordingElapsedSeconds = 0;
+    quint64 recordingDroppedFrames = 0;
+    QString recordingStatusText = QStringLiteral("Recording idle");
+    QString recordingFilePath;
     quint64 audioOverflowEvents = 0;
     quint64 audioUnderrunEvents = 0;
     quintptr workerThreadToken = 0;
@@ -141,6 +148,8 @@ public slots:
     void selectAudioDevice(const QString& identifier);
     void setAudioVolume(int volumePercent);
     void setAudioMuted(bool muted);
+    void startAudioRecording(const QString& directory);
+    void stopAudioRecording();
     void setDsdFmeBinaryPath(const QString& path);
     void startReception();
     void stopReception();
@@ -210,6 +219,8 @@ signals:
     void selectAudioDeviceRequested(const QString& identifier);
     void setAudioVolumeRequested(int volumePercent);
     void setAudioMutedRequested(bool muted);
+    void startAudioRecordingRequested(const QString& directory);
+    void stopAudioRecordingRequested();
     void setDsdFmeBinaryPathRequested(const QString& path);
     void startReceptionRequested();
     void stopReceptionRequested();

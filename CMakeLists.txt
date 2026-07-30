@@ -142,6 +142,8 @@ add_library(
     platform/AudioOutputService.hpp
     platform/DsdFmeProcessService.cpp
     platform/DsdFmeProcessService.hpp
+    platform/WavRecordingService.cpp
+    platform/WavRecordingService.hpp
     platform/QtAudioSinkBackend.cpp
 )
 target_include_directories(sdr_platform_audio PUBLIC platform)
@@ -248,6 +250,7 @@ target_link_libraries(
     sdr_application_model
     PUBLIC
         Qt6::Core
+        Qt6::Gui
         sdr_device_domain
         sdr_platform_audio
         sdr_platform_persistence

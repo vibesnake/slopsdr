@@ -98,6 +98,17 @@ sdr_enable_warnings(audio_output_tests)
 
 add_test(NAME audio_output_tests COMMAND audio_output_tests)
 
+add_executable(wav_recording_service_tests WavRecordingServiceTest.cpp)
+target_link_libraries(
+    wav_recording_service_tests
+    PRIVATE
+        sdr_platform_audio
+        Qt6::Test
+)
+sdr_enable_warnings(wav_recording_service_tests)
+
+add_test(NAME wav_recording_service_tests COMMAND wav_recording_service_tests)
+
 add_executable(dsd_fme_process_tests DsdFmeProcessServiceTest.cpp)
 target_link_libraries(
     dsd_fme_process_tests

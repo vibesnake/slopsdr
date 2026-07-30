@@ -114,6 +114,9 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString dsdFmeBinaryPath READ dsdFmeBinaryPath NOTIFY dsdFmeBinaryPathChanged)
     Q_PROPERTY(QString dsdFmeBinaryStatus READ dsdFmeBinaryStatus NOTIFY dsdFmeBinaryStatusChanged)
     Q_PROPERTY(bool dsdFmeBinaryValid READ dsdFmeBinaryValid NOTIFY dsdFmeBinaryStatusChanged)
+    Q_PROPERTY(QString recordingsFolder READ recordingsFolder NOTIFY recordingsFolderChanged)
+    Q_PROPERTY(QString recordingsFolderStatus READ recordingsFolderStatus NOTIFY recordingsFolderChanged)
+    Q_PROPERTY(bool recordingsFolderValid READ recordingsFolderValid NOTIFY recordingsFolderChanged)
     Q_PROPERTY(QVariantList bookmarkDemodulators READ bookmarkDemodulators CONSTANT)
     Q_PROPERTY(quint64 filterWidth READ filterWidth NOTIFY filterWidthChanged)
     Q_PROPERTY(quint64 minimumFilterWidth READ minimumFilterWidth NOTIFY filterLimitsChanged)
@@ -160,6 +163,11 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool decoderRunning READ decoderRunning NOTIFY audioStateChanged)
     Q_PROPERTY(quint64 audioOverflowEvents READ audioOverflowEvents NOTIFY audioStateChanged)
     Q_PROPERTY(quint64 audioUnderrunEvents READ audioUnderrunEvents NOTIFY audioStateChanged)
+    Q_PROPERTY(bool recordingActive READ recordingActive NOTIFY recordingStateChanged)
+    Q_PROPERTY(bool recordingCanStart READ recordingCanStart NOTIFY recordingStateChanged)
+    Q_PROPERTY(QString recordingElapsedText READ recordingElapsedText NOTIFY recordingStateChanged)
+    Q_PROPERTY(QString recordingStatusText READ recordingStatusText NOTIFY recordingStateChanged)
+    Q_PROPERTY(quint64 recordingDroppedFrames READ recordingDroppedFrames NOTIFY recordingStateChanged)
     Q_PROPERTY(quint64 tuningWheelStep READ tuningWheelStep WRITE setTuningWheelStep NOTIFY tuningWheelStepChanged)
 
 public:
@@ -252,6 +260,9 @@ public:
     [[nodiscard]] QString dsdFmeBinaryPath() const;
     [[nodiscard]] QString dsdFmeBinaryStatus() const;
     [[nodiscard]] bool dsdFmeBinaryValid() const noexcept;
+    [[nodiscard]] QString recordingsFolder() const;
+    [[nodiscard]] QString recordingsFolderStatus() const;
+    [[nodiscard]] bool recordingsFolderValid() const noexcept;
     [[nodiscard]] QVariantList bookmarkDemodulators() const;
     [[nodiscard]] quint64 filterWidth() const noexcept;
     [[nodiscard]] quint64 minimumFilterWidth() const noexcept;
@@ -299,6 +310,11 @@ public:
     [[nodiscard]] bool decoderRunning() const noexcept;
     [[nodiscard]] quint64 audioOverflowEvents() const noexcept;
     [[nodiscard]] quint64 audioUnderrunEvents() const noexcept;
+    [[nodiscard]] bool recordingActive() const noexcept;
+    [[nodiscard]] bool recordingCanStart() const noexcept;
+    [[nodiscard]] QString recordingElapsedText() const;
+    [[nodiscard]] QString recordingStatusText() const;
+    [[nodiscard]] quint64 recordingDroppedFrames() const noexcept;
     [[nodiscard]] const std::vector<sdr::radio::FrequencyRange>&
     deviceSampleRateRanges() const noexcept;
     [[nodiscard]] quint64 tuningWheelStep() const noexcept;
@@ -384,6 +400,11 @@ public slots:
     void setDsdFmeBinaryPath(const QString& path);
     void setDsdFmeBinaryUrl(const QUrl& url);
     void revalidateDsdFmeBinaryPath();
+    void setRecordingsFolder(const QString& path);
+    void setRecordingsFolderUrl(const QUrl& url);
+    void openRecordingsFolder();
+    void startAudioRecording();
+    void stopAudioRecording();
     QString beginAddCurrentBookmark(int parentVisibleRow = -1);
     bool confirmAddCurrentBookmark(const QString& name);
     void cancelAddCurrentBookmark();
@@ -450,6 +471,8 @@ signals:
     void consolePanelWidthChanged();
     void dsdFmeBinaryPathChanged();
     void dsdFmeBinaryStatusChanged();
+    void recordingsFolderChanged();
+    void recordingStateChanged();
     void filterWidthChanged();
     void filterLimitsChanged();
     void filterPresetsChanged();
@@ -735,6 +758,9 @@ private:
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
     QString m_dsdFmeBinaryPath;
+    QString m_recordingsFolder;
+    QString m_recordingsFolderStatus;
+    bool m_recordingsFolderValid = false;
     QString m_dsdFmeBinaryStatus;
     bool m_dsdFmeBinaryValid = false;
     QTimer m_spectrumTimer;
@@ -806,6 +832,12 @@ private:
     bool m_decoderRunning = false;
     quint64 m_audioOverflowEvents = 0;
     quint64 m_audioUnderrunEvents = 0;
+    bool m_recordingActive = false;
+    bool m_recordingFailed = false;
+    quint64 m_recordingElapsedSeconds = 0;
+    quint64 m_recordingDroppedFrames = 0;
+    QString m_recordingStatusText = QStringLiteral("Recording idle");
+    QString m_recordingFilePath;
     quint64 m_tuningWheelStep = 10'000;
     sdr::app::FrequencyViewport m_frequencyViewport;
     quint64 m_waterfallZoomEvents = 0;

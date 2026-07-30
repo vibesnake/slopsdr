@@ -24,6 +24,10 @@ The Bookmarks pane supports updating bookmarks, saved squelch, and scanning
 bookmarks in their saved order. Receiver Controls keep a stable layout with
 reduced flicker, while configurable Waterfall aggregation and persistent
 receiver and scanner settings retain the choices that matter between sessions.
+Use the always-visible **Record audio** control to save final received audio as
+48 kHz 16-bit stereo WAV before speaker volume and mute; recordings continue
+across scanner and manual retunes. Choose the persistent recordings folder in
+**Settings**.
 Analog reception is supported in AM, NFM, WFM, USB, and LSB. DMR/P25 remains
 experimental and requires a separately installed DSD-FME executable; it is not
 the focus of this stable release.
@@ -195,7 +199,7 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/bookmarks.json
 
 `slopSDR.conf` contains QSettings-managed application settings under the
 `slopSDR` organization and application name, including the DSD-FME executable
-path. `bookmarks.json` contains bookmark groups and bookmark data. Use the GUI
+path and recordings folder. `bookmarks.json` contains bookmark groups and bookmark data. Use the GUI
 to change these settings rather than editing either file while slopSDR is
 running. Renaming or removing either file resets or isolates that part of the
 configuration; retain a copy first if you need to preserve it.

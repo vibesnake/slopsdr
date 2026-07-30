@@ -4,6 +4,7 @@
 #include "ReceiverRuntime.hpp"
 
 #include "MockReceiverBackend.hpp"
+#include "DemodulatorRegistry.hpp"
 #include "PpmCalibration.hpp"
 #include "ReceiverControlSettings.hpp"
 #include "RtlSdrCapabilities.hpp"
@@ -22,6 +23,7 @@
 #include <chrono>
 #include <cmath>
 #include <exception>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -515,6 +517,9 @@ public slots:
         if (m_audioOutput) {
             m_audioOutput->stop();
         }
+        if (m_recording) {
+            m_recording->stop();
+        }
         m_backend.reset();
         m_audioOutput.reset();
         m_dsdFme.reset();
@@ -811,6 +816,9 @@ public slots:
         m_autoSquelchSamples.clear();
         m_waterfallDelivery.stop();
         m_spectrumMetricsTimer.invalidate();
+        if (m_recording) {
+            m_recording->stop();
+        }
         if (!m_backend) {
             if (m_dsdFme) {
                 m_dsdFme->stop();
@@ -892,6 +900,42 @@ public slots:
             return;
         }
         m_audioOutput->setMuted(muted);
+        publishSnapshot(true);
+    }
+
+    void startAudioRecording(const QString& directory)
+    {
+        if (!m_backend || !m_backend->state().running || !m_recording) {
+            m_statusText = QStringLiteral("Reception must be active before recording");
+            publishSnapshot(false);
+            return;
+        }
+        const auto mode = m_backend->state().demodulationMode;
+        const auto* descriptor = radio::DemodulatorRegistry::findByMode(mode);
+        const bool started = m_recording->start({
+            .directory = std::filesystem::path(directory.toStdString()),
+            .frequencyHz = m_backend->state().listeningFrequency,
+            .modeName = descriptor ? std::string(descriptor->displayName)
+                                   : std::string("audio"),
+        });
+        const auto state = m_recording->state();
+        m_statusText = started
+                           ? QStringLiteral("Recording %1")
+                                 .arg(QString::fromStdString(
+                                     state.filePath.filename().string()))
+                           : QString::fromStdString(state.statusText);
+        log(started ? 1 : 3, QStringLiteral("Recording"), m_statusText);
+        publishSnapshot(started);
+    }
+
+    void stopAudioRecording()
+    {
+        if (m_recording) {
+            m_recording->stop();
+            const auto state = m_recording->state();
+            m_statusText = QString::fromStdString(state.statusText);
+            log(state.failed ? 3 : 1, QStringLiteral("Recording"), m_statusText);
+        }
         publishSnapshot(true);
     }
 
@@ -2305,6 +2349,11 @@ private:
 
     void pollBackend()
     {
+        if (m_recording && m_recording->state().active &&
+            (!m_backend || !m_backend->state().running)) {
+            m_recording->stop();
+            publishSnapshot(true);
+        }
         const std::optional<platform::AudioOutputState> previousAudioState =
             m_audioOutput
                 ? std::optional<platform::AudioOutputState>(m_audioOutput->state())
@@ -2316,6 +2365,9 @@ private:
                 }
                 if (m_dsdFme) {
                     m_dsdFme->stop();
+                }
+                if (m_recording) {
+                    m_recording->stop();
                 }
                 m_statusText = QString::fromStdString(runtimeError->message);
                 m_waterfallDelivery.stop();
@@ -2501,21 +2553,35 @@ private:
             m_dsdFme->enqueueDiscriminator(decoderInput);
             m_dsdFme->process();
             const auto decoded = m_dsdFme->takeDecodedStereo(
-                m_audioOutput
-                    ? std::min(
-                          maximumAudioTransferFrames,
-                          m_audioOutput->availableBufferCapacity())
-                    : maximumAudioTransferFrames);
+                m_recording && m_recording->state().active
+                    ? maximumAudioTransferFrames
+                    : (m_audioOutput
+                           ? std::min(
+                                 maximumAudioTransferFrames,
+                                 m_audioOutput->availableBufferCapacity())
+                           : maximumAudioTransferFrames));
             m_audioTransferredSamples += decoded.size() / 2U;
+            if (m_recording) {
+                m_recording->enqueueStereo(decoded);
+            }
             if (m_audioOutput) {
                 m_audioOutput->enqueueStereo(decoded);
             }
-        } else if (m_audioOutput) {
-            const auto audio = m_backend->takeAudioSamples(std::min(
-                maximumAudioTransferFrames,
-                m_audioOutput->availableBufferCapacity()));
+        } else if (m_audioOutput || m_recording) {
+            const auto audio = m_backend->takeAudioSamples(
+                m_recording && m_recording->state().active
+                    ? maximumAudioTransferFrames
+                    : std::min(
+                          maximumAudioTransferFrames,
+                          m_audioOutput ? m_audioOutput->availableBufferCapacity()
+                                        : maximumAudioTransferFrames));
             m_audioTransferredSamples += audio.size();
-            m_audioOutput->enqueueMono(audio);
+            if (m_recording) {
+                m_recording->enqueueMono(audio);
+            }
+            if (m_audioOutput) {
+                m_audioOutput->enqueueMono(audio);
+            }
         }
         if (m_audioOutput) {
             m_audioOutput->process();
@@ -2904,6 +2970,15 @@ private:
             snapshot.dsdFmeStatusText = QStringLiteral(
                 "DSD-FME process service is unavailable");
         }
+        if (m_recording) {
+            const auto recording = m_recording->state();
+            snapshot.recordingActive = recording.active;
+            snapshot.recordingFailed = recording.failed;
+            snapshot.recordingElapsedSeconds = recording.elapsedSeconds;
+            snapshot.recordingDroppedFrames = recording.droppedFrames;
+            snapshot.recordingStatusText = QString::fromStdString(recording.statusText);
+            snapshot.recordingFilePath = QString::fromStdString(recording.filePath.string());
+        }
         snapshot.deviceState = m_deviceState;
         snapshot.backendDescription = m_backendDescription;
         snapshot.statusText = m_statusText;
@@ -3011,6 +3086,8 @@ private:
     QElapsedTimer m_autoSquelchElapsed;
     std::vector<double> m_autoSquelchSamples;
     std::unique_ptr<platform::AudioOutputService> m_audioOutput;
+    std::unique_ptr<platform::WavRecordingService> m_recording =
+        std::make_unique<platform::WavRecordingService>();
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
     std::vector<devices::DeviceDescriptor> m_devices;
     std::optional<devices::DeviceDescriptor> m_selectedCapabilities;
@@ -3141,6 +3218,18 @@ ReceiverRuntime::ReceiverRuntime(
         &ReceiverRuntime::setAudioMutedRequested,
         m_worker,
         &Worker::setAudioMuted,
+        Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::startAudioRecordingRequested,
+        m_worker,
+        &Worker::startAudioRecording,
+        Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::stopAudioRecordingRequested,
+        m_worker,
+        &Worker::stopAudioRecording,
         Qt::QueuedConnection);
     connect(
         this,
@@ -3453,6 +3542,16 @@ void ReceiverRuntime::setAudioVolume(int volumePercent)
 void ReceiverRuntime::setAudioMuted(bool muted)
 {
     emit setAudioMutedRequested(muted);
+}
+
+void ReceiverRuntime::startAudioRecording(const QString& directory)
+{
+    emit startAudioRecordingRequested(directory);
+}
+
+void ReceiverRuntime::stopAudioRecording()
+{
+    emit stopAudioRecordingRequested();
 }
 
 void ReceiverRuntime::setDsdFmeBinaryPath(const QString& path)

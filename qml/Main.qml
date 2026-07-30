@@ -1028,6 +1028,12 @@ ApplicationWindow {
         onAccepted: root.applicationModel.setDsdFmeBinaryUrl(selectedFile)
     }
 
+    FolderDialog {
+        id: recordingsFolderDialog
+        title: qsTr("Select recordings folder")
+        onAccepted: root.applicationModel.setRecordingsFolderUrl(selectedFolder)
+    }
+
     Dialog {
         id: bookmarkGroupDialog
         property int editingRow: -1
@@ -3240,6 +3246,65 @@ ApplicationWindow {
                     }
                 }
 
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.minimumHeight: recordingSettingsContent.implicitHeight + 20
+                    radius: 5
+                    color: "#111a2b"
+                    border.color: root.panelBorderColor
+
+                    ColumnLayout {
+                        id: recordingSettingsContent
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        spacing: 7
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Recording")
+                            color: root.primaryTextColor
+                            font.bold: true
+                            font.pixelSize: 12
+                        }
+
+                        TextField {
+                            objectName: "recordingsFolderField"
+                            Layout.fillWidth: true
+                            text: root.applicationModel.recordingsFolder
+                            Accessible.name: qsTr("WAV recordings folder")
+                            onEditingFinished: root.applicationModel.setRecordingsFolder(text)
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 5
+
+                            Button {
+                                objectName: "browseRecordingsFolderButton"
+                                text: qsTr("Browse")
+                                onClicked: recordingsFolderDialog.open()
+                            }
+
+                            Button {
+                                objectName: "openRecordingsFolderButton"
+                                text: qsTr("Open folder")
+                                enabled: root.applicationModel.recordingsFolderValid
+                                onClicked: root.applicationModel.openRecordingsFolder()
+                            }
+                        }
+
+                        Label {
+                            objectName: "recordingsFolderStatus"
+                            Layout.fillWidth: true
+                            text: root.applicationModel.recordingsFolderStatus
+                            color: root.applicationModel.recordingsFolderValid
+                                   ? "#6ee7b7" : root.listeningColor
+                            font.pixelSize: 10
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
                 Item { Layout.fillHeight: true }
             }
 
@@ -4236,7 +4301,7 @@ ApplicationWindow {
     }
 
     footer: ToolBar {
-        implicitHeight: root.denseLayout ? 28 : 34
+        implicitHeight: root.denseLayout ? 40 : 42
         background: Rectangle {
             color: "#111a2b"
             border.color: root.panelBorderColor
@@ -4252,6 +4317,49 @@ ApplicationWindow {
                 implicitHeight: 8
                 radius: width / 2
                 color: "#718096"
+            }
+
+            Button {
+                id: audioRecordingButton
+                objectName: "audioRecordingButton"
+                implicitHeight: 30
+                text: root.applicationModel.recordingActive
+                      ? qsTr("Stop") : qsTr("Record audio")
+                enabled: root.applicationModel.recordingActive
+                         || root.applicationModel.recordingCanStart
+                Accessible.name: text
+                onClicked: {
+                    if (root.applicationModel.recordingActive)
+                        root.applicationModel.stopAudioRecording()
+                    else
+                        root.applicationModel.startAudioRecording()
+                }
+            }
+
+            Rectangle {
+                objectName: "recordingIndicator"
+                visible: root.applicationModel.recordingActive
+                implicitWidth: 8
+                implicitHeight: 8
+                radius: width / 2
+                color: "#ef4444"
+            }
+
+            Label {
+                objectName: "recordingFormatLabel"
+                text: qsTr("WAV")
+                color: root.applicationModel.recordingActive
+                       ? "#fecaca" : root.secondaryTextColor
+                font.bold: true
+                font.pixelSize: 10
+            }
+
+            Label {
+                objectName: "recordingElapsedLabel"
+                text: root.applicationModel.recordingElapsedText
+                color: root.applicationModel.recordingActive
+                       ? "#fecaca" : root.secondaryTextColor
+                font.pixelSize: 10
             }
 
             Label {

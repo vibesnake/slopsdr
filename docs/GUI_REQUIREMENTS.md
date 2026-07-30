@@ -300,6 +300,20 @@ must not enumerate or open sound devices. Audio-device selection, volume, and
 mute remain visible during normal reception; audio failures must not disable
 receiver tuning or spectrum display.
 
+The bottom status bar is approximately 40–44 px high and remains visible while
+any sidebar is open. It contains a **Record audio** control while idle and
+**Stop** while recording, followed by a red recording indicator, **WAV**, and
+an `HH:MM:SS` elapsed time. Start is available only during active reception with
+a usable recording folder; Stop remains available until finalization. Recording
+captures final analog or decoded audio before speaker volume, mute, output
+device readiness, and scanner state. It writes 48 kHz 16-bit PCM stereo WAV:
+analog mono is duplicated and decoded stereo is retained. A bounded background
+writer may report dropped frames or write failures, but must never stop
+reception or playback. Recording remains active across manual and scanner
+retunes and finalizes on receiver stop or application shutdown. Settings keeps
+a persistent writable recordings folder, browse/open-folder actions, and clear
+validation text; it does not add a sidebar pane.
+
 Receiver Controls reserves the filter-width selector's widest supported text
 and keeps normal state/value changes from changing the pane geometry. Detailed
 runtime audio and decoder messages belong in the bounded Console; the fixed

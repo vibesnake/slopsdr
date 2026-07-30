@@ -22,6 +22,7 @@
 #include <complex>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <string>
 #include <utility>
@@ -93,6 +94,8 @@ struct RuntimeTrace {
     quintptr audioCloseThreadToken = 0;
     QString dsdProgram;
     QStringList dsdArguments;
+    std::mutex recordingAudioMutex;
+    std::vector<float> recordingAudioSamples;
 };
 
 class RuntimeDsdChild final : public platform::DsdFmeChildProcess
@@ -463,12 +466,23 @@ public:
     }
 
     [[nodiscard]] std::vector<float> takeAudioSamples(
-        std::size_t) override
+        std::size_t maximumSamples) override
     {
+        std::lock_guard lock(m_trace->recordingAudioMutex);
         if (m_trace->calibrationActive) {
             ++m_trace->calibrationAudioReads;
         }
-        return {};
+        const std::size_t count = std::min(
+            maximumSamples, m_trace->recordingAudioSamples.size());
+        std::vector<float> result(
+            m_trace->recordingAudioSamples.begin(),
+            m_trace->recordingAudioSamples.begin() +
+                static_cast<std::ptrdiff_t>(count));
+        m_trace->recordingAudioSamples.erase(
+            m_trace->recordingAudioSamples.begin(),
+            m_trace->recordingAudioSamples.begin() +
+                static_cast<std::ptrdiff_t>(count));
+        return result;
     }
 
     [[nodiscard]] std::vector<float> takeDecoderInputSamples(
@@ -790,6 +804,7 @@ private slots:
     void stoppedReceptionRemainsStoppedAfterCalibration();
     void testCounterDataNeverReachesReceiverProcessing();
     void stopsBackendAndJoinsWorkerDuringShutdown();
+    void recordsMutedAudioAcrossRetunesAndFinalizesOnStop();
 
 private:
     QTemporaryDir m_settingsDirectory;
@@ -2586,6 +2601,66 @@ void ReceiverRuntimeTest::testCounterDataNeverReachesReceiverProcessing()
     QCOMPARE(trace->calibrationSpectrumReads, 0);
     QCOMPARE(trace->calibrationAudioReads, 0);
     QCOMPARE(trace->calibrationDecoderReads, 0);
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::recordsMutedAudioAcrossRetunesAndFinalizesOnStop()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    auto trace = std::make_shared<RuntimeTrace>();
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        factoriesFor(trace));
+    ApplicationModel model(runtime);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.deviceDisplayNames().size() == 2; }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+    model.setRecordingsFolder(recordings.path());
+    QVERIFY(model.recordingsFolderValid());
+    model.setAudioMuted(true);
+    model.setAudioVolume(0);
+    model.startAudioRecording();
+    QVERIFY(waitUntil([&model] { return model.recordingActive(); }));
+    QCOMPARE(model.recordingElapsedText(), QStringLiteral("00:00:00"));
+    {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        trace->recordingAudioSamples = {0.5F, -0.5F};
+    }
+    QVERIFY(waitUntil([&trace] {
+        std::lock_guard lock(trace->recordingAudioMutex);
+        return trace->recordingAudioSamples.empty();
+    }));
+    model.setListeningFrequency(99'500'000);
+    QVERIFY(waitUntil([&model] {
+        return model.listeningFrequency() == 99'500'000 &&
+               model.recordingActive();
+    }));
+    model.setScanLowerFrequency(99'400'000);
+    model.setScanUpperFrequency(99'500'000);
+    model.setScanStepSize(50'000);
+    model.startScan();
+    QVERIFY(waitUntil([&model] { return model.scannerOwnsTuning(); }));
+    QVERIFY(model.recordingActive());
+    model.stopScan();
+    model.stopReception();
+    QVERIFY(waitUntil([&model] {
+        return !model.receiverRunning() && !model.recordingActive();
+    }));
+    const QStringList wavs = QDir(recordings.path()).entryList(
+        {QStringLiteral("*.wav")}, QDir::Files);
+    QCOMPARE(wavs.size(), 1);
+    QFile file(recordings.filePath(wavs.front()));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QByteArray bytes = file.readAll();
+    QVERIFY(bytes.size() >= 52);
+    QCOMPARE(bytes.mid(0, 4), QByteArray("RIFF"));
+    QCOMPARE(bytes.mid(36, 4), QByteArray("data"));
+    QCOMPARE(bytes.mid(44, 2), QByteArray::fromHex("0040"));
+    QCOMPARE(bytes.mid(46, 2), QByteArray::fromHex("0040"));
+    QCOMPARE(bytes.mid(48, 2), QByteArray::fromHex("00c0"));
+    QCOMPARE(bytes.mid(50, 2), QByteArray::fromHex("00c0"));
     runtime.shutdown();
 }
 

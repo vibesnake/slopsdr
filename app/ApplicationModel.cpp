@@ -12,9 +12,11 @@
 #include <QtMath>
 #include <QDebug>
 #include <QDir>
+#include <QDesktopServices>
 #include <QFileInfo>
 #include <QPointer>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QSet>
 #include <QUuid>
 
@@ -79,6 +81,7 @@ QString scanTypeName(int scanTypeIndex)
     return QString::fromLatin1(currentPassbandScanType);
 }
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
+constexpr auto recordingsFolderSetting = "recording/folder";
 constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
 constexpr double defaultSettingsPanelWidth = 320.0;
@@ -156,6 +159,48 @@ QString normalizedDsdFmeBinaryPath(const QString& path)
         return QStringLiteral("~/") + QDir::cleanPath(trimmed.mid(2));
     }
     return QDir::cleanPath(trimmed);
+}
+
+QString defaultRecordingsFolder()
+{
+    QString base = QStandardPaths::writableLocation(
+        QStandardPaths::MusicLocation);
+    if (base.isEmpty()) {
+        base = QStandardPaths::writableLocation(
+            QStandardPaths::DocumentsLocation);
+    }
+    if (base.isEmpty()) {
+        base = QDir::homePath();
+    }
+    return QDir::cleanPath(base + QStringLiteral("/slopSDR Recordings"));
+}
+
+QString normalizedRecordingsFolder(const QString& path)
+{
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        return defaultRecordingsFolder();
+    }
+    return QDir::cleanPath(QDir::isRelativePath(trimmed)
+                               ? QDir::current().absoluteFilePath(trimmed)
+                               : trimmed);
+}
+
+QString recordingsFolderStatusForPath(const QString& path, bool* valid)
+{
+    *valid = false;
+    const QFileInfo info(path);
+    if (!info.exists()) {
+        return QStringLiteral("Folder does not exist");
+    }
+    if (!info.isDir()) {
+        return QStringLiteral("Path is not a folder");
+    }
+    if (!info.isWritable()) {
+        return QStringLiteral("Folder is not writable");
+    }
+    *valid = true;
+    return QStringLiteral("Ready for WAV recordings");
 }
 
 std::optional<quint64> persistedUnsignedInteger(const QVariant& storedValue)
@@ -775,6 +820,21 @@ void ApplicationModel::restorePersistedDisplaySettings()
         settings.setValue(dsdFmeBinaryPathSetting, m_dsdFmeBinaryPath);
     }
     revalidateDsdFmeBinaryPath();
+
+    const QString storedRecordingsFolder = settings.value(
+        recordingsFolderSetting).toString();
+    m_recordingsFolder = normalizedRecordingsFolder(storedRecordingsFolder);
+    if (storedRecordingsFolder.trimmed().isEmpty()) {
+        static_cast<void>(QDir().mkpath(m_recordingsFolder));
+    }
+    if (storedRecordingsFolder !=
+        m_recordingsFolder) {
+        settings.setValue(recordingsFolderSetting, m_recordingsFolder);
+    }
+    bool recordingsFolderValid = false;
+    m_recordingsFolderStatus = recordingsFolderStatusForPath(
+        m_recordingsFolder, &recordingsFolderValid);
+    m_recordingsFolderValid = recordingsFolderValid;
 }
 
 void ApplicationModel::restorePersistedScanSettings()
@@ -1529,6 +1589,21 @@ bool ApplicationModel::dsdFmeBinaryValid() const noexcept
     return m_dsdFmeBinaryValid;
 }
 
+QString ApplicationModel::recordingsFolder() const
+{
+    return m_recordingsFolder;
+}
+
+QString ApplicationModel::recordingsFolderStatus() const
+{
+    return m_recordingsFolderStatus;
+}
+
+bool ApplicationModel::recordingsFolderValid() const noexcept
+{
+    return m_recordingsFolderValid;
+}
+
 QVariantList ApplicationModel::bookmarkDemodulators() const
 {
     QVariantList options;
@@ -1815,6 +1890,37 @@ quint64 ApplicationModel::audioOverflowEvents() const noexcept
 quint64 ApplicationModel::audioUnderrunEvents() const noexcept
 {
     return m_audioUnderrunEvents;
+}
+
+bool ApplicationModel::recordingActive() const noexcept
+{
+    return m_recordingActive;
+}
+
+bool ApplicationModel::recordingCanStart() const noexcept
+{
+    return receiverRunning() && m_recordingsFolderValid && !m_recordingActive;
+}
+
+QString ApplicationModel::recordingElapsedText() const
+{
+    const quint64 hours = m_recordingElapsedSeconds / 3'600U;
+    const quint64 minutes = (m_recordingElapsedSeconds / 60U) % 60U;
+    const quint64 seconds = m_recordingElapsedSeconds % 60U;
+    return QStringLiteral("%1:%2:%3")
+        .arg(hours, 2, 10, QLatin1Char('0'))
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(seconds, 2, 10, QLatin1Char('0'));
+}
+
+QString ApplicationModel::recordingStatusText() const
+{
+    return m_recordingStatusText;
+}
+
+quint64 ApplicationModel::recordingDroppedFrames() const noexcept
+{
+    return m_recordingDroppedFrames;
 }
 
 const std::vector<sdr::radio::FrequencyRange>&
@@ -3143,6 +3249,52 @@ void ApplicationModel::revalidateDsdFmeBinaryPath()
     emit dsdFmeBinaryStatusChanged();
 }
 
+void ApplicationModel::setRecordingsFolder(const QString& path)
+{
+    const QString normalized = normalizedRecordingsFolder(path);
+    bool valid = false;
+    const QString status = recordingsFolderStatusForPath(normalized, &valid);
+    if (m_recordingsFolder == normalized && m_recordingsFolderStatus == status &&
+        m_recordingsFolderValid == valid) {
+        return;
+    }
+    m_recordingsFolder = normalized;
+    m_recordingsFolderStatus = status;
+    m_recordingsFolderValid = valid;
+    QSettings().setValue(recordingsFolderSetting, m_recordingsFolder);
+    emit recordingsFolderChanged();
+    emit recordingStateChanged();
+}
+
+void ApplicationModel::setRecordingsFolderUrl(const QUrl& url)
+{
+    setRecordingsFolder(url.isLocalFile() ? url.toLocalFile() : url.toString());
+}
+
+void ApplicationModel::openRecordingsFolder()
+{
+    if (!m_recordingsFolderValid) {
+        return;
+    }
+    static_cast<void>(QDesktopServices::openUrl(
+        QUrl::fromLocalFile(m_recordingsFolder)));
+}
+
+void ApplicationModel::startAudioRecording()
+{
+    if (!recordingCanStart() || !m_runtime) {
+        return;
+    }
+    m_runtime->startAudioRecording(m_recordingsFolder);
+}
+
+void ApplicationModel::stopAudioRecording()
+{
+    if (m_runtime) {
+        m_runtime->stopAudioRecording();
+    }
+}
+
 QString ApplicationModel::beginAddCurrentBookmark(int parentVisibleRow)
 {
     const auto* demodulator = sdr::radio::DemodulatorRegistry::findByMode(
@@ -3712,6 +3864,12 @@ void ApplicationModel::applyRuntimeSnapshot(
     const bool previousDecoderRunning = m_decoderRunning;
     const quint64 previousAudioOverflowEvents = m_audioOverflowEvents;
     const quint64 previousAudioUnderrunEvents = m_audioUnderrunEvents;
+    const bool previousRecordingActive = m_recordingActive;
+    const bool previousRecordingFailed = m_recordingFailed;
+    const quint64 previousRecordingElapsedSeconds = m_recordingElapsedSeconds;
+    const quint64 previousRecordingDroppedFrames = m_recordingDroppedFrames;
+    const QString previousRecordingStatus = m_recordingStatusText;
+    const QString previousRecordingFilePath = m_recordingFilePath;
 
     m_runtimeState = snapshot.receiverState;
     m_runtimeTuningGeneration = snapshot.tuningGeneration;
@@ -3772,6 +3930,27 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_decoderRunning = snapshot.decoderRunning;
     m_audioOverflowEvents = snapshot.audioOverflowEvents;
     m_audioUnderrunEvents = snapshot.audioUnderrunEvents;
+    m_recordingActive = snapshot.recordingActive;
+    m_recordingFailed = snapshot.recordingFailed;
+    m_recordingElapsedSeconds = snapshot.recordingElapsedSeconds;
+    m_recordingDroppedFrames = snapshot.recordingDroppedFrames;
+    m_recordingStatusText = snapshot.recordingStatusText;
+    m_recordingFilePath = snapshot.recordingFilePath;
+    if (m_recordingDroppedFrames > previousRecordingDroppedFrames) {
+        m_applicationLog.post(
+            sdr::app::ApplicationLogModel::Warning,
+            QStringLiteral("Recording"),
+            QStringLiteral("WAV writer dropped frames; total %1")
+                .arg(m_recordingDroppedFrames));
+    }
+    if (m_recordingFailed &&
+        (previousRecordingStatus != m_recordingStatusText ||
+         !previousRecordingFailed)) {
+        m_applicationLog.post(
+            sdr::app::ApplicationLogModel::Error,
+            QStringLiteral("Recording"), m_recordingStatusText);
+        setStatusText(m_recordingStatusText);
+    }
     if (m_audioUnderrunEvents > previousAudioUnderrunEvents) {
         m_applicationLog.post(
             sdr::app::ApplicationLogModel::Warning,
@@ -3939,12 +4118,23 @@ void ApplicationModel::applyRuntimeSnapshot(
         previousAudioUnderrunEvents != m_audioUnderrunEvents) {
         emit audioStateChanged();
     }
+    if (previousRecordingActive != m_recordingActive ||
+        previousRecordingFailed != m_recordingFailed ||
+        previousRecordingElapsedSeconds != m_recordingElapsedSeconds ||
+        previousRecordingDroppedFrames != m_recordingDroppedFrames ||
+        previousRecordingStatus != m_recordingStatusText ||
+        previousRecordingFilePath != m_recordingFilePath ||
+        previousState.running != m_runtimeState.running) {
+        emit recordingStateChanged();
+    }
     const bool runtimeBusy = m_ppmCalibrationRunning || m_autoSquelchRunning;
     if (m_runtimeBusy != runtimeBusy) {
         m_runtimeBusy = runtimeBusy;
         emit runtimeBusyChanged();
     }
-    setStatusText(snapshot.statusText);
+    setStatusText(m_recordingFailed
+                      ? m_recordingStatusText
+                      : snapshot.statusText);
 }
 
 void ApplicationModel::applyScannerListeningFrequency(

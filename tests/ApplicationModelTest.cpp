@@ -80,6 +80,7 @@ private slots:
     void disablesAutoForUnavailableMeasurementAndScannerOwnership();
     void autoSquelchDoesNotMutateLoadedBookmark();
     void persistsAndValidatesDsdFmeBinaryPath();
+    void persistsAndValidatesRecordingsFolder();
     void namesBookmarksBeforeCreatingCapturedReceiverState();
     void updatesBookmarksByStableIdentityAndPreservesMetadata();
     void supportsDigitTuning();
@@ -1405,6 +1406,38 @@ void ApplicationModelTest::persistsAndValidatesDsdFmeBinaryPath()
             QStringLiteral("No DSD-FME binary configured"));
     }
 
+    settings.remove(key);
+    settings.sync();
+}
+
+void ApplicationModelTest::persistsAndValidatesRecordingsFolder()
+{
+    const QString key = QStringLiteral("recording/folder");
+    QSettings settings;
+    settings.remove(key);
+    settings.sync();
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString invalidPath = directory.filePath(QStringLiteral("missing"));
+    {
+        ApplicationModel model;
+        model.setRecordingsFolder(
+            QStringLiteral("  %1  ").arg(directory.path()));
+        QCOMPARE(model.recordingsFolder(), QDir::cleanPath(directory.path()));
+        QCOMPARE(model.recordingsFolderStatus(),
+                 QStringLiteral("Ready for WAV recordings"));
+        QVERIFY(model.recordingsFolderValid());
+    }
+    {
+        ApplicationModel restored;
+        QCOMPARE(restored.recordingsFolder(), QDir::cleanPath(directory.path()));
+        QVERIFY(restored.recordingsFolderValid());
+        restored.setRecordingsFolder(invalidPath);
+        QCOMPARE(restored.recordingsFolderStatus(),
+                 QStringLiteral("Folder does not exist"));
+        QVERIFY(!restored.recordingsFolderValid());
+    }
     settings.remove(key);
     settings.sync();
 }
