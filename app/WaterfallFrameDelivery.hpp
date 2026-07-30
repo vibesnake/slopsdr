@@ -15,6 +15,8 @@ namespace sdr::app {
 struct WaterfallDeliveryMetrics {
     std::uint64_t rowsConsumed = 0;
     std::uint64_t overflowDrops = 0;
+    std::uint64_t coalescedRows = 0;
+    std::uint64_t staleGenerationDrops = 0;
     std::uint64_t displayUnderruns = 0;
     std::uint64_t sequenceGaps = 0;
     std::uint64_t duplicateRows = 0;
@@ -28,21 +30,20 @@ struct WaterfallPresentationInterval {
 };
 
 [[nodiscard]] WaterfallPresentationInterval nextWaterfallPresentationInterval(
-    std::uint32_t requestedRowsPerSecond,
+    double requestedRowsPerSecond,
     double achievableRowsPerSecond,
     double fractionalMilliseconds) noexcept;
 
 class WaterfallFrameDelivery final
 {
 public:
-    explicit WaterfallFrameDelivery(
-        std::size_t capacity = 64, std::size_t prefillRows = 5);
+    explicit WaterfallFrameDelivery(std::size_t capacity = 64);
 
     void setCapacity(std::size_t capacity);
     void reset(std::uint64_t sampleRate, std::size_t fftSize = 0);
     void stop();
     [[nodiscard]] bool enqueue(radio::SpectrumFrame frame);
-    [[nodiscard]] std::optional<radio::SpectrumFrame> takeNextRow();
+    [[nodiscard]] std::optional<radio::SpectrumFrame> takeLatestRow();
 
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] std::size_t size() const noexcept;
@@ -51,15 +52,17 @@ public:
 
 private:
     std::size_t m_capacity;
-    const std::size_t m_prefillRows;
     std::deque<radio::SpectrumFrame> m_frames;
     WaterfallDeliveryMetrics m_metrics;
     std::uint64_t m_sampleRate = 0;
     std::size_t m_fftSize = 0;
+    std::uint64_t m_captureSpan = 0;
+    std::uint64_t m_centerFrequency = 0;
+    std::uint64_t m_tuningGeneration = 0;
     std::uint64_t m_lastEnqueuedSequence = 0;
     std::uint64_t m_lastEnqueuedTimestampNanoseconds = 0;
     bool m_active = false;
-    bool m_prefilled = false;
+    bool m_mappingInitialized = false;
 };
 
 }  // namespace sdr::app

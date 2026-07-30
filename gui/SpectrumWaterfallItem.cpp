@@ -1822,24 +1822,62 @@ bool SpectrumWaterfallItem::rebuildWaterfallImage(
         }
         QVector<float> projected;
         if (sample.reduce) {
-            projected =
-                projectedRow(sample.firstRow, useViewportHistory);
-            std::size_t contributingFrames = 1;
-            for (std::size_t source = sample.firstRow + 1;
-                 source <= sample.lastRow;
-                 ++source) {
-                const QVector<float>& additional =
-                    projectedRow(source, useViewportHistory);
-                sdr::gui::combineWaterfallFrames(
-                    {projected.data(), static_cast<std::size_t>(projected.size())},
-                    {additional.data(), static_cast<std::size_t>(additional.size())},
-                    m_waterfallAggregation);
-                ++contributingFrames;
+            if (m_waterfallAggregation ==
+                sdr::gui::WaterfallAggregation::Original) {
+                projected =
+                    projectedRow(sample.firstRow, useViewportHistory);
+                for (std::size_t source = sample.firstRow + 1;
+                     source <= sample.lastRow;
+                     ++source) {
+                    const QVector<float>& additional =
+                        projectedRow(source, useViewportHistory);
+                    sdr::gui::combineWaterfallFrames(
+                        {projected.data(), static_cast<std::size_t>(projected.size())},
+                        {additional.data(), static_cast<std::size_t>(additional.size())},
+                        m_waterfallAggregation);
+                }
+            } else {
+                const QVector<float>& first =
+                    projectedRow(sample.firstRow, useViewportHistory);
+                projected.fill(0.0F, first.size());
+                double totalWeight = 0.0;
+                // Average smooths each timestamp interval in linear power.
+                // Nearest-sample time weights keep brightness stable when FFT
+                // arrivals jitter; dB conversion happens only after this sum.
+                for (std::size_t source = sample.firstRow;
+                     source <= sample.lastRow;
+                     ++source) {
+                    const double weight =
+                        sdr::gui::waterfallTemporalWeightNanoseconds(
+                            m_waterfallHistory.rows(),
+                            source,
+                            mappingAnchorTimestampNanoseconds,
+                            sample.intervalStartAgeNanoseconds,
+                            sample.intervalEndAgeNanoseconds);
+                    if (weight <= 0.0) {
+                        continue;
+                    }
+                    const QVector<float>& additional =
+                        projectedRow(source, useViewportHistory);
+                    for (qsizetype column = 0;
+                         column < projected.size();
+                         ++column) {
+                        projected[column] += static_cast<float>(
+                            static_cast<double>(additional[column]) *
+                            weight);
+                    }
+                    totalWeight += weight;
+                }
+                if (totalWeight > 0.0) {
+                    const float reciprocal =
+                        static_cast<float>(1.0 / totalWeight);
+                    for (float& power : projected) {
+                        power *= reciprocal;
+                    }
+                } else {
+                    projected = first;
+                }
             }
-            sdr::gui::finishWaterfallFrameAggregation(
-                {projected.data(), static_cast<std::size_t>(projected.size())},
-                contributingFrames,
-                m_waterfallAggregation);
         } else if (!sample.interpolate) {
             projected =
                 projectedRow(sample.firstRow, useViewportHistory);

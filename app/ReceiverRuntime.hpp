@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <vector>
 
@@ -36,6 +37,7 @@ struct ReceiverRuntimeSnapshot {
     quint64 effectiveSpectrumFftSize = 4'096;
     double spectrumHertzPerBin = 0.0;
     double effectiveSpectrumFramesPerSecond = 60.0;
+    double effectiveWaterfallRowsPerSecond = 12.5;
     double visibleWaterfallHistorySeconds = 10.0;
     QStringList deviceIdentifiers;
     QStringList deviceDisplayNames;
@@ -239,8 +241,27 @@ signals:
 
 private:
     class Worker;
+    struct PendingDisplayFrame {
+        QVector<float> normalizedMagnitudes;
+        quint64 centerFrequency = 0;
+        quint64 sampleRate = 0;
+        quint64 fftSize = 0;
+        quint64 sequence = 0;
+        quint64 timestampNanoseconds = 0;
+        quint64 tuningGeneration = 0;
+    };
 
     void markPending(const QString& description);
+    void enqueueDisplayFrame(
+        bool waterfall,
+        const QVector<float>& normalizedMagnitudes,
+        quint64 centerFrequency,
+        quint64 sampleRate,
+        quint64 fftSize,
+        quint64 sequence,
+        quint64 timestampNanoseconds,
+        quint64 tuningGeneration);
+    void publishPendingDisplayFrame(bool waterfall);
     void finishScannerListeningFrequencyRequest(
         quint64 requestedFrequency,
         quint64 appliedFrequency,
@@ -253,6 +274,11 @@ private:
     bool m_started = false;
     std::optional<quint64> m_latestScannerListeningFrequency;
     bool m_scannerListeningFrequencyRequestActive = false;
+    std::mutex m_displayFrameMutex;
+    std::optional<PendingDisplayFrame> m_pendingSpectrumFrame;
+    std::optional<PendingDisplayFrame> m_pendingWaterfallFrame;
+    bool m_spectrumDispatchScheduled = false;
+    bool m_waterfallDispatchScheduled = false;
 };
 
 }  // namespace sdr::app

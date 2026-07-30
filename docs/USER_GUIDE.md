@@ -116,9 +116,10 @@ up, the status line warns about dropped rows.
 **Waterfall aggregation** defaults to **Original**. Original is the existing
 grainy peak-preserving view: it retains narrow peaks and brief signals without
 smoothing, denoising, gating, or blur. Choose **Average** for a calmer view that
-averages contributing frequency bins and FFT rows in linear power, then applies
-the same dB range and Slop Spectrum palette. Switching either way re-renders
-the history
+averages contributing frequency bins and time-weights FFT rows in linear power,
+then applies the same dB range and Slop Spectrum palette. Timestamp weighting
+keeps the result stable when FFT arrivals are irregular. Switching either way
+re-renders the history
 already on screen without clearing it. This is a display-only setting and does
 not affect the spectrum, FFT normalization, audio, squelch, or demodulation.
 
@@ -130,6 +131,13 @@ speed is panel height divided by visible seconds. Changing it remaps only the
 waterfall timeline; the live spectrum, Max-hold accumulation, FFT cadence, and
 horizontal FFT resolution continue unchanged.
 
+Live waterfall rows are selected every 80 ms from the newest FFT data. There
+is no multi-row startup wait and no 1 s or 2.5 s batch delay: those values set
+the visible time span and scrolling speed. If display work falls behind,
+obsolete pending rows are coalesced so the next row remains current. The
+timestamp-driven 16 ms renderer continues scrolling smoothly between incoming
+rows without fabricating duplicates.
+
 Drag the subtle horizontal handle between **Spectrum** and **Waterfall** to
 resize the two panels. Drag upward for more waterfall space or downward for
 more spectrum space. The split ratio is saved and restored across starts and
@@ -138,12 +146,16 @@ Both panels retain minimum usable heights. Dragging changes only presentation
 geometry; reception, waterfall history, and DSP resources continue unchanged.
 
 If the selected FFT window spans more sample time than the internal source-row
-interval, FFT frames run at the lower non-overlapping rate. This avoids
+interval, FFT frames run at the lower non-overlapping rate and the waterfall
+follows that lower cadence. This avoids
 presenting overlapping windows as independent time rows; `--verbose` reports
 the internal and effective rates.
 
 Historical rows keep their own timestamp, acquisition frequency, capture span,
 and source FFT size, so a resolution or aggregation change does not clear them.
+Pending rows from an earlier hardware tuning generation are discarded, and
+temporal aggregation does not blend rows across a tuning or capture-mapping
+boundary.
 Before a row enters history, its width is reduced independently of the live
 FFT while retaining both the Original peak and the Average linear-power sum.
 Storage keeps at least twice the physical waterfall width and at least 2,048

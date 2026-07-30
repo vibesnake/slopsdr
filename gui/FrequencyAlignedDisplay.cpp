@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -620,6 +621,21 @@ std::uint64_t clampWaterfallRenderTimestamp(
     return std::min(renderTimestampNanoseconds, maximum);
 }
 
+namespace {
+
+bool sameWaterfallCaptureGeneration(
+    const WaterfallHistoryRow& left,
+    const WaterfallHistoryRow& right) noexcept
+{
+    return left.tuningGeneration == right.tuningGeneration &&
+           left.centerFrequency == right.centerFrequency &&
+           left.sampleRate == right.sampleRate &&
+           left.captureSpan == right.captureSpan &&
+           left.fftSize == right.fftSize;
+}
+
+}  // namespace
+
 std::vector<WaterfallVerticalSample> mapWaterfallRowsToPixels(
     const std::deque<WaterfallHistoryRow>& rows,
     std::uint64_t anchorTimestampNanoseconds,
@@ -657,11 +673,19 @@ std::vector<WaterfallVerticalSample> mapWaterfallRowsToPixels(
         const auto onePastLastIterator =
             std::lower_bound(firstIterator, ages.end(), intervalEnd);
         auto& sample = mapping[pixel];
+        sample.intervalStartAgeNanoseconds = intervalStart;
+        sample.intervalEndAgeNanoseconds = intervalEnd;
         if (firstIterator != onePastLastIterator) {
             const std::size_t first = static_cast<std::size_t>(
                 firstIterator - ages.begin());
-            const std::size_t last = static_cast<std::size_t>(
+            const std::size_t candidateLast = static_cast<std::size_t>(
                 onePastLastIterator - ages.begin() - 1);
+            std::size_t last = first;
+            while (last < candidateLast &&
+                   sameWaterfallCaptureGeneration(
+                       rows[last], rows[last + 1])) {
+                ++last;
+            }
             sample.firstRow = first;
             sample.lastRow = last;
             sample.reduce = last > first;
@@ -697,7 +721,9 @@ std::vector<WaterfallVerticalSample> mapWaterfallRowsToPixels(
             sample.firstRow = center - newerAge <= olderAge - center
                                   ? sample.newerRow
                                   : sample.olderRow;
-            if (olderAge > newerAge) {
+            if (olderAge > newerAge &&
+                sameWaterfallCaptureGeneration(
+                    rows[sample.newerRow], rows[sample.olderRow])) {
                 sample.interpolation = static_cast<float>(std::clamp(
                     (center - newerAge) / (olderAge - newerAge), 0.0, 1.0));
                 sample.interpolate = true;
@@ -706,6 +732,42 @@ std::vector<WaterfallVerticalSample> mapWaterfallRowsToPixels(
         }
     }
     return mapping;
+}
+
+double waterfallTemporalWeightNanoseconds(
+    const std::deque<WaterfallHistoryRow>& rows,
+    std::size_t rowIndex,
+    std::uint64_t anchorTimestampNanoseconds,
+    double intervalStartAgeNanoseconds,
+    double intervalEndAgeNanoseconds) noexcept
+{
+    if (rowIndex >= rows.size() ||
+        !std::isfinite(intervalStartAgeNanoseconds) ||
+        !std::isfinite(intervalEndAgeNanoseconds) ||
+        intervalEndAgeNanoseconds <= intervalStartAgeNanoseconds) {
+        return 0.0;
+    }
+    const auto age = [anchorTimestampNanoseconds](
+                         const WaterfallHistoryRow& row) {
+        return row.timestampNanoseconds > anchorTimestampNanoseconds
+                   ? 0.0
+                   : static_cast<double>(
+                         anchorTimestampNanoseconds -
+                         row.timestampNanoseconds);
+    };
+    const double rowAge = age(rows[rowIndex]);
+    const double newerBoundary =
+        rowIndex == 0
+            ? 0.0
+            : std::midpoint(age(rows[rowIndex - 1]), rowAge);
+    const double olderBoundary =
+        rowIndex + 1 >= rows.size()
+            ? intervalEndAgeNanoseconds
+            : std::midpoint(rowAge, age(rows[rowIndex + 1]));
+    return std::max(
+        0.0,
+        std::min(intervalEndAgeNanoseconds, olderBoundary) -
+            std::max(intervalStartAgeNanoseconds, newerBoundary));
 }
 
 double waterfallFractionalScrollPixels(

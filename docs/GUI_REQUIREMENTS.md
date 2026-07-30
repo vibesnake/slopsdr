@@ -212,7 +212,10 @@ the physical waterfall height, so
 apparent speed is physical height divided by visible seconds. Changing it is a
 waterfall-only time-mapping operation and must not reconfigure the shared FFT
 producer or interrupt live spectrum frames and Max-hold accumulation. FFT-row
-cadence is internal and independent of the selected duration. Every rebuild
+cadence is internal and independent of the selected duration. Live waterfall
+selection targets an 80 ms interval, uses the newest useful shared FFT frame
+without startup prefill, and follows a lower non-overlapping FFT rate when
+necessary. Every rebuild
 must initialize exactly one output row per physical viewport pixel. Between
 FFT arrivals, pixels newer than the latest row hold that row; during startup,
 pixels older than collected history hold the oldest row until real history
@@ -229,8 +232,10 @@ The persisted waterfall aggregation control offers **Original** and
 **Average**, with Original as the default. Original uses the existing
 peak-preserving horizontal and temporal reduction without smoothing, gating,
 denoising, or blurring. Average combines contributing FFT bins and FFT frames
-in linear power and converts to dB only after aggregation, before applying the
-existing waterfall range and Slop Spectrum palette. Both modes retain the
+in timestamp-weighted linear power and converts to dB only after aggregation,
+before applying the existing waterfall range and Slop Spectrum palette. It
+must not blend across tuning generations or incompatible capture mappings.
+Both modes retain the
 compact full-span history plus a separately bounded recent history projected directly from each
 original FFT to the current physical viewport. Changing the selection
 re-renders those retained statistics without clearing history or changing

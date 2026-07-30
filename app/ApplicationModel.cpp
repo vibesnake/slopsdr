@@ -3714,6 +3714,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     const quint64 previousAudioUnderrunEvents = m_audioUnderrunEvents;
 
     m_runtimeState = snapshot.receiverState;
+    m_runtimeTuningGeneration = snapshot.tuningGeneration;
     m_runtimeSquelchOpen = snapshot.squelchOpen;
     m_runtimeLimits = snapshot.receiverLimits;
     m_runtimeCapabilities = snapshot.receiverCapabilities;
@@ -3724,7 +3725,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_effectiveSpectrumFftSize = snapshot.effectiveSpectrumFftSize;
     m_spectrumHertzPerBin = snapshot.spectrumHertzPerBin;
     m_effectiveWaterfallRowsPerSecond =
-        snapshot.effectiveSpectrumFramesPerSecond;
+        snapshot.effectiveWaterfallRowsPerSecond;
     m_visibleWaterfallHistorySeconds = snapshot.visibleWaterfallHistorySeconds;
     m_deviceIdentifiers = snapshot.deviceIdentifiers;
     m_deviceDisplayNames = snapshot.deviceDisplayNames;
@@ -4189,7 +4190,8 @@ void ApplicationModel::receiveRuntimeWaterfallFrame(
         frameTimestampNanoseconds == 0 ||
         frameFftSize != static_cast<quint64>(normalizedMagnitudes.size()) ||
         frameFftSize != m_effectiveSpectrumFftSize ||
-        frameSampleRate != effectiveSampleRate()) {
+        frameSampleRate != effectiveSampleRate() ||
+        frameTuningGeneration != m_runtimeTuningGeneration) {
         return;
     }
     emit waterfallFrameReady(

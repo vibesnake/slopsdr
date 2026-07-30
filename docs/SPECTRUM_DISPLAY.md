@@ -17,13 +17,13 @@ and both values are reported.
 
 Window length equals the effective FFT size. The nominal hop is `effective
 sample rate / internal source cadence`; integer hops preserve the division's
-fractional remainder so window start times do not drift. The internal target is
-60 frames per second and does not change with Waterfall Visible History. The
-hop is never shorter than the FFT window: when an interval would overlap, the
-effective FFT-frame and waterfall-row cadence is capped at `sample rate / FFT
-size`. The generator discards unneeded samples when the requested hop is
-longer. It therefore executes no more than one non-overlapping FFT per requested
-row rather than one FFT per input block. Startup window fill or a source that
+fractional remainder so window start times do not drift. The shared FFT source
+targets 60 frames per second and does not change with Waterfall Visible
+History. The hop is never shorter than the FFT window: when an interval would
+overlap, effective FFT cadence is capped at `sample rate / FFT size`. The
+generator discards unneeded samples when the requested hop is longer. It
+therefore executes no more than one non-overlapping FFT per requested source
+frame rather than one FFT per input block. Startup window fill or a source that
 cannot deliver samples at its effective rate can lower the observed rate;
 diagnostics report the achievable and actual rates honestly.
 
@@ -47,23 +47,25 @@ selection order and drops the oldest frame only when that bound is exceeded. The
 GNU Radio window generator declares its variable relative rate and forecast;
 scheduler batch size does not alter the sample-time selection average.
 
-The runtime drains backend bursts into a second bounded ordered queue. A
-fractional-millisecond presentation timer publishes one ordered row per cadence
-tick after a five-row startup prefill, so a normal backend polling burst is not
-delivered to the GUI at one instant. The queue absorbs producer and polling
-jitter; the timer uses the lower effective non-overlapping FFT cadence for long
-windows. Timestamp rendering separates sample-time FFT
-selection from wall-clock waterfall scrolling. Stop, restart, effective-rate changes,
-and FFT-size reconfiguration clear pending presentation state. Visible History
-changes only waterfall time mapping and retained-history render state; they do
-not reset this queue or reconfigure the FFT producer. Center-frequency
-changes do not: queued rows retain their acquisition metadata and continue in
-their original order and cadence. The live spectrum independently receives only the
-newest frame with the effective rate and FFT size, so the spectrum does not
-inherit waterfall buffering latency. The application model then accepts that
-capture when its sequence and timestamp are newer than the displayed data and
-its acquisition span overlaps the current viewport. It does not require the
-capture center or tuning generation to equal the newest requested center.
+The runtime drains each backend burst once. The live spectrum receives its
+newest compatible frame immediately. A separate 80 ms waterfall timer selects
+the newest pending compatible frame without startup prefill or oldest-first
+replay; source frames superseded before that tick are counted as coalesced.
+When the FFT window itself permits fewer than 12.5 independent frames per
+second, the timer follows that lower achievable rate and never fabricates
+duplicate rows. Timestamp rendering separates sample-time FFT selection from
+wall-clock waterfall scrolling.
+
+The pending waterfall buffer remains bounded at 64 frames, while the
+cross-thread spectrum and waterfall handoffs each retain at most one latest
+frame behind at most one queued GUI dispatch. A slow GUI therefore coalesces
+display work instead of accumulating latency. Stop, restart, effective-rate
+changes, and FFT-size reconfiguration clear pending presentation state.
+Hardware tuning-generation, center-frequency mapping, or capture-span changes
+also discard pending older-generation waterfall work. Visible History changes
+only waterfall time mapping and retained-history render state; they do not
+reset delivery or reconfigure the shared FFT producer. The application model
+accepts waterfall rows only from the confirmed tuning generation.
 
 The requested center remains a viewport/control preview until the worker
 applies a coalesced hardware retune. Each frame continues to carry the actual
@@ -86,16 +88,18 @@ cleared before frames from the restored valid stream are accepted.
 
 When a SoapySDR device advertises a `bufflen` stream argument, the adapter asks
 for a capability-derived buffer near 30 ms and observes advertised options,
-ranges, steps, or alignment text. The ordered presentation queue remains the
+ranges, steps, or alignment text. Newest-frame waterfall selection remains the
 primary burst protection; no throttle is inserted after a hardware source.
 
 Runtime metrics count received IQ samples and windows, executed and published
-FFTs, backend or presentation-queue overflow drops, presentation underruns,
+FFTs, backend or presentation-buffer overflow drops, coalesced and stale-
+generation rows, presentation underruns,
 spectrum frames displayed, and waterfall rows consumed. With `--verbose`, per-second deltas
 also report requested/effective FFT bins, effective sample rate, approximate
 Hz/bin, hop size, internal/effective/measured FFT-frame rates and waterfall
 row rates, produced/displayed row intervals, sequence gaps, duplicate or
-non-monotonic rows, dropped rows, processing time, and ordered queue depth. The
+non-monotonic rows, dropped rows, source-frame age, processing time, and pending
+buffer depth. The
 renderer separately reports rendered frames, merged updates,
 waterfall-history memory use, stored bins, requested duration, capacity
 duration, actual retained duration, vertical raster phase and dimensions,
@@ -117,8 +121,8 @@ renderer and interactions can be exercised without SDR hardware. It does not
 expose synthetic IQ to the application model.
 
 The receiver runtime polls backend batches every 33 ms on its worker thread.
-The spectrum catches up to the newest frame, while the waterfall replays the
-bounded ordered queue at its independent presentation cadence. Neither path
+The spectrum catches up to the newest frame, while the waterfall samples the
+newest useful frame at its independent 80 ms presentation cadence. Neither path
 blocks the producer.
 
 Spectrum delivery is independent of the 5 ms audio-service timer. Display load
@@ -192,8 +196,10 @@ FFT retain their full horizontal resolution independently of both histories.
 The persisted aggregation selector defaults to Original. Original reads only
 the retained peak statistic and keeps the prior peak-preserving horizontal and
 temporal rendering exactly, including short peaks and grain. Average divides
-linear-power sums by their derived bin counts, then averages contributing FFT
-rows in linear power. Only after all horizontal and temporal aggregation is
+linear-power sums by their derived bin counts, then time-weights contributing
+FFT rows in linear power according to their monotonic timestamps. This keeps
+smoothing stable under irregular FFT arrival intervals instead of making it
+frame-count dependent. Only after all horizontal and temporal aggregation is
 complete is the result converted to dB and passed through the existing
 waterfall dB range and Slop Spectrum palette. Neither mode averages dB values,
 palette
@@ -276,8 +282,11 @@ The configured visible duration maps to the complete physical-pixel waterfall
 height using one authoritative monotonic render timestamp rather than row
 arrival time or an assumed fixed cadence. Every output row represents a
 deterministic timestamp interval. Multiple source rows in one interval use peak
-reduction in Original and linear-power averaging in Average; an interval below
-source cadence blends only its adjacent timestamped rows. A 16 ms refresh timer
+reduction in Original and time-weighted linear-power averaging in Average; an
+interval below source cadence blends only its adjacent timestamped rows.
+Temporal reduction and interpolation stop at a tuning-generation or capture-
+mapping boundary, so old and new RF mappings never form one displayed row. A
+16 ms refresh timer
 advances that single timestamp mapping and updates the pixel-native raster; no
 node translation or second timestamp reprojection moves the same data again.
 The replacement texture contains exactly the physical viewport row count and

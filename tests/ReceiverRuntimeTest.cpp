@@ -763,6 +763,7 @@ private slots:
     void reportsRequestedAndEffectiveSpectrumFftFallback();
     void validatesPersistedSpectrumFftSize();
     void keepsSpectrumCadenceStableAcrossVisibleHistoryChanges();
+    void presentsWaterfallFromTheCurrentSpectrumStreamWithinOneLiveInterval();
     void persistsAndRestoresReceiverAndSquelchControls();
     void measuresOneShotSquelchForBoundedWindowAndKeepsItManual();
     void scannerRetunesStayFocusedResponsiveAndBounded();
@@ -965,7 +966,7 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
             QStringLiteral("1 s")));
         QVERIFY(model.visibleWaterfallHistoryOptions().contains(
             QStringLiteral("2.5 s")));
-        QCOMPARE(model.effectiveWaterfallRowsPerSecond(), 60.0);
+        QCOMPARE(model.effectiveWaterfallRowsPerSecond(), 12.5);
         model.startReception();
         QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
 
@@ -978,7 +979,7 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
             model.setVisibleWaterfallHistorySeconds(seconds);
             QVERIFY(waitUntil([&model, seconds] {
                 return model.visibleWaterfallHistorySeconds() == seconds &&
-                       model.effectiveWaterfallRowsPerSecond() == 60.0;
+                       model.effectiveWaterfallRowsPerSecond() == 12.5;
             }));
             QVERIFY(waitUntil([&spectrumFrames] {
                 return spectrumFrames.count() >= 1;
@@ -1010,11 +1011,58 @@ void ReceiverRuntimeTest::keepsSpectrumCadenceStableAcrossVisibleHistoryChanges(
     restored.start();
     QVERIFY2(waitUntil([&restoredModel] {
         return restoredModel.visibleWaterfallHistorySeconds() == 2.5 &&
-               restoredModel.effectiveWaterfallRowsPerSecond() == 60.0;
+               restoredModel.effectiveWaterfallRowsPerSecond() == 12.5;
     }), qPrintable(QStringLiteral("restored source cadence=%1 history=%2")
                        .arg(restoredModel.effectiveWaterfallRowsPerSecond())
                        .arg(restoredModel.visibleWaterfallHistorySeconds())));
     restored.shutdown();
+}
+
+void ReceiverRuntimeTest::
+    presentsWaterfallFromTheCurrentSpectrumStreamWithinOneLiveInterval()
+{
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Mock);
+    ApplicationModel model(runtime);
+    QSignalSpy spectrumFrames(&model, &ApplicationModel::spectrumFrameReady);
+    QSignalSpy waterfallFrames(&model, &ApplicationModel::waterfallFrameReady);
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.backendReady(); }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+
+    spectrumFrames.clear();
+    waterfallFrames.clear();
+    QElapsedTimer latency;
+    latency.start();
+    QVERIFY(waitUntil([&spectrumFrames] {
+        return spectrumFrames.count() >= 1;
+    }));
+    const qint64 spectrumPresentedMilliseconds = latency.elapsed();
+    QVERIFY(waitUntil([&waterfallFrames] {
+        return waterfallFrames.count() >= 1;
+    }));
+    const qint64 relativePresentationMilliseconds =
+        latency.elapsed() - spectrumPresentedMilliseconds;
+    QVERIFY2(
+        relativePresentationMilliseconds <= 120,
+        qPrintable(QStringLiteral(
+            "spectrum-to-waterfall presentation latency was %1 ms")
+                       .arg(relativePresentationMilliseconds)));
+
+    const auto waterfall = waterfallFrames.first();
+    const quint64 waterfallSequence = waterfall.at(4).toULongLong();
+    const quint64 waterfallTimestamp = waterfall.at(5).toULongLong();
+    const auto matchingSpectrum = std::ranges::find_if(
+        spectrumFrames,
+        [waterfallSequence, waterfallTimestamp](const QList<QVariant>& frame) {
+            return frame.at(4).toULongLong() == waterfallSequence &&
+                   frame.at(5).toULongLong() == waterfallTimestamp;
+        });
+    QVERIFY2(
+        matchingSpectrum != spectrumFrames.end(),
+        "The waterfall row was not derived from a spectrum-presented FFT frame");
+    runtime.shutdown();
 }
 
 void ReceiverRuntimeTest::refreshesAtStartupSelectsFirstWithoutOpeningOrStarting()

@@ -28,7 +28,6 @@ SimulationResult simulateBurstyHardware(
     std::uint32_t rowsPerSecond = 60)
 {
     constexpr std::uint64_t hardwareBufferSamples = 131'072;
-    const double displayPeriod = 1.0 / rowsPerSecond;
     constexpr double duration = 30.0;
     constexpr double measurementStart = 2.0;
     constexpr std::uint64_t centerFrequency = 100'000'000;
@@ -36,9 +35,14 @@ SimulationResult simulateBurstyHardware(
     sdr::dsp::SpectrumWindowHopScheduler producer(
         sampleRate, fftSize, rowsPerSecond);
     sdr::app::WaterfallFrameDelivery delivery(
-        std::max<std::size_t>(64, rowsPerSecond), 5);
+        std::max<std::size_t>(64, rowsPerSecond));
     delivery.reset(sampleRate);
 
+    const double presentationRate = std::min(
+        12.5,
+        static_cast<double>(sampleRate) /
+            static_cast<double>(fftSize));
+    const double displayPeriod = 1.0 / presentationRate;
     double nextBurst = static_cast<double>(hardwareBufferSamples) /
                        static_cast<double>(sampleRate);
     double nextDisplay = displayPeriod;
@@ -79,7 +83,7 @@ SimulationResult simulateBurstyHardware(
                 jitterApplied = true;
             }
         } else {
-            if (delivery.takeNextRow() && nextDisplay >= measurementStart) {
+            if (delivery.takeLatestRow() && nextDisplay >= measurementStart) {
                 ++measuredRows;
             }
             nextDisplay += displayPeriod;
@@ -116,18 +120,20 @@ class WaterfallFrameDeliveryTest final : public QObject
     Q_OBJECT
 
 private slots:
-    void smoothsBurstyHardwareAtEveryCaptureRate();
+    void retainsNewestRowsFromBurstyHardwareAtEveryCaptureRate();
     void supportsFractionalEffectiveRatesAndFftSizes();
     void schedulesPresentationAtRequestedAndEffectiveCadences();
+    void startsWithoutWaitingForAPrefill();
     void clearsOldRateFramesDuringRuntimeChanges();
-    void preservesQueuedFramesAcrossCenterRetunes();
+    void clearsPendingFramesAcrossCenterRetunes();
     void recoversFromOverflowByDroppingOldest();
     void rejectsDuplicateAndRegressingRowsAndReportsSequenceGaps();
     void toleratesTemporaryProducerJitter();
     void remainsBoundedAndLeavesSpectrumCurrent();
 };
 
-void WaterfallFrameDeliveryTest::smoothsBurstyHardwareAtEveryCaptureRate()
+void WaterfallFrameDeliveryTest::
+    retainsNewestRowsFromBurstyHardwareAtEveryCaptureRate()
 {
     for (const std::uint32_t rowsPerSecond : {15U, 30U, 60U, 120U}) {
         for (const std::uint64_t sampleRate : {
@@ -135,12 +141,20 @@ void WaterfallFrameDeliveryTest::smoothsBurstyHardwareAtEveryCaptureRate()
                  2'000'000ULL, 2'250'000ULL, 2'400'000ULL}) {
             const auto result = simulateBurstyHardware(
                 sampleRate, 2'048, 0.0, rowsPerSecond);
+            const double expectedRowsPerSecond = std::min(
+                12.5,
+                static_cast<double>(sampleRate) /
+                    static_cast<double>(131'072));
             QVERIFY2(
-                std::abs(result.measuredRowsPerSecond - rowsPerSecond) < 0.25,
+                std::abs(
+                    result.measuredRowsPerSecond -
+                    expectedRowsPerSecond) <
+                    std::max(0.25, expectedRowsPerSecond * 0.15),
                 qPrintable(QStringLiteral("%1 sps delivered %2 rows/s")
                                .arg(sampleRate)
                                .arg(result.measuredRowsPerSecond, 0, 'f', 3)));
-            QVERIFY(result.maximumDepth <= std::max<std::size_t>(64, rowsPerSecond));
+            QVERIFY(result.maximumDepth <=
+                    std::max<std::size_t>(64, rowsPerSecond));
             QCOMPARE(result.metrics.overflowDrops, std::uint64_t{0});
         }
     }
@@ -153,7 +167,7 @@ void WaterfallFrameDeliveryTest::supportsFractionalEffectiveRatesAndFftSizes()
              16'384U, 32'768U, 65'536U, 131'072U, 262'144U}) {
         const auto result = simulateBurstyHardware(2'250'123, fftSize);
         const double expected = std::min(
-            60.0,
+            12.5,
             2'250'123.0 / static_cast<double>(fftSize));
         QVERIFY(std::abs(result.measuredRowsPerSecond - expected) < 0.25);
         QCOMPARE(result.metrics.overflowDrops, std::uint64_t{0});
@@ -163,7 +177,7 @@ void WaterfallFrameDeliveryTest::supportsFractionalEffectiveRatesAndFftSizes()
 void WaterfallFrameDeliveryTest::schedulesPresentationAtRequestedAndEffectiveCadences()
 {
     for (const double rate : {
-             15.0, 30.0, 60.0, 120.0,
+             10.0, 12.5, 15.0,
              250'000.0 / 262'144.0,
              2'000'000.0 / 262'144.0}) {
         double fractionalMilliseconds = 0.0;
@@ -172,7 +186,7 @@ void WaterfallFrameDeliveryTest::schedulesPresentationAtRequestedAndEffectiveCad
         for (std::size_t tick = 0; tick < ticks; ++tick) {
             const auto interval =
                 sdr::app::nextWaterfallPresentationInterval(
-                    120, rate, fractionalMilliseconds);
+                    12.5, rate, fractionalMilliseconds);
             QVERIFY(interval.milliseconds > 0);
             QVERIFY(interval.fractionalMilliseconds >= 0.0);
             QVERIFY(interval.fractionalMilliseconds < 1.0);
@@ -183,13 +197,23 @@ void WaterfallFrameDeliveryTest::schedulesPresentationAtRequestedAndEffectiveCad
         const double measuredRate =
             static_cast<double>(ticks) * 1'000.0 /
             static_cast<double>(totalMilliseconds);
-        QVERIFY(std::abs(measuredRate - rate) < 0.001);
+        QVERIFY(std::abs(measuredRate - std::min(12.5, rate)) < 0.001);
     }
+}
+
+void WaterfallFrameDeliveryTest::startsWithoutWaitingForAPrefill()
+{
+    sdr::app::WaterfallFrameDelivery delivery(8);
+    delivery.reset(2'000'000, 2);
+    QVERIFY(delivery.enqueue(frame(1)));
+    const auto first = delivery.takeLatestRow();
+    QVERIFY(first.has_value());
+    QCOMPARE(first->sequence, std::uint64_t{1});
 }
 
 void WaterfallFrameDeliveryTest::clearsOldRateFramesDuringRuntimeChanges()
 {
-    sdr::app::WaterfallFrameDelivery delivery(25, 1);
+    sdr::app::WaterfallFrameDelivery delivery(25);
     delivery.reset(1'000'000, 2);
     QVERIFY(delivery.enqueue(frame(1, 1'000'000)));
 
@@ -197,18 +221,18 @@ void WaterfallFrameDeliveryTest::clearsOldRateFramesDuringRuntimeChanges()
     QCOMPARE(delivery.size(), std::size_t{0});
     QVERIFY(!delivery.enqueue(frame(2, 1'000'000)));
     QVERIFY(delivery.enqueue(frame(3, 2'000'000)));
-    const auto row = delivery.takeNextRow();
+    const auto row = delivery.takeLatestRow();
     QVERIFY(row.has_value());
     QCOMPARE(row->sequence, std::uint64_t{3});
 
     delivery.stop();
     QVERIFY(!delivery.enqueue(frame(4, 2'000'000)));
-    QVERIFY(!delivery.takeNextRow().has_value());
+    QVERIFY(!delivery.takeLatestRow().has_value());
 }
 
-void WaterfallFrameDeliveryTest::preservesQueuedFramesAcrossCenterRetunes()
+void WaterfallFrameDeliveryTest::clearsPendingFramesAcrossCenterRetunes()
 {
-    sdr::app::WaterfallFrameDelivery delivery(8, 1);
+    sdr::app::WaterfallFrameDelivery delivery(8);
     delivery.reset(2'000'000, 2);
 
     auto first = frame(1);
@@ -224,32 +248,32 @@ void WaterfallFrameDeliveryTest::preservesQueuedFramesAcrossCenterRetunes()
     QVERIFY(delivery.enqueue(std::move(second)));
     QVERIFY(delivery.enqueue(std::move(third)));
 
-    for (std::uint64_t expected = 1; expected <= 3; ++expected) {
-        const auto row = delivery.takeNextRow();
-        QVERIFY(row.has_value());
-        QCOMPARE(row->sequence, expected);
-    }
-    QCOMPARE(delivery.metrics().rowsConsumed, std::uint64_t{3});
+    const auto row = delivery.takeLatestRow();
+    QVERIFY(row.has_value());
+    QCOMPARE(row->sequence, std::uint64_t{3});
+    QCOMPARE(delivery.metrics().rowsConsumed, std::uint64_t{1});
+    QCOMPARE(delivery.metrics().staleGenerationDrops, std::uint64_t{2});
     QCOMPARE(delivery.metrics().displayUnderruns, std::uint64_t{0});
 }
 
 void WaterfallFrameDeliveryTest::recoversFromOverflowByDroppingOldest()
 {
-    sdr::app::WaterfallFrameDelivery delivery(4, 1);
+    sdr::app::WaterfallFrameDelivery delivery(4);
     delivery.reset(2'000'000, 2);
     for (std::uint64_t sequence = 1; sequence <= 7; ++sequence) {
         QVERIFY(delivery.enqueue(frame(sequence)));
     }
     QCOMPARE(delivery.size(), std::size_t{4});
     QCOMPARE(delivery.metrics().overflowDrops, std::uint64_t{3});
-    const auto first = delivery.takeNextRow();
+    const auto first = delivery.takeLatestRow();
     QVERIFY(first.has_value());
-    QCOMPARE(first->sequence, std::uint64_t{4});
+    QCOMPARE(first->sequence, std::uint64_t{7});
+    QCOMPARE(delivery.metrics().coalescedRows, std::uint64_t{3});
 }
 
 void WaterfallFrameDeliveryTest::rejectsDuplicateAndRegressingRowsAndReportsSequenceGaps()
 {
-    sdr::app::WaterfallFrameDelivery delivery(8, 1);
+    sdr::app::WaterfallFrameDelivery delivery(8);
     delivery.reset(2'000'000, 2);
 
     QVERIFY(delivery.enqueue(frame(1)));
@@ -271,14 +295,14 @@ void WaterfallFrameDeliveryTest::rejectsDuplicateAndRegressingRowsAndReportsSequ
 void WaterfallFrameDeliveryTest::toleratesTemporaryProducerJitter()
 {
     const auto result = simulateBurstyHardware(2'400'000, 2'048, 0.12, 60);
-    QVERIFY(std::abs(result.measuredRowsPerSecond - 60.0) < 0.35);
+    QVERIFY(std::abs(result.measuredRowsPerSecond - 12.5) < 0.35);
     QCOMPARE(result.metrics.overflowDrops, std::uint64_t{0});
     QVERIFY(result.metrics.displayUnderruns <= 8);
 }
 
 void WaterfallFrameDeliveryTest::remainsBoundedAndLeavesSpectrumCurrent()
 {
-    sdr::app::WaterfallFrameDelivery delivery(8, 1);
+    sdr::app::WaterfallFrameDelivery delivery(8);
     delivery.reset(2'000'000, 2);
     std::vector<sdr::radio::SpectrumFrame> burst;
     for (std::uint64_t sequence = 1; sequence <= 20; ++sequence) {
@@ -290,9 +314,10 @@ void WaterfallFrameDeliveryTest::remainsBoundedAndLeavesSpectrumCurrent()
     QCOMPARE(delivery.size(), std::size_t{4});
     QCOMPARE(delivery.capacity(), std::size_t{4});
     QCOMPARE(burst.back().sequence, std::uint64_t{20});
-    const auto oldestRetained = delivery.takeNextRow();
-    QVERIFY(oldestRetained.has_value());
-    QCOMPARE(oldestRetained->sequence, std::uint64_t{17});
+    const auto newestRetained = delivery.takeLatestRow();
+    QVERIFY(newestRetained.has_value());
+    QCOMPARE(newestRetained->sequence, std::uint64_t{20});
+    QCOMPARE(delivery.size(), std::size_t{0});
 }
 
 QTEST_GUILESS_MAIN(WaterfallFrameDeliveryTest)

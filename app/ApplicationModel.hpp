@@ -707,6 +707,7 @@ private:
     QString m_selectedScanPresetId;
     QString m_scanPresetStatusMessage;
     bool m_scanBoundsFollowCapture = true;
+    quint64 m_runtimeTuningGeneration = 0;
     bool m_runtimeSquelchOpen = false;
     bool m_squelchMeasurementAvailable = false;
     bool m_autoSquelchRunning = false;

@@ -100,6 +100,8 @@ struct WaterfallVerticalSample {
     std::size_t lastRow = 0;
     std::size_t newerRow = 0;
     std::size_t olderRow = 0;
+    double intervalStartAgeNanoseconds = 0.0;
+    double intervalEndAgeNanoseconds = 0.0;
     float interpolation = 0.0F;
     bool reduce = false;
     bool interpolate = false;
@@ -166,6 +168,13 @@ struct WaterfallHistoryPlan {
     std::uint64_t anchorTimestampNanoseconds,
     double visibleHistorySeconds,
     std::size_t visiblePixelRows);
+
+[[nodiscard]] double waterfallTemporalWeightNanoseconds(
+    const std::deque<WaterfallHistoryRow>& rows,
+    std::size_t rowIndex,
+    std::uint64_t anchorTimestampNanoseconds,
+    double intervalStartAgeNanoseconds,
+    double intervalEndAgeNanoseconds) noexcept;
 
 [[nodiscard]] double waterfallFractionalScrollPixels(
     std::uint64_t elapsedNanoseconds,

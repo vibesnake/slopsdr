@@ -12,12 +12,15 @@
 namespace sdr::app {
 
 WaterfallPresentationInterval nextWaterfallPresentationInterval(
-    std::uint32_t requestedRowsPerSecond,
+    double requestedRowsPerSecond,
     double achievableRowsPerSecond,
     double fractionalMilliseconds) noexcept
 {
     double presentationRate =
-        static_cast<double>(std::max<std::uint32_t>(1, requestedRowsPerSecond));
+        std::isfinite(requestedRowsPerSecond) &&
+                requestedRowsPerSecond > 0.0
+            ? requestedRowsPerSecond
+            : 1.0;
     if (std::isfinite(achievableRowsPerSecond) &&
         achievableRowsPerSecond > 0.0) {
         presentationRate = std::min(presentationRate, achievableRowsPerSecond);
@@ -43,10 +46,8 @@ WaterfallPresentationInterval nextWaterfallPresentationInterval(
     };
 }
 
-WaterfallFrameDelivery::WaterfallFrameDelivery(
-    std::size_t capacity, std::size_t prefillRows)
+WaterfallFrameDelivery::WaterfallFrameDelivery(std::size_t capacity)
     : m_capacity(capacity)
-    , m_prefillRows(std::min(prefillRows, capacity))
 {
     if (capacity == 0) {
         throw std::invalid_argument("Waterfall delivery capacity must be positive");
@@ -71,23 +72,29 @@ void WaterfallFrameDelivery::reset(
     m_frames.clear();
     m_sampleRate = sampleRate;
     m_fftSize = fftSize;
+    m_captureSpan = 0;
+    m_centerFrequency = 0;
+    m_tuningGeneration = 0;
     m_lastEnqueuedSequence = 0;
     m_lastEnqueuedTimestampNanoseconds = 0;
     m_metrics.lastProducedIntervalNanoseconds = 0;
     m_active = sampleRate > 0;
-    m_prefilled = m_prefillRows == 0;
+    m_mappingInitialized = false;
 }
 
 void WaterfallFrameDelivery::stop()
 {
     m_frames.clear();
     m_active = false;
-    m_prefilled = false;
     m_sampleRate = 0;
     m_fftSize = 0;
+    m_captureSpan = 0;
+    m_centerFrequency = 0;
+    m_tuningGeneration = 0;
     m_lastEnqueuedSequence = 0;
     m_lastEnqueuedTimestampNanoseconds = 0;
     m_metrics.lastProducedIntervalNanoseconds = 0;
+    m_mappingInitialized = false;
 }
 
 bool WaterfallFrameDelivery::enqueue(radio::SpectrumFrame frame)
@@ -130,28 +137,42 @@ bool WaterfallFrameDelivery::enqueue(radio::SpectrumFrame frame)
     if (frame.timestampNanoseconds != 0) {
         m_lastEnqueuedTimestampNanoseconds = frame.timestampNanoseconds;
     }
+    const std::uint64_t frameCaptureSpan = radio::captureSpan(frame);
+    const bool mappingChanged =
+        m_mappingInitialized &&
+        (frame.centerFrequency != m_centerFrequency ||
+         frameCaptureSpan != m_captureSpan ||
+         frame.tuningGeneration != m_tuningGeneration);
+    if (mappingChanged) {
+        m_metrics.staleGenerationDrops +=
+            static_cast<std::uint64_t>(m_frames.size());
+        m_frames.clear();
+    }
+    m_centerFrequency = frame.centerFrequency;
+    m_captureSpan = frameCaptureSpan;
+    m_tuningGeneration = frame.tuningGeneration;
+    m_mappingInitialized = true;
     if (m_frames.size() == m_capacity) {
         m_frames.pop_front();
         ++m_metrics.overflowDrops;
     }
     m_frames.push_back(std::move(frame));
-    if (!m_prefilled && m_frames.size() >= m_prefillRows) {
-        m_prefilled = true;
-    }
     return true;
 }
 
-std::optional<radio::SpectrumFrame> WaterfallFrameDelivery::takeNextRow()
+std::optional<radio::SpectrumFrame> WaterfallFrameDelivery::takeLatestRow()
 {
-    if (!m_active || !m_prefilled) {
+    if (!m_active) {
         return std::nullopt;
     }
     if (m_frames.empty()) {
         ++m_metrics.displayUnderruns;
         return std::nullopt;
     }
-    radio::SpectrumFrame frame = std::move(m_frames.front());
-    m_frames.pop_front();
+    radio::SpectrumFrame frame = std::move(m_frames.back());
+    m_metrics.coalescedRows +=
+        static_cast<std::uint64_t>(m_frames.size() - 1);
+    m_frames.clear();
     ++m_metrics.rowsConsumed;
     return frame;
 }

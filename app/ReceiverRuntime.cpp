@@ -33,7 +33,7 @@ constexpr int runtimePollIntervalMilliseconds = 33;
 constexpr int audioServiceIntervalMilliseconds = 5;
 constexpr int centerFrequencyCommandCoalescingMilliseconds = 1;
 constexpr std::size_t minimumWaterfallQueueCapacity = 64;
-constexpr std::size_t waterfallPrefillRows = 5;
+constexpr double waterfallLiveRowsPerSecond = 12.5;
 constexpr int audioDeviceRefreshIntervalMilliseconds = 5'000;
 constexpr std::size_t maximumAudioTransferFrames =
     static_cast<std::size_t>(radio::receiverAudioSampleRate / 50);
@@ -287,8 +287,7 @@ public:
         , m_waterfallDelivery(
               std::max(
                   minimumWaterfallQueueCapacity,
-                  static_cast<std::size_t>(m_targetSpectrumFramesPerSecond)),
-              waterfallPrefillRows)
+                  static_cast<std::size_t>(m_targetSpectrumFramesPerSecond)))
     {
         if (!m_factories.monotonicClock) {
             m_factories.monotonicClock = steadyMonotonicNanoseconds;
@@ -2345,6 +2344,9 @@ private:
                     latest->sequence,
                     latest->timestampNanoseconds,
                     latest->tuningGeneration);
+                const std::uint64_t now = m_factories.monotonicClock();
+                m_lastSpectrumSourceAgeNanoseconds =
+                    now - std::min(now, latest->timestampNanoseconds);
                 ++m_spectrumFramesDisplayed;
             }
             for (auto& frame : frames) {
@@ -2383,7 +2385,7 @@ private:
             return;
         }
         if (m_waterfallDelivery.size() > 0) {
-            auto frame = m_waterfallDelivery.takeNextRow();
+            auto frame = m_waterfallDelivery.takeLatestRow();
             if (frame) {
                 if (m_waterfallPublishIntervalTimer.isValid()) {
                     m_lastWaterfallPublishedIntervalNanoseconds =
@@ -2404,6 +2406,9 @@ private:
                     frame->sequence,
                     frame->timestampNanoseconds,
                     frame->tuningGeneration);
+                const std::uint64_t now = m_factories.monotonicClock();
+                m_lastWaterfallSourceAgeNanoseconds =
+                    now - std::min(now, frame->timestampNanoseconds);
             }
         }
         scheduleNextWaterfallTick();
@@ -2421,7 +2426,7 @@ private:
                     .achievableFramesPerSecond;
         }
         const auto interval = nextWaterfallPresentationInterval(
-            m_targetSpectrumFramesPerSecond,
+            waterfallLiveRowsPerSecond,
             achievableRate,
             m_waterfallTimerFractionalMilliseconds);
         m_waterfallTimerFractionalMilliseconds =
@@ -2670,7 +2675,8 @@ private:
                    "spectrum metrics: effective=%1 sps fft-requested=%2 bins fft-effective=%3 bins resolution=%4 Hz/bin "
                    "hop=%5 samples overlap=%6% internal-source-rate=%7 rows/s effective-fft-rate=%8 frames/s "
                    "ffts=%9/s generated=%10 frames/s spectrum-displayed=%11/s waterfall-published=%12 effective-waterfall-rate=%13 rows/s "
-                   "queue=%14 dropped-rows=%15 display-underruns=%16 produced-interval=%17 ms displayed-interval=%18 ms sequence-gaps=%19 duplicates=%20 timestamp-regressions=%21 processing=%22 ms/fft")
+                   "queue=%14 dropped-rows=%15 coalesced=%16 stale-generation=%17 display-underruns=%18 produced-interval=%19 ms displayed-interval=%20 ms "
+                   "spectrum-source-age=%21 ms waterfall-source-age=%22 ms sequence-gaps=%23 duplicates=%24 timestamp-regressions=%25 processing=%26 ms/fft")
                    .arg(metrics.effectiveSampleRate, 0, 'f', 0)
                    .arg(m_backend->requestedSpectrumFftSize())
                    .arg(metrics.fftSize)
@@ -2686,6 +2692,8 @@ private:
                    .arg(actualRowsPerSecond, 0, 'f', 1)
                    .arg(m_waterfallDelivery.size())
                    .arg(overflowDelta)
+                   .arg(delivery.coalescedRows)
+                   .arg(delivery.staleGenerationDrops)
                    .arg(underrunDelta)
                    .arg(
                        static_cast<double>(
@@ -2697,6 +2705,20 @@ private:
                    .arg(
                        static_cast<double>(
                            m_lastWaterfallPublishedIntervalNanoseconds) /
+                           1'000'000.0,
+                       0,
+                       'f',
+                       3)
+                   .arg(
+                       static_cast<double>(
+                           m_lastSpectrumSourceAgeNanoseconds) /
+                           1'000'000.0,
+                       0,
+                       'f',
+                       3)
+                   .arg(
+                       static_cast<double>(
+                           m_lastWaterfallSourceAgeNanoseconds) /
                            1'000'000.0,
                        0,
                        'f',
@@ -2806,6 +2828,9 @@ private:
             snapshot.spectrumHertzPerBin = spectrumMetrics.hertzPerBin;
             snapshot.effectiveSpectrumFramesPerSecond =
                 spectrumMetrics.achievableFramesPerSecond;
+            snapshot.effectiveWaterfallRowsPerSecond = std::min(
+                waterfallLiveRowsPerSecond,
+                spectrumMetrics.achievableFramesPerSecond);
         }
         if (!m_backend) {
             snapshot.receiverState = m_receiverControls.receiverState(
@@ -2822,6 +2847,9 @@ private:
                 static_cast<double>(m_targetSpectrumFramesPerSecond),
                 static_cast<double>(m_requestedCaptureBandwidth) /
                 static_cast<double>(m_spectrumFftSize));
+            snapshot.effectiveWaterfallRowsPerSecond = std::min(
+                waterfallLiveRowsPerSecond,
+                snapshot.effectiveSpectrumFramesPerSecond);
         }
         if (m_ppmCalibrationRunning &&
             !m_ppmCalibrationInitialReceptionRunning) {
@@ -3027,6 +3055,8 @@ private:
     std::uint64_t m_lastWaterfallOverflowDrops = 0;
     std::uint64_t m_lastWaterfallDisplayUnderruns = 0;
     std::uint64_t m_lastWaterfallPublishedIntervalNanoseconds = 0;
+    std::uint64_t m_lastSpectrumSourceAgeNanoseconds = 0;
+    std::uint64_t m_lastWaterfallSourceAgeNanoseconds = 0;
     QElapsedTimer m_waterfallPublishIntervalTimer;
     QElapsedTimer m_spectrumMetricsTimer;
     std::vector<std::uint8_t> m_ppmCalibrationReadBuffer =
@@ -3188,8 +3218,52 @@ ReceiverRuntime::ReceiverRuntime(
         &Worker::scannerCenterFrequencyRequestCompleted,
         this,
         &ReceiverRuntime::scannerCenterFrequencyChanged);
-    connect(m_worker, &Worker::spectrumFrameReady, this, &ReceiverRuntime::spectrumFrameReady);
-    connect(m_worker, &Worker::waterfallFrameReady, this, &ReceiverRuntime::waterfallFrameReady);
+    connect(
+        m_worker,
+        &Worker::spectrumFrameReady,
+        this,
+        [this](
+            const QVector<float>& normalizedMagnitudes,
+            quint64 centerFrequency,
+            quint64 sampleRate,
+            quint64 fftSize,
+            quint64 sequence,
+            quint64 timestampNanoseconds,
+            quint64 tuningGeneration) {
+            enqueueDisplayFrame(
+                false,
+                normalizedMagnitudes,
+                centerFrequency,
+                sampleRate,
+                fftSize,
+                sequence,
+                timestampNanoseconds,
+                tuningGeneration);
+        },
+        Qt::DirectConnection);
+    connect(
+        m_worker,
+        &Worker::waterfallFrameReady,
+        this,
+        [this](
+            const QVector<float>& normalizedMagnitudes,
+            quint64 centerFrequency,
+            quint64 sampleRate,
+            quint64 fftSize,
+            quint64 sequence,
+            quint64 timestampNanoseconds,
+            quint64 tuningGeneration) {
+            enqueueDisplayFrame(
+                true,
+                normalizedMagnitudes,
+                centerFrequency,
+                sampleRate,
+                fftSize,
+                sequence,
+                timestampNanoseconds,
+                tuningGeneration);
+        },
+        Qt::DirectConnection);
     m_workerThread.setObjectName(QStringLiteral("SDR receiver runtime"));
     m_workerThread.start();
 }
@@ -3197,6 +3271,104 @@ ReceiverRuntime::ReceiverRuntime(
 ReceiverRuntime::~ReceiverRuntime()
 {
     shutdown();
+}
+
+void ReceiverRuntime::enqueueDisplayFrame(
+    bool waterfall,
+    const QVector<float>& normalizedMagnitudes,
+    quint64 centerFrequency,
+    quint64 sampleRate,
+    quint64 fftSize,
+    quint64 sequence,
+    quint64 timestampNanoseconds,
+    quint64 tuningGeneration)
+{
+    bool scheduleDispatch = false;
+    {
+        std::lock_guard lock(m_displayFrameMutex);
+        auto& pending =
+            waterfall ? m_pendingWaterfallFrame : m_pendingSpectrumFrame;
+        bool& scheduled =
+            waterfall ? m_waterfallDispatchScheduled
+                      : m_spectrumDispatchScheduled;
+        pending = PendingDisplayFrame{
+            .normalizedMagnitudes = normalizedMagnitudes,
+            .centerFrequency = centerFrequency,
+            .sampleRate = sampleRate,
+            .fftSize = fftSize,
+            .sequence = sequence,
+            .timestampNanoseconds = timestampNanoseconds,
+            .tuningGeneration = tuningGeneration,
+        };
+        if (!scheduled) {
+            scheduled = true;
+            scheduleDispatch = true;
+        }
+    }
+    if (scheduleDispatch) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, waterfall] {
+                publishPendingDisplayFrame(waterfall);
+            },
+            Qt::QueuedConnection);
+    }
+}
+
+void ReceiverRuntime::publishPendingDisplayFrame(bool waterfall)
+{
+    std::optional<PendingDisplayFrame> frame;
+    {
+        std::lock_guard lock(m_displayFrameMutex);
+        auto& pending =
+            waterfall ? m_pendingWaterfallFrame : m_pendingSpectrumFrame;
+        frame = std::move(pending);
+        pending.reset();
+    }
+    if (frame.has_value()) {
+        if (waterfall) {
+            emit waterfallFrameReady(
+                frame->normalizedMagnitudes,
+                frame->centerFrequency,
+                frame->sampleRate,
+                frame->fftSize,
+                frame->sequence,
+                frame->timestampNanoseconds,
+                frame->tuningGeneration);
+        } else {
+            emit spectrumFrameReady(
+                frame->normalizedMagnitudes,
+                frame->centerFrequency,
+                frame->sampleRate,
+                frame->fftSize,
+                frame->sequence,
+                frame->timestampNanoseconds,
+                frame->tuningGeneration);
+        }
+    }
+
+    bool scheduleDispatch = false;
+    {
+        std::lock_guard lock(m_displayFrameMutex);
+        auto& pending =
+            waterfall ? m_pendingWaterfallFrame : m_pendingSpectrumFrame;
+        bool& scheduled =
+            waterfall ? m_waterfallDispatchScheduled
+                      : m_spectrumDispatchScheduled;
+        if (pending.has_value()) {
+            scheduleDispatch = true;
+        } else {
+            scheduled = false;
+        }
+    }
+    if (scheduleDispatch) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, waterfall] {
+                publishPendingDisplayFrame(waterfall);
+            },
+            Qt::QueuedConnection);
+    }
 }
 
 ReceiverRuntime::StartupMode ReceiverRuntime::startupMode() const noexcept

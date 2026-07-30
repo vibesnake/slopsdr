@@ -185,6 +185,9 @@ private slots:
     void retainsRequestedDurationAfterWarmup();
     void boundsHistoryByTimestampDuration();
     void mapsTimestampedRowsToVerticalPixels();
+    void showsNewStepsWithoutVisibleHistoryStartupDelay();
+    void weightsAverageSmoothingByElapsedTime();
+    void doesNotBlendDifferentTuningGenerations();
     void scrollsByStableFractionalPixels();
     void buildsPixelNativeRasterGeometryAcrossDurationsAndDpr();
     void preservesMonotonicRasterPhaseAcrossResize();
@@ -1986,6 +1989,92 @@ void SpectrumWaterfallItemTest::mapsTimestampedRowsToVerticalPixels()
             QCOMPARE(edgeMapping.back().firstRow, pixelRows - 1);
         }
     }
+}
+
+void SpectrumWaterfallItemTest::
+    showsNewStepsWithoutVisibleHistoryStartupDelay()
+{
+    std::deque<sdr::gui::WaterfallHistoryRow> rows(2);
+    rows[0].sequence = 2;
+    rows[0].timestampNanoseconds = 1'000'000'000ULL;
+    rows[0].centerFrequency = 100'000'000;
+    rows[0].sampleRate = 2'000'000;
+    rows[0].captureSpan = 2'000'000;
+    rows[0].fftSize = 4'096;
+    rows[0].tuningGeneration = 1;
+    rows[1] = rows[0];
+    rows[1].sequence = 1;
+    rows[1].timestampNanoseconds = 920'000'000ULL;
+
+    for (const double visibleSeconds : {1.0, 2.5}) {
+        const auto mapping = sdr::gui::mapWaterfallRowsToPixels(
+            rows,
+            rows.front().timestampNanoseconds,
+            visibleSeconds,
+            100);
+        QVERIFY(mapping.front().hasData);
+        QCOMPARE(mapping.front().firstRow, std::size_t{0});
+        QVERIFY(!mapping.front().interpolate);
+        QVERIFY(!mapping.front().reduce);
+    }
+}
+
+void SpectrumWaterfallItemTest::weightsAverageSmoothingByElapsedTime()
+{
+    std::deque<sdr::gui::WaterfallHistoryRow> rows(3);
+    rows[0].timestampNanoseconds = 1'000'000'000ULL;
+    rows[1].timestampNanoseconds = 900'000'000ULL;
+    rows[2].timestampNanoseconds = 500'000'000ULL;
+    for (auto& row : rows) {
+        row.centerFrequency = 100'000'000;
+        row.sampleRate = 2'000'000;
+        row.captureSpan = 2'000'000;
+        row.fftSize = 4'096;
+        row.tuningGeneration = 1;
+    }
+
+    const double first =
+        sdr::gui::waterfallTemporalWeightNanoseconds(
+            rows, 0, 1'000'000'000ULL, 0.0, 500'000'000.0);
+    const double second =
+        sdr::gui::waterfallTemporalWeightNanoseconds(
+            rows, 1, 1'000'000'000ULL, 0.0, 500'000'000.0);
+    const double third =
+        sdr::gui::waterfallTemporalWeightNanoseconds(
+            rows, 2, 1'000'000'000ULL, 0.0, 500'000'000.0);
+    QCOMPARE(first, 50'000'000.0);
+    QCOMPARE(second, 250'000'000.0);
+    QCOMPARE(third, 200'000'000.0);
+    QCOMPARE(first + second + third, 500'000'000.0);
+
+    const double weightedStep =
+        (first + second) / (first + second + third);
+    QVERIFY(std::abs(weightedStep - 0.6) < 1.0e-12);
+    QVERIFY(std::abs(weightedStep - (2.0 / 3.0)) > 0.05);
+}
+
+void SpectrumWaterfallItemTest::doesNotBlendDifferentTuningGenerations()
+{
+    std::deque<sdr::gui::WaterfallHistoryRow> rows(3);
+    for (std::size_t index = 0; index < rows.size(); ++index) {
+        rows[index].sequence = 3 - index;
+        rows[index].timestampNanoseconds =
+            1'000'000'000ULL - index * 50'000'000ULL;
+        rows[index].centerFrequency =
+            index == 0 ? 101'000'000 : 100'000'000;
+        rows[index].sampleRate = 2'000'000;
+        rows[index].captureSpan = 2'000'000;
+        rows[index].fftSize = 4'096;
+        rows[index].tuningGeneration = index == 0 ? 2 : 1;
+    }
+
+    const auto mapping = sdr::gui::mapWaterfallRowsToPixels(
+        rows, 1'000'000'000ULL, 1.0, 1);
+    QVERIFY(mapping.front().hasData);
+    QCOMPARE(mapping.front().firstRow, std::size_t{0});
+    QCOMPARE(mapping.front().lastRow, std::size_t{0});
+    QVERIFY(!mapping.front().reduce);
+    QVERIFY(!mapping.front().interpolate);
 }
 
 void SpectrumWaterfallItemTest::scrollsByStableFractionalPixels()

@@ -3747,7 +3747,7 @@ ApplicationWindow {
                         textRole: "text"
                         currentIndex: waterfallPane.waterfallAggregation === "average" ? 1 : 0
                         Accessible.name: qsTr("Waterfall aggregation")
-                        Accessible.description: qsTr("Original preserves brief peaks; Average combines FFT bins and frames in linear power")
+                        Accessible.description: qsTr("Original preserves brief peaks; Average smooths each live timestamp interval in linear power without delaying the next row")
                         onActivated: function(index) {
                             waterfallPane.waterfallAggregation = model[index].value
                         }
