@@ -9,11 +9,13 @@
 #include <QtTest>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <complex>
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -80,6 +82,7 @@ private slots:
     void writesWithoutBlockingProducersAndReconcilesSidecarTotals();
     void reportsQueueContentionAndWriteFailureDrops();
     void drainsTwoPointFourMsEquivalentInputDeterministically();
+    void racesShutdownWithActiveProducer();
 };
 
 void IqRecordingServiceTest::writesInterleavedLittleEndianCf32AndMetadata()
@@ -333,6 +336,56 @@ void IqRecordingServiceTest::drainsTwoPointFourMsEquivalentInputDeterministicall
     QCOMPARE(state.droppedSamples, std::uint64_t{0});
     QCOMPARE(std::filesystem::file_size(state.filePath),
              std::uintmax_t{samplesPerChunk * chunks * 8});
+}
+
+void IqRecordingServiceTest::racesShutdownWithActiveProducer()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    for (unsigned iteration = 0; iteration < 32; ++iteration) {
+        WriteGate producerGate;
+        sdr::platform::IqRecordingWriterHooks hooks;
+        hooks.beforeProducerExit = [&producerGate] { producerGate.block(); };
+        sdr::platform::IqRecordingService recorder(8, std::move(hooks));
+        QVERIFY(recorder.start({
+            .directory = std::filesystem::path(directory.path().toStdString()),
+            .centerFrequencyHz = iteration,
+            .sampleRate = 2'400'000,
+            .deviceIdentifier = {},
+        }));
+
+        std::thread producer([&recorder] {
+            recorder.enqueue(std::array<std::complex<float>, 1>{
+                std::complex<float>{0.25F, -0.5F}});
+        });
+        if (!producerGate.waitUntilEntered()) {
+            producerGate.release();
+            producer.join();
+            recorder.stop();
+            QFAIL("producer did not reach the shutdown gate");
+        }
+        std::atomic<bool> stopReturned = false;
+        std::thread stopper([&recorder, &stopReturned] {
+            recorder.stop();
+            stopReturned.store(true, std::memory_order_release);
+        });
+        producerGate.release();
+        producer.join();
+        stopper.join();
+        QVERIFY(stopReturned.load(std::memory_order_acquire));
+        const auto state = recorder.state();
+        QCOMPARE(state.writtenSamples + state.droppedSamples,
+                 std::uint64_t{1});
+        QVERIFY(!state.active);
+        QVERIFY(!state.failed);
+        QVERIFY(std::filesystem::exists(state.filePath));
+        QVERIFY(std::filesystem::exists(state.metadataPath));
+        const auto metadata = QJsonDocument::fromJson(contents(state.metadataPath)).object();
+        QCOMPARE(metadata.value(QStringLiteral("written_sample_count")).toInteger(),
+                 qint64{1});
+        QCOMPARE(metadata.value(QStringLiteral("dropped_sample_count")).toInteger(),
+                 qint64{0});
+    }
 }
 
 QTEST_MAIN(IqRecordingServiceTest)

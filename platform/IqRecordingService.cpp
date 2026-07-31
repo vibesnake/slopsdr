@@ -151,8 +151,9 @@ void IqRecordingService::serializeCf32LittleEndian(
 
 void IqRecordingService::finishProducer() noexcept
 {
+    if (m_writerHooks.beforeProducerExit) m_writerHooks.beforeProducerExit();
     if (m_producersInFlight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        m_condition.notify_all();
+        m_producersInFlight.notify_all();
     }
 }
 
@@ -247,10 +248,11 @@ void IqRecordingService::finalize() noexcept
     IqRecordingRequest request;
     std::string startedAt;
     {
-        std::unique_lock lock(m_mutex);
-        m_condition.wait(lock, [this] {
-            return m_producersInFlight.load(std::memory_order_acquire) == 0;
-        });
+        auto producers = m_producersInFlight.load(std::memory_order_acquire);
+        while (producers != 0) {
+            m_producersInFlight.wait(producers, std::memory_order_acquire);
+            producers = m_producersInFlight.load(std::memory_order_acquire);
+        }
         state = m_state;
         state.droppedSamples = m_droppedSamples.load(std::memory_order_acquire);
         request = m_request;
@@ -301,7 +303,6 @@ void IqRecordingService::failFromWriter(
         rejectedSamples + m_state.queuedSamples, std::memory_order_relaxed);
     m_queue.clear();
     m_state.queuedSamples = 0;
-    m_condition.notify_all();
 }
 
 }  // namespace sdr::platform

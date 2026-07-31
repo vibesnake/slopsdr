@@ -44,6 +44,7 @@ struct IqRecordingState {
 struct IqRecordingWriterHooks {
     std::function<void()> afterDequeueLocked;
     std::function<void()> beforeWrite;
+    std::function<void()> beforeProducerExit;
     bool failWrites = false;
 };
 

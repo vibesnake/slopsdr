@@ -47,6 +47,7 @@ struct WavRecordingState {
 struct WavRecordingWriterHooks {
     std::function<void()> afterDequeueLocked;
     std::function<void()> beforeWrite;
+    std::function<void()> beforeProducerExit;
     bool failWrites = false;
 };
 

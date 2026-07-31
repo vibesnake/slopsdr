@@ -319,8 +319,9 @@ void WavRecordingService::enqueueLocked(
 
 void WavRecordingService::finishProducer() noexcept
 {
+    if (m_writerHooks.beforeProducerExit) m_writerHooks.beforeProducerExit();
     if (m_producersInFlight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        m_condition.notify_all();
+        m_producersInFlight.notify_all();
     }
 }
 
@@ -373,10 +374,11 @@ void WavRecordingService::writerLoop() noexcept
         }
     }
     {
-        std::unique_lock lock(m_mutex);
-        m_condition.wait(lock, [this] {
-            return m_producersInFlight.load(std::memory_order_acquire) == 0;
-        });
+        auto producers = m_producersInFlight.load(std::memory_order_acquire);
+        while (producers != 0) {
+            m_producersInFlight.wait(producers, std::memory_order_acquire);
+            producers = m_producersInFlight.load(std::memory_order_acquire);
+        }
     }
     bool headerWritten = true;
     if (m_file.is_open()) {
@@ -414,7 +416,6 @@ void WavRecordingService::failFromWriter(
         rejectedFrames + m_state.queuedFrames, std::memory_order_relaxed);
     m_queue.clear();
     m_state.queuedFrames = 0;
-    m_condition.notify_all();
 }
 
 }  // namespace sdr::platform

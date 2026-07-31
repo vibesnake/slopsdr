@@ -12,7 +12,9 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <atomic>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -96,6 +98,7 @@ private slots:
     void finalizesWhenDestroyed();
     void writesWithoutBlockingProducersAndReconcilesTotals();
     void reportsContentionAndWriteFailureDrops();
+    void racesShutdownWithActiveProducer();
 };
 
 void WavRecordingServiceTest::writesFinalizedStereoPcmWav()
@@ -364,6 +367,49 @@ void WavRecordingServiceTest::reportsContentionAndWriteFailureDrops()
     QCOMPARE(failed.state().droppedFrames, std::uint64_t{1});
     QCOMPARE(failed.state().writtenFrames + failed.state().droppedFrames,
              std::uint64_t{1});
+}
+
+void WavRecordingServiceTest::racesShutdownWithActiveProducer()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    for (unsigned iteration = 0; iteration < 32; ++iteration) {
+        WriteGate producerGate;
+        sdr::platform::WavRecordingWriterHooks hooks;
+        hooks.beforeProducerExit = [&producerGate] { producerGate.block(); };
+        sdr::platform::WavRecordingService recorder(8, 0xffff'ffdbU,
+                                                     std::move(hooks));
+        QVERIFY(recorder.start({
+            .directory = std::filesystem::path(directory.path().toStdString()),
+            .frequencyHz = iteration,
+            .modeName = "AM",
+        }));
+
+        std::thread producer([&recorder] {
+            recorder.enqueueStereo(std::array<float, 2>{0.25F, -0.25F});
+        });
+        if (!producerGate.waitUntilEntered()) {
+            producerGate.release();
+            producer.join();
+            recorder.stop();
+            QFAIL("producer did not reach the shutdown gate");
+        }
+        std::atomic<bool> stopReturned = false;
+        std::thread stopper([&recorder, &stopReturned] {
+            recorder.stop();
+            stopReturned.store(true, std::memory_order_release);
+        });
+        producerGate.release();
+        producer.join();
+        stopper.join();
+        QVERIFY(stopReturned.load(std::memory_order_acquire));
+        const auto state = recorder.state();
+        QCOMPARE(state.writtenFrames + state.droppedFrames,
+                 std::uint64_t{1});
+        QVERIFY(!state.active);
+        QVERIFY(!state.failed);
+        QVERIFY(std::filesystem::exists(state.filePath));
+    }
 }
 
 QTEST_MAIN(WavRecordingServiceTest)
