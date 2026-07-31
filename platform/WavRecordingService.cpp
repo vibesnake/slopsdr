@@ -51,11 +51,13 @@ std::string sanitizeName(std::string value)
 
 WavRecordingService::WavRecordingService(
     std::size_t maximumQueuedFrames,
-    std::uint64_t maximumDataBytes)
+    std::uint64_t maximumDataBytes,
+    WavRecordingWriterHooks writerHooks)
     : m_maximumQueuedFrames(std::max<std::size_t>(1, maximumQueuedFrames))
     , m_maximumDataBytes(std::min(
           maximumDataBytes,
           static_cast<std::uint64_t>(maximumWavDataBytes)))
+    , m_writerHooks(std::move(writerHooks))
 {
 }
 
@@ -67,6 +69,7 @@ WavRecordingService::~WavRecordingService()
 bool WavRecordingService::start(const WavRecordingRequest& request)
 {
     stop();
+    m_droppedFrames.store(0, std::memory_order_release);
     std::error_code error;
     if (request.directory.empty() ||
         !std::filesystem::is_directory(request.directory, error) || error) {
@@ -112,7 +115,7 @@ bool WavRecordingService::start(const WavRecordingRequest& request)
         m_file = std::move(file);
         m_dataBytes = 0;
         m_stopRequested = false;
-        m_accepting = true;
+        m_accepting.store(true, std::memory_order_release);
         m_state = {.active = true,
                    .writing = !request.skipQuietParts,
                    .filePath = path,
@@ -126,7 +129,7 @@ void WavRecordingService::stop() noexcept
 {
     {
         std::lock_guard lock(m_mutex);
-        m_accepting = false;
+        m_accepting.store(false, std::memory_order_release);
         m_stopRequested = true;
     }
     m_condition.notify_one();
@@ -164,6 +167,7 @@ WavRecordingState WavRecordingService::state() const
 {
     std::lock_guard lock(m_mutex);
     WavRecordingState result = m_state;
+    result.droppedFrames = m_droppedFrames.load(std::memory_order_acquire);
     result.elapsedSeconds = result.writtenFrames / radio::receiverAudioSampleRate;
     return result;
 }
@@ -226,12 +230,18 @@ void WavRecordingService::appendPcm16(
 void WavRecordingService::enqueueInterleavedStereo(
     std::span<const float> interleavedSamples, bool voiceOpen) noexcept
 {
-    std::unique_lock lock(m_mutex, std::try_to_lock);
     const std::uint64_t frames = interleavedSamples.size() / stereoChannels;
-    if (!lock.owns_lock() || !m_accepting || !m_state.active) {
-        if (lock.owns_lock() && m_state.active) {
-            m_state.droppedFrames += frames;
-        }
+    m_producersInFlight.fetch_add(1, std::memory_order_acq_rel);
+    if (!m_accepting.load(std::memory_order_acquire)) {
+        finishProducer();
+        return;
+    }
+    std::unique_lock lock(m_mutex, std::try_to_lock);
+    if (!lock.owns_lock() ||
+        !m_accepting.load(std::memory_order_acquire) || !m_state.active) {
+        m_droppedFrames.fetch_add(frames, std::memory_order_relaxed);
+        if (lock.owns_lock()) lock.unlock();
+        finishProducer();
         return;
     }
     if (!m_skipQuietParts) {
@@ -264,6 +274,7 @@ void WavRecordingService::enqueueInterleavedStereo(
         appendPreRollLocked(interleavedSamples);
     }
     lock.unlock();
+    finishProducer();
     m_condition.notify_one();
 }
 
@@ -299,11 +310,18 @@ void WavRecordingService::enqueueLocked(
     }
     if (frames > m_maximumQueuedFrames ||
         m_state.queuedFrames + frames > m_maximumQueuedFrames) {
-        m_state.droppedFrames += frames;
+        m_droppedFrames.fetch_add(frames, std::memory_order_relaxed);
         return;
     }
     m_queue.emplace_back(interleavedSamples.begin(), interleavedSamples.end());
     m_state.queuedFrames += frames;
+}
+
+void WavRecordingService::finishProducer() noexcept
+{
+    if (m_producersInFlight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        m_condition.notify_all();
+    }
 }
 
 void WavRecordingService::writerLoop() noexcept
@@ -322,33 +340,54 @@ void WavRecordingService::writerLoop() noexcept
             samples = std::move(m_queue.front());
             m_queue.pop_front();
             m_state.queuedFrames -= samples.size() / stereoChannels;
+            if (m_writerHooks.afterDequeueLocked) {
+                m_writerHooks.afterDequeueLocked();
+            }
         }
         appendPcm16(pcm, samples);
+        const std::uint64_t frames = pcm.size() / stereoChannels;
+        if (m_writerHooks.beforeWrite) m_writerHooks.beforeWrite();
+        if (m_writerHooks.failWrites) {
+            failFromWriter("WAV recording write failed", frames);
+            continue;
+        }
+        if (!m_file.is_open()) {
+            failFromWriter("WAV recording file is unavailable", frames);
+            continue;
+        }
+        const std::uint64_t bytes = pcm.size() * sizeof(std::int16_t);
+        if (m_dataBytes + bytes > m_maximumDataBytes) {
+            failFromWriter("WAV recording reached its 4 GiB limit", frames);
+            continue;
+        }
+        m_file.write(reinterpret_cast<const char*>(pcm.data()),
+                     static_cast<std::streamsize>(bytes));
+        if (!m_file.good()) {
+            failFromWriter("WAV recording write failed", frames);
+            continue;
+        }
+        m_dataBytes += bytes;
         {
             std::lock_guard lock(m_mutex);
-            if (!m_file.is_open()) {
-                failLocked("WAV recording file is unavailable");
-                continue;
-            }
-            const std::uint64_t bytes = pcm.size() * sizeof(std::int16_t);
-            if (m_dataBytes + bytes > m_maximumDataBytes) {
-                failLocked("WAV recording reached its 4 GiB limit");
-                continue;
-            }
-            m_file.write(reinterpret_cast<const char*>(pcm.data()),
-                         static_cast<std::streamsize>(bytes));
-            if (!m_file.good()) {
-                failLocked("WAV recording write failed");
-                continue;
-            }
-            m_dataBytes += bytes;
-            m_state.writtenFrames += pcm.size() / stereoChannels;
+            m_state.writtenFrames += frames;
         }
     }
-    std::lock_guard lock(m_mutex);
+    {
+        std::unique_lock lock(m_mutex);
+        m_condition.wait(lock, [this] {
+            return m_producersInFlight.load(std::memory_order_acquire) == 0;
+        });
+    }
+    bool headerWritten = true;
     if (m_file.is_open()) {
         writeHeader(m_file, static_cast<std::uint32_t>(m_dataBytes));
+        headerWritten = m_file.good();
         m_file.close();
+    }
+    std::lock_guard lock(m_mutex);
+    if (!headerWritten && !m_state.failed) {
+        m_state.failed = true;
+        m_state.statusText = "WAV recording finalization failed";
     }
     if (m_state.active) {
         m_state.active = false;
@@ -357,20 +396,25 @@ void WavRecordingService::writerLoop() noexcept
                                  ? m_state.statusText
                                  : "WAV recording saved";
     }
-    m_accepting = false;
+    m_accepting.store(false, std::memory_order_release);
     m_preRoll.clear();
     m_preRollFrames = 0;
 }
 
-void WavRecordingService::failLocked(std::string message) noexcept
+void WavRecordingService::failFromWriter(
+    std::string message, std::uint64_t rejectedFrames) noexcept
 {
+    std::lock_guard lock(m_mutex);
     m_state.failed = true;
     m_state.writing = false;
     m_state.statusText = std::move(message);
-    m_accepting = false;
+    m_accepting.store(false, std::memory_order_release);
     m_stopRequested = true;
+    m_droppedFrames.fetch_add(
+        rejectedFrames + m_state.queuedFrames, std::memory_order_relaxed);
     m_queue.clear();
     m_state.queuedFrames = 0;
+    m_condition.notify_all();
 }
 
 }  // namespace sdr::platform

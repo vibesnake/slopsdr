@@ -9,8 +9,12 @@
 #include <QtTest>
 
 #include <array>
+#include <chrono>
 #include <complex>
+#include <condition_variable>
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 namespace {
 
@@ -28,6 +32,41 @@ float floatAt(const QByteArray& bytes, int offset)
     return value;
 }
 
+class WriteGate final
+{
+public:
+    ~WriteGate() { release(); }
+
+    void block()
+    {
+        std::unique_lock lock(m_mutex);
+        m_entered = true;
+        m_condition.notify_all();
+        m_condition.wait(lock, [this] { return m_released; });
+    }
+
+    [[nodiscard]] bool waitUntilEntered()
+    {
+        std::unique_lock lock(m_mutex);
+        return m_condition.wait_for(lock, std::chrono::seconds(5), [this] {
+            return m_entered;
+        });
+    }
+
+    void release()
+    {
+        std::lock_guard lock(m_mutex);
+        m_released = true;
+        m_condition.notify_all();
+    }
+
+private:
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
+    bool m_entered = false;
+    bool m_released = false;
+};
+
 }  // namespace
 
 class IqRecordingServiceTest final : public QObject
@@ -38,6 +77,9 @@ private slots:
     void writesInterleavedLittleEndianCf32AndMetadata();
     void usesCollisionSafeFullBandwidthNames();
     void boundsQueueAndFinalizesOnFailureAndDestruction();
+    void writesWithoutBlockingProducersAndReconcilesSidecarTotals();
+    void reportsQueueContentionAndWriteFailureDrops();
+    void drainsTwoPointFourMsEquivalentInputDeterministically();
 };
 
 void IqRecordingServiceTest::writesInterleavedLittleEndianCf32AndMetadata()
@@ -61,6 +103,7 @@ void IqRecordingServiceTest::writesInterleavedLittleEndianCf32AndMetadata()
     QCOMPARE(state.filePath.extension().string(), std::string(".raw"));
     const QByteArray data = contents(state.filePath);
     QCOMPARE(data.size(), 16);
+    QCOMPARE(data, QByteArray::fromHex("0000003f000080be000080bf0000803f"));
     QCOMPARE(floatAt(data, 0), 0.5F);
     QCOMPARE(floatAt(data, 4), -0.25F);
     QCOMPARE(floatAt(data, 8), -1.0F);
@@ -114,7 +157,7 @@ void IqRecordingServiceTest::boundsQueueAndFinalizesOnFailureAndDestruction()
     recorder.enqueue(std::array<std::complex<float>, 2>{});
     recorder.addDroppedSamples(3);
     recorder.stop();
-    QVERIFY(recorder.state().droppedSamples >= 5);
+    QCOMPARE(recorder.state().droppedSamples, std::uint64_t{5});
     QVERIFY(QFile::exists(QString::fromStdString(recorder.state().metadataPath.string())));
 
     std::filesystem::path finalized;
@@ -130,6 +173,166 @@ void IqRecordingServiceTest::boundsQueueAndFinalizesOnFailureAndDestruction()
         finalized = scoped.state().metadataPath;
     }
     QVERIFY(QFile::exists(QString::fromStdString(finalized.string())));
+}
+
+void IqRecordingServiceTest::writesWithoutBlockingProducersAndReconcilesSidecarTotals()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    WriteGate gate;
+    sdr::platform::IqRecordingWriterHooks slowWriterHooks;
+    slowWriterHooks.beforeWrite = [&gate] { gate.block(); };
+    sdr::platform::IqRecordingService recorder(
+        8, std::move(slowWriterHooks));
+    QVERIFY(recorder.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .centerFrequencyHz = 1,
+        .sampleRate = 2'400'000,
+        .deviceIdentifier = {},
+    }));
+    recorder.enqueue(std::array<std::complex<float>, 1>{
+        std::complex<float>{0.1F, -0.1F}});
+    if (!gate.waitUntilEntered()) {
+        gate.release();
+        QFAIL("writer did not reach the controlled write");
+    }
+
+    recorder.enqueue(std::array<std::complex<float>, 2>{
+        std::complex<float>{0.2F, -0.2F}, std::complex<float>{0.3F, -0.3F}});
+    const auto whileWriting = recorder.state();
+    QCOMPARE(whileWriting.queuedSamples, std::uint64_t{2});
+    QCOMPARE(whileWriting.droppedSamples, std::uint64_t{0});
+
+    gate.release();
+    recorder.stop();
+    const auto state = recorder.state();
+    QCOMPARE(state.writtenSamples, std::uint64_t{3});
+    QCOMPARE(state.droppedSamples, std::uint64_t{0});
+    const auto metadata = QJsonDocument::fromJson(contents(state.metadataPath)).object();
+    QCOMPARE(metadata.value(QStringLiteral("written_sample_count")).toInteger(), qint64{3});
+    QCOMPARE(metadata.value(QStringLiteral("dropped_sample_count")).toInteger(), qint64{0});
+    QCOMPARE(state.writtenSamples + state.droppedSamples, std::uint64_t{3});
+}
+
+void IqRecordingServiceTest::reportsQueueContentionAndWriteFailureDrops()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    WriteGate contentionGate;
+    sdr::platform::IqRecordingWriterHooks contentionHooks;
+    contentionHooks.afterDequeueLocked = [&contentionGate] { contentionGate.block(); };
+    sdr::platform::IqRecordingService contention(
+        2, std::move(contentionHooks));
+    QVERIFY(contention.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .centerFrequencyHz = 1,
+        .sampleRate = 1,
+        .deviceIdentifier = {},
+    }));
+    contention.enqueue(std::array<std::complex<float>, 1>{
+        std::complex<float>{0.1F, -0.1F}});
+    if (!contentionGate.waitUntilEntered()) {
+        contentionGate.release();
+        QFAIL("writer did not hold the controlled queue lock");
+    }
+    contention.enqueue(std::array<std::complex<float>, 1>{
+        std::complex<float>{0.2F, -0.2F}});
+    contentionGate.release();
+    contention.stop();
+    QCOMPARE(contention.state().writtenSamples, std::uint64_t{1});
+    QCOMPARE(contention.state().droppedSamples, std::uint64_t{1});
+    QCOMPARE(contention.state().writtenSamples + contention.state().droppedSamples,
+             std::uint64_t{2});
+
+    WriteGate queueGate;
+    sdr::platform::IqRecordingWriterHooks overflowHooks;
+    overflowHooks.beforeWrite = [&queueGate] { queueGate.block(); };
+    sdr::platform::IqRecordingService overflow(
+        2, std::move(overflowHooks));
+    QVERIFY(overflow.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .centerFrequencyHz = 2,
+        .sampleRate = 1,
+        .deviceIdentifier = {},
+    }));
+    overflow.enqueue(std::array<std::complex<float>, 1>{
+        std::complex<float>{0.1F, -0.1F}});
+    if (!queueGate.waitUntilEntered()) {
+        queueGate.release();
+        QFAIL("writer did not reach the controlled write");
+    }
+    overflow.enqueue(std::array<std::complex<float>, 2>{
+        std::complex<float>{0.2F, -0.2F}, std::complex<float>{0.3F, -0.3F}});
+    overflow.enqueue(std::array<std::complex<float>, 1>{
+        std::complex<float>{0.4F, -0.4F}});
+    QCOMPARE(overflow.state().droppedSamples, std::uint64_t{1});
+    queueGate.release();
+    overflow.stop();
+    QCOMPARE(overflow.state().writtenSamples, std::uint64_t{3});
+    QCOMPARE(overflow.state().droppedSamples, std::uint64_t{1});
+    QCOMPARE(overflow.state().writtenSamples + overflow.state().droppedSamples,
+             std::uint64_t{4});
+
+    sdr::platform::IqRecordingWriterHooks failingWriterHooks;
+    failingWriterHooks.failWrites = true;
+    sdr::platform::IqRecordingService failed(2, std::move(failingWriterHooks));
+    QVERIFY(failed.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .centerFrequencyHz = 3,
+        .sampleRate = 1,
+        .deviceIdentifier = {},
+    }));
+    failed.enqueue(std::array<std::complex<float>, 1>{
+        std::complex<float>{0.1F, -0.1F}});
+    failed.stop();
+    QVERIFY(failed.state().failed);
+    QCOMPARE(failed.state().writtenSamples, std::uint64_t{0});
+    QCOMPARE(failed.state().droppedSamples, std::uint64_t{1});
+    QVERIFY(QFile::exists(QString::fromStdString(failed.state().metadataPath.string())));
+    const auto failedMetadata =
+        QJsonDocument::fromJson(contents(failed.state().metadataPath)).object();
+    QCOMPARE(failedMetadata.value(QStringLiteral("written_sample_count")).toInteger(),
+             qint64{0});
+    QCOMPARE(failedMetadata.value(QStringLiteral("dropped_sample_count")).toInteger(),
+             qint64{1});
+}
+
+void IqRecordingServiceTest::drainsTwoPointFourMsEquivalentInputDeterministically()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    WriteGate gate;
+    constexpr std::size_t samplesPerChunk = 100'000;
+    constexpr std::size_t chunks = 24;
+    sdr::platform::IqRecordingWriterHooks sustainedWriterHooks;
+    sustainedWriterHooks.beforeWrite = [&gate] { gate.block(); };
+    sdr::platform::IqRecordingService recorder(
+        samplesPerChunk * chunks, std::move(sustainedWriterHooks));
+    QVERIFY(recorder.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .centerFrequencyHz = 1,
+        .sampleRate = 2'400'000,
+        .deviceIdentifier = {},
+    }));
+    const std::vector<std::complex<float>> chunk(
+        samplesPerChunk, {0.25F, -0.5F});
+    recorder.enqueue(chunk);
+    if (!gate.waitUntilEntered()) {
+        gate.release();
+        QFAIL("writer did not reach the controlled write");
+    }
+    for (std::size_t index = 1; index < chunks; ++index) {
+        recorder.enqueue(chunk);
+    }
+    QCOMPARE(recorder.state().queuedSamples,
+             std::uint64_t{samplesPerChunk * (chunks - 1)});
+    gate.release();
+    recorder.stop();
+    const auto state = recorder.state();
+    QCOMPARE(state.writtenSamples, std::uint64_t{samplesPerChunk * chunks});
+    QCOMPARE(state.droppedSamples, std::uint64_t{0});
+    QCOMPARE(std::filesystem::file_size(state.filePath),
+             std::uintmax_t{samplesPerChunk * chunks * 8});
 }
 
 QTEST_MAIN(IqRecordingServiceTest)

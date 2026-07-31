@@ -8,8 +8,11 @@
 #include <QtTest>
 
 #include <array>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <vector>
 
 namespace {
@@ -42,6 +45,41 @@ QByteArray fileContents(const std::filesystem::path& path)
     return file.readAll();
 }
 
+class WriteGate final
+{
+public:
+    ~WriteGate() { release(); }
+
+    void block()
+    {
+        std::unique_lock lock(m_mutex);
+        m_entered = true;
+        m_condition.notify_all();
+        m_condition.wait(lock, [this] { return m_released; });
+    }
+
+    [[nodiscard]] bool waitUntilEntered()
+    {
+        std::unique_lock lock(m_mutex);
+        return m_condition.wait_for(lock, std::chrono::seconds(5), [this] {
+            return m_entered;
+        });
+    }
+
+    void release()
+    {
+        std::lock_guard lock(m_mutex);
+        m_released = true;
+        m_condition.notify_all();
+    }
+
+private:
+    std::mutex m_mutex;
+    std::condition_variable m_condition;
+    bool m_entered = false;
+    bool m_released = false;
+};
+
 }  // namespace
 
 class WavRecordingServiceTest final : public QObject
@@ -56,6 +94,8 @@ private slots:
     void reopensDuringTailWithoutAQuietGap();
     void usesUniqueSanitizedNames();
     void finalizesWhenDestroyed();
+    void writesWithoutBlockingProducersAndReconcilesTotals();
+    void reportsContentionAndWriteFailureDrops();
 };
 
 void WavRecordingServiceTest::writesFinalizedStereoPcmWav()
@@ -129,7 +169,7 @@ void WavRecordingServiceTest::boundsQueuedFramesAndRejectsInvalidFolders()
         .modeName = "AM",
     }));
     recorder.enqueueStereo(std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.0F});
-    QVERIFY(recorder.state().droppedFrames >= 2);
+    QCOMPARE(recorder.state().droppedFrames, std::uint64_t{2});
     recorder.stop();
     QVERIFY(!recorder.state().failed);
 
@@ -142,6 +182,7 @@ void WavRecordingServiceTest::boundsQueuedFramesAndRejectsInvalidFolders()
     writeFailure.enqueueStereo(std::array<float, 4>{0.0F, 0.0F, 0.0F, 0.0F});
     writeFailure.stop();
     QVERIFY(writeFailure.state().failed);
+    QCOMPARE(writeFailure.state().droppedFrames, std::uint64_t{2});
     QVERIFY(QString::fromStdString(writeFailure.state().statusText)
                  .contains(QStringLiteral("limit")));
 }
@@ -244,6 +285,85 @@ void WavRecordingServiceTest::finalizesWhenDestroyed()
     const QByteArray contents = fileContents(path);
     QVERIFY(contents.size() >= 48);
     QCOMPARE(littleEndian32(contents, 40), std::uint32_t{4});
+}
+
+void WavRecordingServiceTest::writesWithoutBlockingProducersAndReconcilesTotals()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    WriteGate gate;
+    sdr::platform::WavRecordingWriterHooks slowWriterHooks;
+    slowWriterHooks.beforeWrite = [&gate] { gate.block(); };
+    sdr::platform::WavRecordingService recorder(
+        8, 0xffff'ffdbU, std::move(slowWriterHooks));
+    QVERIFY(recorder.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .frequencyHz = 1,
+        .modeName = "AM",
+    }));
+    recorder.enqueueStereo(std::array<float, 2>{0.1F, -0.1F});
+    if (!gate.waitUntilEntered()) {
+        gate.release();
+        QFAIL("writer did not reach the controlled write");
+    }
+
+    recorder.enqueueStereo(std::array<float, 4>{0.2F, -0.2F, 0.3F, -0.3F});
+    const auto whileWriting = recorder.state();
+    QCOMPARE(whileWriting.queuedFrames, std::uint64_t{2});
+    QCOMPARE(whileWriting.droppedFrames, std::uint64_t{0});
+
+    gate.release();
+    recorder.stop();
+    const auto state = recorder.state();
+    QCOMPARE(state.writtenFrames, std::uint64_t{3});
+    QCOMPARE(state.droppedFrames, std::uint64_t{0});
+    QCOMPARE(state.writtenFrames + state.droppedFrames, std::uint64_t{3});
+    QCOMPARE(littleEndian32(fileContents(state.filePath), 40), std::uint32_t{12});
+}
+
+void WavRecordingServiceTest::reportsContentionAndWriteFailureDrops()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    WriteGate contentionGate;
+    sdr::platform::WavRecordingWriterHooks contentionHooks;
+    contentionHooks.afterDequeueLocked = [&contentionGate] { contentionGate.block(); };
+    sdr::platform::WavRecordingService contention(
+        4, 0xffff'ffdbU, std::move(contentionHooks));
+    QVERIFY(contention.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .frequencyHz = 1,
+        .modeName = "AM",
+    }));
+    contention.enqueueStereo(std::array<float, 2>{0.1F, -0.1F});
+    if (!contentionGate.waitUntilEntered()) {
+        contentionGate.release();
+        QFAIL("writer did not hold the controlled queue lock");
+    }
+    contention.enqueueStereo(std::array<float, 2>{0.2F, -0.2F});
+    contentionGate.release();
+    contention.stop();
+    QCOMPARE(contention.state().writtenFrames, std::uint64_t{1});
+    QCOMPARE(contention.state().droppedFrames, std::uint64_t{1});
+    QCOMPARE(contention.state().writtenFrames + contention.state().droppedFrames,
+             std::uint64_t{2});
+
+    sdr::platform::WavRecordingWriterHooks failingWriterHooks;
+    failingWriterHooks.failWrites = true;
+    sdr::platform::WavRecordingService failed(
+        4, 0xffff'ffdbU, std::move(failingWriterHooks));
+    QVERIFY(failed.start({
+        .directory = std::filesystem::path(directory.path().toStdString()),
+        .frequencyHz = 2,
+        .modeName = "AM",
+    }));
+    failed.enqueueStereo(std::array<float, 2>{0.1F, -0.1F});
+    failed.stop();
+    QVERIFY(failed.state().failed);
+    QCOMPARE(failed.state().writtenFrames, std::uint64_t{0});
+    QCOMPARE(failed.state().droppedFrames, std::uint64_t{1});
+    QCOMPARE(failed.state().writtenFrames + failed.state().droppedFrames,
+             std::uint64_t{1});
 }
 
 QTEST_MAIN(WavRecordingServiceTest)

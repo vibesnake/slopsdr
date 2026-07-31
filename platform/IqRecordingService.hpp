@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <complex>
 #include <condition_variable>
 #include <cstddef>
@@ -10,6 +11,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <span>
 #include <string>
@@ -37,10 +39,20 @@ struct IqRecordingState {
     std::uint64_t elapsedSeconds = 0;
 };
 
+// Optional deterministic writer controls used by service tests. Production
+// callers use the default empty hooks.
+struct IqRecordingWriterHooks {
+    std::function<void()> afterDequeueLocked;
+    std::function<void()> beforeWrite;
+    bool failWrites = false;
+};
+
 class IqRecordingService final
 {
 public:
-    explicit IqRecordingService(std::size_t maximumQueuedSamples = 2'400'000);
+    explicit IqRecordingService(
+        std::size_t maximumQueuedSamples = 2'400'000,
+        IqRecordingWriterHooks writerHooks = {});
     ~IqRecordingService();
 
     IqRecordingService(const IqRecordingService&) = delete;
@@ -57,20 +69,27 @@ private:
         const IqRecordingRequest& request);
     static std::string timestampNow();
     static std::string jsonEscape(const std::string& value);
+    static void serializeCf32LittleEndian(
+        std::vector<char>& destination,
+        std::span<const std::complex<float>> samples);
+    void finishProducer() noexcept;
     void writerLoop() noexcept;
-    void finalizeLocked() noexcept;
-    void failLocked(std::string message) noexcept;
+    void finalize() noexcept;
+    void failFromWriter(std::string message, std::uint64_t rejectedSamples) noexcept;
 
     const std::size_t m_maximumQueuedSamples;
+    const IqRecordingWriterHooks m_writerHooks;
     mutable std::mutex m_mutex;
     std::condition_variable m_condition;
     std::deque<std::vector<std::complex<float>>> m_queue;
     std::thread m_writer;
     std::ofstream m_file;
     IqRecordingState m_state;
+    std::atomic<std::uint64_t> m_droppedSamples{0};
+    std::atomic<std::uint64_t> m_producersInFlight{0};
     IqRecordingRequest m_request;
     std::string m_startedAt;
-    bool m_accepting = false;
+    std::atomic<bool> m_accepting{false};
     bool m_stopRequested = false;
 };
 

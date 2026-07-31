@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -10,6 +11,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <span>
 #include <string>
@@ -40,12 +42,21 @@ struct WavRecordingState {
     std::uint64_t writtenFrames = 0;
 };
 
+// Optional deterministic writer controls used by service tests. Production
+// callers use the default empty hooks.
+struct WavRecordingWriterHooks {
+    std::function<void()> afterDequeueLocked;
+    std::function<void()> beforeWrite;
+    bool failWrites = false;
+};
+
 class WavRecordingService final
 {
 public:
     explicit WavRecordingService(
         std::size_t maximumQueuedFrames = 48'000 * 2,
-        std::uint64_t maximumDataBytes = 0xffff'ffdbU);
+        std::uint64_t maximumDataBytes = 0xffff'ffdbU,
+        WavRecordingWriterHooks writerHooks = {});
     ~WavRecordingService();
 
     WavRecordingService(const WavRecordingService&) = delete;
@@ -69,17 +80,21 @@ private:
         bool voiceOpen) noexcept;
     void appendPreRollLocked(std::span<const float> interleavedSamples);
     void enqueueLocked(std::span<const float> interleavedSamples);
+    void finishProducer() noexcept;
     void writerLoop() noexcept;
-    void failLocked(std::string message) noexcept;
+    void failFromWriter(std::string message, std::uint64_t rejectedFrames) noexcept;
 
     const std::size_t m_maximumQueuedFrames;
     const std::uint64_t m_maximumDataBytes;
+    const WavRecordingWriterHooks m_writerHooks;
     mutable std::mutex m_mutex;
     std::condition_variable m_condition;
     std::deque<std::vector<float>> m_queue;
     std::thread m_writer;
     std::ofstream m_file;
     WavRecordingState m_state;
+    std::atomic<std::uint64_t> m_droppedFrames{0};
+    std::atomic<std::uint64_t> m_producersInFlight{0};
     std::uint64_t m_dataBytes = 0;
     std::deque<std::vector<float>> m_preRoll;
     std::size_t m_preRollFrames = 0;
@@ -87,7 +102,7 @@ private:
     std::size_t m_tailDurationFrames = 0;
     std::size_t m_tailFramesRemaining = 0;
     bool m_skipQuietParts = false;
-    bool m_accepting = false;
+    std::atomic<bool> m_accepting{false};
     bool m_stopRequested = false;
 };
 

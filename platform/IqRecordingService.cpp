@@ -13,18 +13,15 @@
 namespace sdr::platform {
 namespace {
 
-void writeFloatLittleEndian(std::ofstream& file, float value)
-{
-    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-    for (unsigned byte = 0; byte < 4; ++byte) {
-        file.put(static_cast<char>((bits >> (byte * 8U)) & 0xffU));
-    }
-}
+constexpr std::size_t bytesPerComplexSample = sizeof(float) * 2;
 
 }  // namespace
 
-IqRecordingService::IqRecordingService(std::size_t maximumQueuedSamples)
+IqRecordingService::IqRecordingService(
+    std::size_t maximumQueuedSamples,
+    IqRecordingWriterHooks writerHooks)
     : m_maximumQueuedSamples(std::max<std::size_t>(1, maximumQueuedSamples))
+    , m_writerHooks(std::move(writerHooks))
 {
 }
 
@@ -36,6 +33,7 @@ IqRecordingService::~IqRecordingService()
 bool IqRecordingService::start(const IqRecordingRequest& request)
 {
     stop();
+    m_droppedSamples.store(0, std::memory_order_release);
     std::error_code error;
     if (request.directory.empty() || request.sampleRate == 0 ||
         !std::filesystem::is_directory(request.directory, error) || error) {
@@ -61,7 +59,7 @@ bool IqRecordingService::start(const IqRecordingRequest& request)
         m_request = request;
         m_startedAt = timestampNow();
         m_stopRequested = false;
-        m_accepting = true;
+        m_accepting.store(true, std::memory_order_release);
         auto metadata = path;
         metadata.replace_extension(".json");
         m_state = {.active = true, .filePath = path, .metadataPath = metadata,
@@ -75,7 +73,7 @@ void IqRecordingService::stop() noexcept
 {
     {
         std::lock_guard lock(m_mutex);
-        m_accepting = false;
+        m_accepting.store(false, std::memory_order_release);
         m_stopRequested = true;
     }
     m_condition.notify_one();
@@ -86,35 +84,76 @@ void IqRecordingService::enqueue(
     std::span<const std::complex<float>> samples) noexcept
 {
     if (samples.empty()) return;
+    m_producersInFlight.fetch_add(1, std::memory_order_acq_rel);
+    if (!m_accepting.load(std::memory_order_acquire)) {
+        finishProducer();
+        return;
+    }
     std::unique_lock lock(m_mutex, std::try_to_lock);
-    if (!lock.owns_lock() || !m_accepting || !m_state.active) {
-        if (lock.owns_lock() && m_state.active) m_state.droppedSamples += samples.size();
+    if (!lock.owns_lock() ||
+        !m_accepting.load(std::memory_order_acquire) || !m_state.active) {
+        m_droppedSamples.fetch_add(samples.size(), std::memory_order_relaxed);
+        if (lock.owns_lock()) lock.unlock();
+        finishProducer();
         return;
     }
     if (samples.size() > m_maximumQueuedSamples ||
         m_state.queuedSamples + samples.size() > m_maximumQueuedSamples) {
-        m_state.droppedSamples += samples.size();
+        m_droppedSamples.fetch_add(samples.size(), std::memory_order_relaxed);
+        lock.unlock();
+        finishProducer();
         return;
     }
     m_queue.emplace_back(samples.begin(), samples.end());
     m_state.queuedSamples += samples.size();
     lock.unlock();
+    finishProducer();
     m_condition.notify_one();
 }
 
 void IqRecordingService::addDroppedSamples(std::uint64_t samples) noexcept
 {
-    std::lock_guard lock(m_mutex);
-    if (m_state.active) m_state.droppedSamples += samples;
+    if (samples == 0) return;
+    m_producersInFlight.fetch_add(1, std::memory_order_acq_rel);
+    if (m_accepting.load(std::memory_order_acquire)) {
+        m_droppedSamples.fetch_add(samples, std::memory_order_relaxed);
+    }
+    finishProducer();
 }
 
 IqRecordingState IqRecordingService::state() const
 {
     std::lock_guard lock(m_mutex);
     auto result = m_state;
+    result.droppedSamples = m_droppedSamples.load(std::memory_order_acquire);
     if (m_request.sampleRate > 0)
         result.elapsedSeconds = result.writtenSamples / m_request.sampleRate;
     return result;
+}
+
+void IqRecordingService::serializeCf32LittleEndian(
+    std::vector<char>& destination,
+    std::span<const std::complex<float>> samples)
+{
+    destination.resize(samples.size() * bytesPerComplexSample);
+    std::size_t offset = 0;
+    const auto appendFloat = [&destination, &offset](float value) {
+        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+        for (unsigned byte = 0; byte < sizeof(bits); ++byte) {
+            destination[offset++] = static_cast<char>((bits >> (byte * 8U)) & 0xffU);
+        }
+    };
+    for (const auto& sample : samples) {
+        appendFloat(sample.real());
+        appendFloat(sample.imag());
+    }
+}
+
+void IqRecordingService::finishProducer() noexcept
+{
+    if (m_producersInFlight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        m_condition.notify_all();
+    }
 }
 
 std::filesystem::path IqRecordingService::makeUniquePath(const IqRecordingRequest& request)
@@ -164,6 +203,7 @@ std::string IqRecordingService::jsonEscape(const std::string& value)
 void IqRecordingService::writerLoop() noexcept
 {
     std::vector<std::complex<float>> samples;
+    std::vector<char> serialized;
     for (;;) {
         {
             std::unique_lock lock(m_mutex);
@@ -172,68 +212,96 @@ void IqRecordingService::writerLoop() noexcept
             samples = std::move(m_queue.front());
             m_queue.pop_front();
             m_state.queuedSamples -= samples.size();
+            if (m_writerHooks.afterDequeueLocked) {
+                m_writerHooks.afterDequeueLocked();
+            }
         }
-        std::lock_guard lock(m_mutex);
+        serializeCf32LittleEndian(serialized, samples);
+        if (m_writerHooks.beforeWrite) m_writerHooks.beforeWrite();
+        if (m_writerHooks.failWrites) {
+            failFromWriter("IQ recording write failed", samples.size());
+            continue;
+        }
         if (!m_file.is_open()) {
-            failLocked("IQ recording file is unavailable");
+            failFromWriter("IQ recording file is unavailable", samples.size());
             continue;
         }
-        for (const auto& sample : samples) {
-            writeFloatLittleEndian(m_file, sample.real());
-            writeFloatLittleEndian(m_file, sample.imag());
-        }
+        m_file.write(serialized.data(),
+                     static_cast<std::streamsize>(serialized.size()));
         if (!m_file.good()) {
-            failLocked("IQ recording write failed");
+            failFromWriter("IQ recording write failed", samples.size());
             continue;
         }
-        m_state.writtenSamples += samples.size();
+        {
+            std::lock_guard lock(m_mutex);
+            m_state.writtenSamples += samples.size();
+        }
     }
-    std::lock_guard lock(m_mutex);
-    finalizeLocked();
+    finalize();
 }
 
-void IqRecordingService::finalizeLocked() noexcept
+void IqRecordingService::finalize() noexcept
 {
     if (m_file.is_open()) m_file.close();
-    if (m_state.filePath.empty()) return;
-    std::ofstream metadata(m_state.metadataPath, std::ios::trunc);
-    if (!metadata.is_open()) {
-        if (!m_state.failed) m_state.statusText = "IQ recording saved; metadata write failed";
-    } else {
-        const double duration = m_request.sampleRate == 0 ? 0.0 :
-            static_cast<double>(m_state.writtenSamples) /
-            static_cast<double>(m_request.sampleRate);
+    IqRecordingState state;
+    IqRecordingRequest request;
+    std::string startedAt;
+    {
+        std::unique_lock lock(m_mutex);
+        m_condition.wait(lock, [this] {
+            return m_producersInFlight.load(std::memory_order_acquire) == 0;
+        });
+        state = m_state;
+        state.droppedSamples = m_droppedSamples.load(std::memory_order_acquire);
+        request = m_request;
+        startedAt = m_startedAt;
+    }
+    if (state.filePath.empty()) return;
+    std::ofstream metadata(state.metadataPath, std::ios::trunc);
+    bool metadataWritten = false;
+    if (metadata.is_open()) {
+        const double duration = request.sampleRate == 0 ? 0.0 :
+            static_cast<double>(state.writtenSamples) /
+            static_cast<double>(request.sampleRate);
         metadata << "{\n"
-                 << "  \"start_timestamp\": \"" << m_startedAt << "\",\n"
+                 << "  \"start_timestamp\": \"" << startedAt << "\",\n"
                  << "  \"end_timestamp\": \"" << timestampNow() << "\",\n"
-                 << "  \"hardware_center_frequency_hz\": " << m_request.centerFrequencyHz << ",\n"
-                 << "  \"sample_rate_hz\": " << m_request.sampleRate << ",\n"
+                 << "  \"hardware_center_frequency_hz\": " << request.centerFrequencyHz << ",\n"
+                 << "  \"sample_rate_hz\": " << request.sampleRate << ",\n"
                  << "  \"sample_format\": \"cf32_le\",\n"
                  << "  \"byte_order\": \"little-endian\",\n"
-                 << "  \"written_sample_count\": " << m_state.writtenSamples << ",\n"
+                 << "  \"written_sample_count\": " << state.writtenSamples << ",\n"
                  << "  \"duration_seconds\": " << duration << ",\n"
-                 << "  \"dropped_sample_count\": " << m_state.droppedSamples << ",\n"
-                 << "  \"device_identifier\": \"" << jsonEscape(m_request.deviceIdentifier) << "\"\n"
+                 << "  \"dropped_sample_count\": " << state.droppedSamples << ",\n"
+                 << "  \"device_identifier\": \"" << jsonEscape(request.deviceIdentifier) << "\"\n"
                  << "}\n";
-        if (!metadata.good() && !m_state.failed)
-            m_state.statusText = "IQ recording saved; metadata write failed";
+        metadataWritten = metadata.good();
+    }
+    std::lock_guard lock(m_mutex);
+    if (!metadataWritten && !m_state.failed) {
+        m_state.statusText = "IQ recording saved; metadata write failed";
     }
     if (m_state.active) {
         m_state.active = false;
         if (!m_state.failed && m_state.statusText == "Recording full-bandwidth IQ")
             m_state.statusText = "IQ recording saved";
     }
-    m_accepting = false;
+    m_accepting.store(false, std::memory_order_release);
 }
 
-void IqRecordingService::failLocked(std::string message) noexcept
+void IqRecordingService::failFromWriter(
+    std::string message, std::uint64_t rejectedSamples) noexcept
 {
+    std::lock_guard lock(m_mutex);
     m_state.failed = true;
     m_state.statusText = std::move(message);
-    m_accepting = false;
+    m_accepting.store(false, std::memory_order_release);
     m_stopRequested = true;
+    m_droppedSamples.fetch_add(
+        rejectedSamples + m_state.queuedSamples, std::memory_order_relaxed);
     m_queue.clear();
     m_state.queuedSamples = 0;
+    m_condition.notify_all();
 }
 
 }  // namespace sdr::platform
