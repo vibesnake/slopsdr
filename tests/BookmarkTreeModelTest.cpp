@@ -2,6 +2,7 @@
 // Copyright (C) 2026 vibesnake
 
 #include "BookmarkTreeModel.hpp"
+#include "BookmarkLimits.hpp"
 #include "DemodulatorRegistry.hpp"
 
 #include <QFile>
@@ -12,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <QtTest>
 
 #include <array>
@@ -82,6 +84,71 @@ bool waitUntil(
     return predicate();
 }
 
+QJsonObject serializedGroup(const QJsonArray& children = {})
+{
+    return {
+        {QStringLiteral("uuid"), QUuid::createUuid().toString(QUuid::WithoutBraces)},
+        {QStringLiteral("type"), QStringLiteral("group")},
+        {QStringLiteral("name"), QStringLiteral("Group")},
+        {QStringLiteral("expanded"), true},
+        {QStringLiteral("children"), children},
+    };
+}
+
+QJsonObject serializedBookmark(const QUuid& uuid = QUuid::createUuid())
+{
+    return {
+        {QStringLiteral("uuid"), uuid.toString(QUuid::WithoutBraces)},
+        {QStringLiteral("type"), QStringLiteral("bookmark")},
+        {QStringLiteral("name"), QStringLiteral("Bookmark")},
+        {QStringLiteral("listeningFrequency"), 145'500'000},
+        {QStringLiteral("requestedGainDb"), 21.5},
+        {QStringLiteral("demodulatorId"), QStringLiteral("am")},
+        {QStringLiteral("filterLowHz"), -6'250},
+        {QStringLiteral("filterHighHz"), 6'250},
+        {QStringLiteral("squelchThresholdDb"), -72.0},
+        {QStringLiteral("squelchEnabled"), true},
+        {QStringLiteral("modeSpecificSettings"), QJsonObject{{QStringLiteral("version"), 1}}},
+        {QStringLiteral("scannerIncluded"), false},
+    };
+}
+
+QJsonDocument bookmarkDocument(const QJsonObject& root)
+{
+    return QJsonDocument({
+        {QStringLiteral("version"), 1},
+        {QStringLiteral("root"), root},
+    });
+}
+
+void writeDocument(const QString& path, const QJsonDocument& document)
+{
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(file.write(document.toJson(QJsonDocument::Compact)),
+             document.toJson(QJsonDocument::Compact).size());
+}
+
+QJsonObject payloadAtLimit(const QString& key, QJsonObject base = {})
+{
+    qsizetype low = 0;
+    qsizetype high = sdr::platform::bookmarkLimits::maximumJsonPayloadBytes;
+    QJsonObject result = base;
+    while (low <= high) {
+        const qsizetype middle = low + (high - low) / 2;
+        QJsonObject candidate = base;
+        candidate.insert(key, QString(middle, QLatin1Char('x')));
+        if (QJsonDocument(candidate).toJson(QJsonDocument::Compact).size() <=
+            sdr::platform::bookmarkLimits::maximumJsonPayloadBytes) {
+            result = std::move(candidate);
+            low = middle + 1;
+        } else {
+            high = middle - 1;
+        }
+    }
+    return result;
+}
+
 }  // namespace
 
 class BookmarkTreeModelTest final : public QObject
@@ -100,6 +167,10 @@ private slots:
     void reordersAndMovesBookmarksWithoutChangingIdentityOrData();
     void rejectsInvalidBookmarkMovesWithoutSaving();
     void rollsBackBookmarkMoveWhenAtomicSaveFails();
+    void boundsFileAndRejectedLoadsPreserveModel();
+    void boundsParsedTreeAndDetectsLateDuplicate();
+    void boundsStringsAndPayloadMutations();
+    void preservesBoundedExtensionsAcrossRoundTrip();
 };
 
 void BookmarkTreeModelTest::editsItemsPreservesUuidsAndRemovesDescendants()
@@ -607,6 +678,203 @@ void BookmarkTreeModelTest::recoversFromMissingMalformedAndUnsupportedFiles()
         [&unsupportedModel] { return !unsupportedModel.loading(); }));
     QCOMPARE(unsupportedModel.rowCount(), 0);
     QVERIFY(unsupportedModel.lastError().contains(QStringLiteral("version")));
+}
+
+void BookmarkTreeModelTest::boundsFileAndRejectedLoadsPreserveModel()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("bookmarks.json"));
+    BookmarkTreeModel model(path);
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+    const QString uuid = model.addBookmark(-1, bookmark(QStringLiteral("Retained"), QStringLiteral("am")));
+    QVERIFY(!uuid.isEmpty());
+    QVERIFY(waitUntil([&model] { return !model.persistencePending(); }));
+
+    const QByteArray oversized(
+        sdr::platform::bookmarkLimits::maximumFileBytes + 1, 'x');
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(file.write(oversized), oversized.size());
+    file.close();
+    QVERIFY(model.reload());
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+    QCOMPARE(model.visibleRowForUuid(uuid) >= 0, true);
+    QVERIFY(model.lastError().contains(QStringLiteral("size limit")));
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QCOMPARE(file.readAll(), oversized);
+}
+
+void BookmarkTreeModelTest::boundsParsedTreeAndDetectsLateDuplicate()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("bookmarks.json"));
+
+    QJsonArray tooWide;
+    for (qsizetype index = 0;
+         index < sdr::platform::bookmarkLimits::maximumNodeCount;
+         ++index) {
+        tooWide.append(serializedBookmark());
+    }
+    writeDocument(path, bookmarkDocument(serializedGroup(tooWide)));
+    BookmarkTreeModel wide(path);
+    QVERIFY(waitUntil([&wide] { return !wide.loading(); }, 5'000));
+    QCOMPARE(wide.rowCount(), 0);
+    QVERIFY(wide.lastError().contains(QStringLiteral("node limit")));
+
+    tooWide.removeLast();
+    writeDocument(path, bookmarkDocument(serializedGroup(tooWide)));
+    BookmarkTreeModel full(path);
+    QVERIFY(waitUntil([&full] { return !full.loading(); }, 5'000));
+    QVERIFY(full.addGroup(-1, QStringLiteral("Too many")).isEmpty());
+    QVERIFY(full.lastError().contains(QStringLiteral("node limit")));
+
+    QJsonArray duplicateNearEnd;
+    const QUuid duplicateUuid = QUuid::createUuid();
+    for (qsizetype index = 0;
+         index < sdr::platform::bookmarkLimits::maximumNodeCount - 1;
+         ++index) {
+        duplicateNearEnd.append(serializedBookmark(
+            index + 1 == sdr::platform::bookmarkLimits::maximumNodeCount - 1
+                ? duplicateUuid
+                : (index == 0 ? duplicateUuid : QUuid::createUuid())));
+    }
+    writeDocument(path, bookmarkDocument(serializedGroup(duplicateNearEnd)));
+    BookmarkTreeModel duplicate(path);
+    QVERIFY(waitUntil([&duplicate] { return !duplicate.loading(); }, 5'000));
+    QCOMPARE(duplicate.rowCount(), 0);
+    QVERIFY(duplicate.lastError().contains(QStringLiteral("duplicate UUID")));
+
+    QJsonObject nested = serializedBookmark();
+    for (int depth = 0;
+         depth <= sdr::platform::bookmarkLimits::maximumTreeDepth;
+         ++depth) {
+        nested = serializedGroup(QJsonArray{nested});
+    }
+    writeDocument(path, bookmarkDocument(serializedGroup(QJsonArray{nested})));
+    BookmarkTreeModel deep(path);
+    QVERIFY(waitUntil([&deep] { return !deep.loading(); }));
+    QCOMPARE(deep.rowCount(), 0);
+    QVERIFY(deep.lastError().contains(QStringLiteral("nesting depth")));
+
+    nested = serializedGroup();
+    for (int depth = 1;
+         depth < sdr::platform::bookmarkLimits::maximumTreeDepth;
+         ++depth) {
+        nested = serializedGroup(QJsonArray{nested});
+    }
+    writeDocument(path, bookmarkDocument(serializedGroup(QJsonArray{nested})));
+    BookmarkTreeModel deepest(path);
+    QVERIFY(waitUntil([&deepest] { return !deepest.loading(); }));
+    QCOMPARE(deepest.rowCount(), sdr::platform::bookmarkLimits::maximumTreeDepth);
+    QVERIFY(deepest.addBookmark(
+                deepest.rowCount() - 1,
+                bookmark(QStringLiteral("Too deep"), QStringLiteral("am")))
+                .isEmpty());
+    QVERIFY(deepest.lastError().contains(QStringLiteral("nesting depth")));
+
+    QJsonObject longName = serializedBookmark();
+    longName.insert(
+        QStringLiteral("name"),
+        QString(sdr::platform::bookmarkLimits::maximumNameUtf8Bytes + 1,
+                QLatin1Char('n')));
+    writeDocument(path, bookmarkDocument(serializedGroup(QJsonArray{longName})));
+    BookmarkTreeModel nameTooLong(path);
+    QVERIFY(waitUntil([&nameTooLong] { return !nameTooLong.loading(); }));
+    QVERIFY(nameTooLong.lastError().contains(QStringLiteral("name exceeds")));
+}
+
+void BookmarkTreeModelTest::boundsStringsAndPayloadMutations()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    BookmarkTreeModel model(directory.filePath(QStringLiteral("bookmarks.json")));
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+
+    BookmarkData valid = bookmark(
+        QString(sdr::platform::bookmarkLimits::maximumNameUtf8Bytes, QLatin1Char('a')),
+        QString(sdr::platform::bookmarkLimits::maximumDemodulatorIdUtf8Bytes, QLatin1Char('d')));
+    valid.modeSpecificSettings = payloadAtLimit(
+        QStringLiteral("future"), QJsonObject{{QStringLiteral("version"), 1}});
+    const QString uuid = model.addBookmark(-1, valid);
+    QVERIFY(!uuid.isEmpty());
+    const int row = model.visibleRowForUuid(uuid);
+    QVERIFY(row >= 0);
+
+    BookmarkData longName = valid;
+    longName.name.append(QLatin1Char('a'));
+    QVERIFY(model.addBookmark(-1, longName).isEmpty());
+    QVERIFY(model.lastError().contains(QStringLiteral("name exceeds")));
+    BookmarkData longId = valid;
+    longId.demodulatorId.append(QLatin1Char('d'));
+    QVERIFY(model.addBookmark(-1, longId).isEmpty());
+    QVERIFY(model.lastError().contains(QStringLiteral("ID exceeds")));
+    BookmarkData largeSettings = valid;
+    largeSettings.modeSpecificSettings.insert(
+        QStringLiteral("future"),
+        largeSettings.modeSpecificSettings.value(QStringLiteral("future")).toString() +
+            QLatin1Char('x'));
+    QVERIFY(model.addBookmark(-1, largeSettings).isEmpty());
+    QVERIFY(model.lastError().contains(QStringLiteral("mode settings")));
+
+    QVariantMap fields = model.itemDetails(row);
+    fields.insert(QStringLiteral("modeSpecificSettings"),
+                  largeSettings.modeSpecificSettings.toVariantMap());
+    QVERIFY(!model.updateBookmark(row, fields));
+    QCOMPARE(model.bookmarkAt(row)->modeSpecificSettings, valid.modeSpecificSettings);
+}
+
+void BookmarkTreeModelTest::preservesBoundedExtensionsAcrossRoundTrip()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("bookmarks.json"));
+    QJsonObject item = serializedBookmark();
+    const QJsonObject extension = payloadAtLimit(QStringLiteral("futureItem"));
+    for (auto it = extension.begin(); it != extension.end(); ++it) {
+        item.insert(it.key(), it.value());
+    }
+    const QString uuid = item.value(QStringLiteral("uuid")).toString();
+    writeDocument(path, bookmarkDocument(serializedGroup(QJsonArray{item})));
+
+    BookmarkTreeModel model(path);
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+    const int row = model.visibleRowForUuid(uuid);
+    QVERIFY(row >= 0);
+    QVariantMap fields = model.itemDetails(row);
+    fields.insert(QStringLiteral("name"), QStringLiteral("Changed"));
+    QVERIFY(model.updateBookmark(row, fields));
+    QVERIFY(waitUntil([&model] { return !model.persistencePending(); }));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject saved = QJsonDocument::fromJson(file.readAll()).object();
+    QCOMPARE(findSerializedItem(saved.value(QStringLiteral("root")).toObject(), uuid)
+                 .value(QStringLiteral("futureItem")),
+             extension.value(QStringLiteral("futureItem")));
+
+    QJsonObject oversizedItem = item;
+    oversizedItem.insert(
+        QStringLiteral("futureItem"),
+        extension.value(QStringLiteral("futureItem")).toString() + QLatin1Char('x'));
+    writeDocument(path, bookmarkDocument(serializedGroup(QJsonArray{oversizedItem})));
+    QVERIFY(model.reload());
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+    QVERIFY(model.visibleRowForUuid(uuid) >= 0);
+    QVERIFY(model.lastError().contains(QStringLiteral("extensions exceed")));
+
+    QJsonObject oversizedModeItem = serializedBookmark();
+    QJsonObject oversizedMode = payloadAtLimit(
+        QStringLiteral("future"), QJsonObject{{QStringLiteral("version"), 1}});
+    oversizedMode.insert(
+        QStringLiteral("future"),
+        oversizedMode.value(QStringLiteral("future")).toString() + QLatin1Char('x'));
+    oversizedModeItem.insert(QStringLiteral("modeSpecificSettings"), oversizedMode);
+    writeDocument(path, bookmarkDocument(serializedGroup(QJsonArray{oversizedModeItem})));
+    QVERIFY(model.reload());
+    QVERIFY(waitUntil([&model] { return !model.loading(); }));
+    QVERIFY(model.visibleRowForUuid(uuid) >= 0);
+    QVERIFY(model.lastError().contains(QStringLiteral("mode settings")));
 }
 
 QTEST_GUILESS_MAIN(BookmarkTreeModelTest)

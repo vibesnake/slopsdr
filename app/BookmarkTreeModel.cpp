@@ -4,10 +4,12 @@
 #include "BookmarkTreeModel.hpp"
 
 #include "DemodulatorRegistry.hpp"
+#include "BookmarkLimits.hpp"
 
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QMetaObject>
+#include <QSet>
 
 #include <algorithm>
 #include <cmath>
@@ -19,7 +21,6 @@ namespace {
 
 constexpr int bookmarkFileVersion = 1;
 constexpr int modeSettingsMinimumVersion = 1;
-constexpr int maximumTreeDepth = 64;
 constexpr double maximumExactJsonInteger = 9'007'199'254'740'991.0;
 
 bool strictInteger(const QJsonValue& value, qint64& result) noexcept
@@ -52,6 +53,41 @@ bool validModeSpecificSettings(const QJsonObject& settings) noexcept
     qint64 version = 0;
     return strictInteger(settings.value(QStringLiteral("version")), version) &&
            version >= modeSettingsMinimumVersion;
+}
+
+bool fitsUtf8Bytes(const QString& value, qsizetype maximumBytes)
+{
+    return value.toUtf8().size() <= maximumBytes;
+}
+
+bool fitsCompactJsonPayload(const QJsonObject& value)
+{
+    return QJsonDocument(value).toJson(QJsonDocument::Compact).size() <=
+           platform::bookmarkLimits::maximumJsonPayloadBytes;
+}
+
+bool validBookmarkPayload(
+    const QString& name,
+    const QString& demodulatorId,
+    const QJsonObject& modeSpecificSettings,
+    QString& error)
+{
+    if (!fitsUtf8Bytes(name, platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+        error = QStringLiteral("Bookmark name exceeds the 256-byte limit");
+        return false;
+    }
+    if (!fitsUtf8Bytes(
+            demodulatorId,
+            platform::bookmarkLimits::maximumDemodulatorIdUtf8Bytes)) {
+        error = QStringLiteral("Bookmark demodulator ID exceeds the 128-byte limit");
+        return false;
+    }
+    if (!validModeSpecificSettings(modeSpecificSettings) ||
+        !fitsCompactJsonPayload(modeSpecificSettings)) {
+        error = QStringLiteral("Bookmark mode settings are invalid or exceed the 64 KiB limit");
+        return false;
+    }
+    return true;
 }
 
 QString normalizedName(const QString& name, const QString& fallback)
@@ -268,11 +304,25 @@ bool BookmarkTreeModel::toggleScannerInclusion(int visibleRow)
 QString BookmarkTreeModel::addGroup(int parentVisibleRow, const QString& name)
 {
     Node* parent = insertionParent(parentVisibleRow);
+    const QString groupName = normalizedName(name, QStringLiteral("New group"));
     if (!parent) {
         return {};
     }
+    if (nodeCount() >= platform::bookmarkLimits::maximumNodeCount) {
+        setLastError(QStringLiteral("Bookmarks tree exceeds the 4,096-node limit"));
+        return {};
+    }
+    if (nodeDepth(*parent) + 1 > platform::bookmarkLimits::maximumTreeDepth) {
+        setLastError(QStringLiteral("Bookmarks tree exceeds the maximum nesting depth"));
+        return {};
+    }
+    if (!fitsUtf8Bytes(name, platform::bookmarkLimits::maximumNameUtf8Bytes) ||
+        !fitsUtf8Bytes(groupName, platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+        setLastError(QStringLiteral("Bookmark group name exceeds the 256-byte limit"));
+        return {};
+    }
     auto group = std::make_unique<Node>();
-    group->groupName = normalizedName(name, QStringLiteral("New group"));
+    group->groupName = groupName;
     group->expanded = true;
     group->parent = parent;
     const QString uuid = group->uuid.toString(QUuid::WithoutBraces);
@@ -289,19 +339,40 @@ QString BookmarkTreeModel::addBookmark(
     int parentVisibleRow, const BookmarkData& bookmark)
 {
     Node* parent = insertionParent(parentVisibleRow);
-    if (!parent || bookmark.demodulatorId.trimmed().isEmpty() ||
+    const QString name = normalizedName(bookmark.name, QStringLiteral("Unnamed bookmark"));
+    const QString demodulatorId = bookmark.demodulatorId.trimmed();
+    if (!fitsUtf8Bytes(bookmark.name, platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+        setLastError(QStringLiteral("Bookmark name exceeds the 256-byte limit"));
+        return {};
+    }
+    if (!fitsUtf8Bytes(
+            bookmark.demodulatorId,
+            platform::bookmarkLimits::maximumDemodulatorIdUtf8Bytes)) {
+        setLastError(QStringLiteral("Bookmark demodulator ID exceeds the 128-byte limit"));
+        return {};
+    }
+    QString error;
+    if (!parent || demodulatorId.isEmpty() ||
         !std::isfinite(bookmark.requestedGainDb) ||
         !std::isfinite(bookmark.squelchThresholdDb) ||
         bookmark.filterLowHz > bookmark.filterHighHz ||
-        !validModeSpecificSettings(bookmark.modeSpecificSettings)) {
+        !validBookmarkPayload(name, demodulatorId, bookmark.modeSpecificSettings, error)) {
+        if (!error.isEmpty()) setLastError(std::move(error));
+        return {};
+    }
+    if (nodeCount() >= platform::bookmarkLimits::maximumNodeCount) {
+        setLastError(QStringLiteral("Bookmarks tree exceeds the 4,096-node limit"));
+        return {};
+    }
+    if (nodeDepth(*parent) + 1 > platform::bookmarkLimits::maximumTreeDepth) {
+        setLastError(QStringLiteral("Bookmarks tree exceeds the maximum nesting depth"));
         return {};
     }
     auto node = std::make_unique<Node>();
     node->group = false;
     node->bookmark = bookmark;
-    node->bookmark.name = normalizedName(
-        bookmark.name, QStringLiteral("Unnamed bookmark"));
-    node->bookmark.demodulatorId = bookmark.demodulatorId.trimmed();
+    node->bookmark.name = name;
+    node->bookmark.demodulatorId = demodulatorId;
     node->parent = parent;
     const QString uuid = node->uuid.toString(QUuid::WithoutBraces);
     parent->children.push_back(std::move(node));
@@ -340,7 +411,12 @@ bool BookmarkTreeModel::renameGroup(int visibleRow, const QString& name)
 {
     if (visibleRow < 0 || visibleRow >= m_visibleNodes.size() ||
         !m_visibleNodes.at(visibleRow)->group || name.trimmed().isEmpty()) return false;
-    m_visibleNodes.at(visibleRow)->groupName = name.trimmed();
+    const QString trimmed = name.trimmed();
+    if (!fitsUtf8Bytes(trimmed, platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+        setLastError(QStringLiteral("Bookmark group name exceeds the 256-byte limit"));
+        return false;
+    }
+    m_visibleNodes.at(visibleRow)->groupName = trimmed;
     emit dataChanged(index(visibleRow, 0), index(visibleRow, 0), {NameRole});
     return saveNow();
 }
@@ -349,11 +425,14 @@ bool BookmarkTreeModel::updateBookmark(int visibleRow, const QVariantMap& fields
 {
     if (visibleRow < 0 || visibleRow >= m_visibleNodes.size() ||
         m_visibleNodes.at(visibleRow)->group) return false;
+    const QString inputName = fields.value(QStringLiteral("name")).toString();
+    const QString inputDemodulatorId =
+        fields.value(QStringLiteral("demodulatorId")).toString();
     BookmarkData updated;
-    updated.name = fields.value(QStringLiteral("name")).toString().trimmed();
+    updated.name = inputName.trimmed();
     updated.listeningFrequency = fields.value(QStringLiteral("listeningFrequency")).toULongLong();
     updated.requestedGainDb = fields.value(QStringLiteral("requestedGain")).toDouble();
-    updated.demodulatorId = fields.value(QStringLiteral("demodulatorId")).toString().trimmed();
+    updated.demodulatorId = inputDemodulatorId.trimmed();
     updated.filterLowHz = fields.value(QStringLiteral("filterLowHz")).toLongLong();
     updated.filterHighHz = fields.value(QStringLiteral("filterHighHz")).toLongLong();
     updated.squelchThresholdDb = fields.value(QStringLiteral("squelchThreshold")).toDouble();
@@ -361,9 +440,25 @@ bool BookmarkTreeModel::updateBookmark(int visibleRow, const QVariantMap& fields
     updated.hasSavedSquelch = true;
     updated.modeSpecificSettings = QJsonObject::fromVariantMap(fields.value(QStringLiteral("modeSpecificSettings")).toMap());
     updated.scannerIncluded = fields.value(QStringLiteral("scannerIncluded")).toBool();
+    QString error;
+    if (!fitsUtf8Bytes(inputName, platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+        setLastError(QStringLiteral("Bookmark name exceeds the 256-byte limit"));
+        return false;
+    }
+    if (!fitsUtf8Bytes(
+            inputDemodulatorId,
+            platform::bookmarkLimits::maximumDemodulatorIdUtf8Bytes)) {
+        setLastError(QStringLiteral("Bookmark demodulator ID exceeds the 128-byte limit"));
+        return false;
+    }
     if (updated.name.isEmpty() || updated.demodulatorId.isEmpty() ||
         !std::isfinite(updated.requestedGainDb) || !std::isfinite(updated.squelchThresholdDb) ||
-        updated.filterLowHz > updated.filterHighHz || !validModeSpecificSettings(updated.modeSpecificSettings)) return false;
+        updated.filterLowHz > updated.filterHighHz ||
+        !validBookmarkPayload(
+            updated.name, updated.demodulatorId, updated.modeSpecificSettings, error)) {
+        if (!error.isEmpty()) setLastError(std::move(error));
+        return false;
+    }
     m_visibleNodes.at(visibleRow)->bookmark = std::move(updated);
     emit dataChanged(index(visibleRow, 0), index(visibleRow, 0));
     return saveNow();
@@ -470,6 +565,11 @@ bool BookmarkTreeModel::moveBookmark(
             ++destinationIndex;
         }
     } else {
+        return false;
+    }
+    if (nodeDepth(*destinationParent) + 1 >
+        platform::bookmarkLimits::maximumTreeDepth) {
+        setLastError(QStringLiteral("Bookmarks tree exceeds the maximum nesting depth"));
         return false;
     }
 
@@ -611,16 +711,10 @@ void BookmarkTreeModel::applyLoadResult(
     }
     if (fileResult.status ==
         sdr::platform::BookmarkJsonStore::LoadStatus::Error) {
-        beginResetModel();
-        resetToEmpty();
-        endResetModel();
         setLastError(fileResult.error);
         return;
     }
     if (!fileResult.document.isObject()) {
-        beginResetModel();
-        resetToEmpty();
-        endResetModel();
         setLastError(QStringLiteral("Bookmarks file is malformed"));
         return;
     }
@@ -629,33 +723,34 @@ void BookmarkTreeModel::applyLoadResult(
     if (!strictInteger(documentObject.value(QStringLiteral("version")), version) ||
         version != bookmarkFileVersion ||
         !documentObject.value(QStringLiteral("root")).isObject()) {
-        beginResetModel();
-        resetToEmpty();
-        endResetModel();
         setLastError(QStringLiteral("Bookmarks file has an unsupported or invalid version"));
         return;
     }
-    std::vector<QUuid> seenUuids;
+    QJsonObject documentExtensions = documentObject;
+    documentExtensions.remove(QStringLiteral("version"));
+    documentExtensions.remove(QStringLiteral("root"));
+    if (!fitsCompactJsonPayload(documentExtensions)) {
+        setLastError(QStringLiteral("Bookmark document extensions exceed the 64 KiB limit"));
+        return;
+    }
+    QSet<QUuid> seenUuids;
+    std::size_t nodeCount = 0;
     QString error;
     std::unique_ptr<Node> loadedRoot = parseNode(
         documentObject.value(QStringLiteral("root")).toObject(),
         nullptr,
         seenUuids,
+        nodeCount,
         0,
         error);
     if (!loadedRoot || !loadedRoot->group) {
-        beginResetModel();
-        resetToEmpty();
-        endResetModel();
         setLastError(error.isEmpty()
                          ? QStringLiteral("Bookmarks root must be a group")
                          : error);
         return;
     }
     beginResetModel();
-    m_documentExtensions = documentObject;
-    m_documentExtensions.remove(QStringLiteral("version"));
-    m_documentExtensions.remove(QStringLiteral("root"));
+    m_documentExtensions = std::move(documentExtensions);
     m_root = std::move(loadedRoot);
     rebuildVisibleNodes();
     endResetModel();
@@ -671,6 +766,28 @@ bool BookmarkTreeModel::saveNow()
     documentObject.insert(QStringLiteral("version"), bookmarkFileVersion);
     documentObject.insert(QStringLiteral("root"), serializeNode(*m_root));
     const QJsonDocument document(documentObject);
+    if (document.toJson(QJsonDocument::Indented).size() >
+        platform::bookmarkLimits::maximumFileBytes) {
+        setLastError(QStringLiteral("Bookmarks file exceeds the 4 MiB size limit"));
+        return false;
+    }
+    QSet<QUuid> seenUuids;
+    std::size_t parsedNodeCount = 0;
+    QString validationError;
+    const auto validatedRoot = parseNode(
+        documentObject.value(QStringLiteral("root")).toObject(),
+        nullptr,
+        seenUuids,
+        parsedNodeCount,
+        0,
+        validationError);
+    if (!validatedRoot || !validatedRoot->group ||
+        !fitsCompactJsonPayload(m_documentExtensions)) {
+        setLastError(validationError.isEmpty()
+                         ? QStringLiteral("Bookmark document extensions exceed the 64 KiB limit")
+                         : std::move(validationError));
+        return false;
+    }
     ++m_revision;
     const quint64 generation = ++m_saveGeneration;
     if (!m_persistencePending) {
@@ -743,6 +860,27 @@ BookmarkTreeModel::Node* BookmarkTreeModel::findNode(const QUuid& uuid) const
     return find(find, *m_root);
 }
 
+std::size_t BookmarkTreeModel::nodeCount() const
+{
+    const auto count = [](const auto& self, const Node& node) -> std::size_t {
+        std::size_t result = 1;
+        for (const auto& child : node.children) {
+            result += self(self, *child);
+        }
+        return result;
+    };
+    return count(count, *m_root);
+}
+
+int BookmarkTreeModel::nodeDepth(const Node& node)
+{
+    int depth = 0;
+    for (const Node* parent = node.parent; parent; parent = parent->parent) {
+        ++depth;
+    }
+    return depth;
+}
+
 int BookmarkTreeModel::visibleSubtreeEnd(const Node& node) const
 {
     const int row = visibleRowForUuid(node.uuid.toString(QUuid::WithoutBraces));
@@ -771,12 +909,14 @@ void BookmarkTreeModel::restoreDocument(const QJsonDocument& document)
         return;
     }
     const QJsonObject object = document.object();
-    std::vector<QUuid> uuids;
+    QSet<QUuid> uuids;
+    std::size_t nodeCount = 0;
     QString error;
     auto root = parseNode(
         object.value(QStringLiteral("root")).toObject(),
         nullptr,
         uuids,
+        nodeCount,
         0,
         error);
     if (!root) {
@@ -934,22 +1074,26 @@ QJsonObject BookmarkTreeModel::serializeNode(const Node& node) const
 std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
     const QJsonObject& object,
     Node* parent,
-    std::vector<QUuid>& seenUuids,
+    QSet<QUuid>& seenUuids,
+    std::size_t& nodeCount,
     int depth,
     QString& error) const
 {
-    if (depth > maximumTreeDepth) {
+    if (depth > platform::bookmarkLimits::maximumTreeDepth) {
         error = QStringLiteral("Bookmarks tree exceeds the maximum nesting depth");
         return {};
     }
+    if (nodeCount >= platform::bookmarkLimits::maximumNodeCount) {
+        error = QStringLiteral("Bookmarks tree exceeds the 4,096-node limit");
+        return {};
+    }
     const QUuid uuid(object.value(QStringLiteral("uuid")).toString());
-    if (uuid.isNull() ||
-        std::find(seenUuids.cbegin(), seenUuids.cend(), uuid) !=
-            seenUuids.cend()) {
+    if (uuid.isNull() || seenUuids.contains(uuid)) {
         error = QStringLiteral("Bookmark item has a missing or duplicate UUID");
         return {};
     }
-    seenUuids.push_back(uuid);
+    seenUuids.insert(uuid);
+    ++nodeCount;
     const QString type = object.value(QStringLiteral("type")).toString();
     if (type != QLatin1String("group") &&
         type != QLatin1String("bookmark")) {
@@ -964,6 +1108,10 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
              "modeSpecificSettings", "scannerIncluded"}) {
         node->extensions.remove(QString::fromLatin1(key));
     }
+    if (!fitsCompactJsonPayload(node->extensions)) {
+        error = QStringLiteral("Bookmark item extensions exceed the 64 KiB limit");
+        return {};
+    }
     node->uuid = uuid;
     node->group = type == QLatin1String("group");
     node->parent = parent;
@@ -974,9 +1122,17 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
             error = QStringLiteral("Bookmark group is missing required fields");
             return {};
         }
+        const QString inputName = object.value(QStringLiteral("name")).toString();
         node->groupName = normalizedName(
-            object.value(QStringLiteral("name")).toString(),
+            inputName,
             QStringLiteral("Unnamed group"));
+        if (!fitsUtf8Bytes(inputName, platform::bookmarkLimits::maximumNameUtf8Bytes) ||
+            !fitsUtf8Bytes(
+                node->groupName,
+                platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+            error = QStringLiteral("Bookmark group name exceeds the 256-byte limit");
+            return {};
+        }
         node->expanded = object.value(QStringLiteral("expanded")).toBool();
         for (const QJsonValue& childValue :
              object.value(QStringLiteral("children")).toArray()) {
@@ -988,6 +1144,7 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
                 childValue.toObject(),
                 node.get(),
                 seenUuids,
+                nodeCount,
                 depth + 1,
                 error);
             if (!child) {
@@ -1031,19 +1188,37 @@ std::unique_ptr<BookmarkTreeModel::Node> BookmarkTreeModel::parseNode(
           !std::isfinite(squelchThreshold.toDouble()) ||
           !squelchEnabled.isBool())) ||
         !object.value(QStringLiteral("modeSpecificSettings")).isObject() ||
-        !validModeSpecificSettings(
-            object.value(QStringLiteral("modeSpecificSettings")).toObject()) ||
         !object.value(QStringLiteral("scannerIncluded")).isBool()) {
         error = QStringLiteral("Bookmark is missing required or valid fields");
         return {};
     }
+    const QString inputName = object.value(QStringLiteral("name")).toString();
+    const QString inputDemodulatorId =
+        object.value(QStringLiteral("demodulatorId")).toString();
     bookmark.name = normalizedName(
-        object.value(QStringLiteral("name")).toString(),
+        inputName,
         QStringLiteral("Unnamed bookmark"));
     bookmark.listeningFrequency = listeningFrequency;
     bookmark.requestedGainDb = requestedGain.toDouble();
     bookmark.demodulatorId =
-        object.value(QStringLiteral("demodulatorId")).toString().trimmed();
+        inputDemodulatorId.trimmed();
+    if (!fitsUtf8Bytes(inputName, platform::bookmarkLimits::maximumNameUtf8Bytes)) {
+        error = QStringLiteral("Bookmark name exceeds the 256-byte limit");
+        return {};
+    }
+    if (!fitsUtf8Bytes(
+            inputDemodulatorId,
+            platform::bookmarkLimits::maximumDemodulatorIdUtf8Bytes)) {
+        error = QStringLiteral("Bookmark demodulator ID exceeds the 128-byte limit");
+        return {};
+    }
+    if (!validBookmarkPayload(
+            bookmark.name,
+            bookmark.demodulatorId,
+            object.value(QStringLiteral("modeSpecificSettings")).toObject(),
+            error)) {
+        return {};
+    }
     bookmark.filterLowHz = filterLowHz;
     bookmark.filterHighHz = filterHighHz;
     bookmark.squelchThresholdDb = hasSquelchThreshold

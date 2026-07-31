@@ -3,6 +3,8 @@
 
 #include "BookmarkJsonStore.hpp"
 
+#include "BookmarkLimits.hpp"
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -39,9 +41,34 @@ BookmarkJsonStore::LoadResult BookmarkJsonStore::load() const
                 .arg(file.errorString()),
         };
     }
+    if (file.size() > bookmarkLimits::maximumFileBytes) {
+        return {
+            LoadStatus::Error,
+            {},
+            QStringLiteral("Bookmarks file exceeds the %1 MiB size limit")
+                .arg(bookmarkLimits::maximumFileBytes / (1024 * 1024)),
+        };
+    }
+    const QByteArray bytes = file.read(bookmarkLimits::maximumFileBytes + 1);
+    if (bytes.size() > bookmarkLimits::maximumFileBytes || !file.atEnd()) {
+        return {
+            LoadStatus::Error,
+            {},
+            QStringLiteral("Bookmarks file exceeds the %1 MiB size limit")
+                .arg(bookmarkLimits::maximumFileBytes / (1024 * 1024)),
+        };
+    }
+    if (file.error() != QFile::NoError) {
+        return {
+            LoadStatus::Error,
+            {},
+            QStringLiteral("Could not read bookmarks: %1")
+                .arg(file.errorString()),
+        };
+    }
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(
-        file.readAll(), &parseError);
+        bytes, &parseError);
     if (parseError.error != QJsonParseError::NoError) {
         return {
             LoadStatus::Error,
@@ -56,6 +83,12 @@ BookmarkJsonStore::LoadResult BookmarkJsonStore::load() const
 bool BookmarkJsonStore::save(
     const QJsonDocument& document, QString& error) const
 {
+    const QByteArray bytes = document.toJson(QJsonDocument::Indented);
+    if (bytes.size() > bookmarkLimits::maximumFileBytes) {
+        error = QStringLiteral("Bookmarks file exceeds the %1 MiB size limit")
+                    .arg(bookmarkLimits::maximumFileBytes / (1024 * 1024));
+        return false;
+    }
     const QFileInfo target(m_filePath);
     QDir directory = target.dir();
     if (!directory.exists() && !directory.mkpath(QStringLiteral("."))) {
@@ -69,7 +102,6 @@ bool BookmarkJsonStore::save(
                     .arg(file.errorString());
         return false;
     }
-    const QByteArray bytes = document.toJson(QJsonDocument::Indented);
     if (file.write(bytes) != bytes.size() || !file.commit()) {
         error = QStringLiteral("Could not atomically save bookmarks: %1")
                     .arg(file.errorString());

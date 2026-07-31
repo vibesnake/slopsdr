@@ -159,6 +159,7 @@ sdr_enable_warnings(sdr_platform_audio)
 
 add_library(
     sdr_platform_persistence STATIC
+    platform/BookmarkLimits.hpp
     platform/BookmarkJsonStore.cpp
     platform/BookmarkJsonStore.hpp
 )

@@ -324,6 +324,11 @@ AM or another available mode. Editing such a bookmark retains the unknown mode
 and its mode-specific settings unless the user explicitly selects an available
 mode.
 
+Bookmark files are bounded to 4 MiB, 4,096 nodes including the root, and 64 nesting levels.
+Names, mode IDs, and each preserved future-format JSON payload are also size
+limited. An oversized or malformed reload leaves the currently displayed
+bookmark tree unchanged and reports the validation error.
+
 ## Settings
 
 The **SDR calibration** section shows the correction currently applied to the

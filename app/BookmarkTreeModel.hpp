@@ -8,12 +8,14 @@
 #include <QAbstractListModel>
 #include <QJsonObject>
 #include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QThread>
 #include <QUuid>
 #include <QVector>
 
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -135,9 +137,12 @@ private:
     [[nodiscard]] std::unique_ptr<Node> parseNode(
         const QJsonObject& object,
         Node* parent,
-        std::vector<QUuid>& seenUuids,
+        QSet<QUuid>& seenUuids,
+        std::size_t& nodeCount,
         int depth,
         QString& error) const;
+    [[nodiscard]] std::size_t nodeCount() const;
+    [[nodiscard]] static int nodeDepth(const Node& node);
     void applyLoadResult(
         sdr::platform::BookmarkJsonStore::LoadResult result,
         quint64 requestedRevision);
