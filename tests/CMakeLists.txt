@@ -292,8 +292,18 @@ if(ENABLE_GNURADIO)
         COMMAND gnuradio_receiver_backend_tests
     )
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/gnuradio-cache")
+    set(gnuradio_backend_test_timeout 20)
+    if(SDR_RECEIVER_ENABLE_SANITIZERS)
+        set(gnuradio_backend_test_timeout 60)
+    endif()
     set_tests_properties(
-        gnuradio_receiver_backend_tests gnuradio_smoke_test
+        gnuradio_receiver_backend_tests
+        PROPERTIES
+            ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/gnuradio-cache"
+            TIMEOUT ${gnuradio_backend_test_timeout}
+    )
+    set_tests_properties(
+        gnuradio_smoke_test
         PROPERTIES
             ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/gnuradio-cache"
             TIMEOUT 20
