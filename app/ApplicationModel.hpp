@@ -153,10 +153,13 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool runtimeBusy READ runtimeBusy NOTIFY runtimeBusyChanged)
     Q_PROPERTY(bool mockMode READ mockMode NOTIFY deviceStateChanged)
     Q_PROPERTY(bool recordedIqSource READ recordedIqSource NOTIFY deviceStateChanged)
+    Q_PROPERTY(bool recordedAudioSource READ recordedAudioSource NOTIFY deviceStateChanged)
+    Q_PROPERTY(bool rfControlsSupported READ rfControlsSupported NOTIFY deviceCapabilitiesChanged)
     Q_PROPERTY(QString sourceDescription READ sourceDescription NOTIFY deviceStateChanged)
     Q_PROPERTY(bool recordingLoaded READ recordingLoaded NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(bool recordingPlaying READ recordingPlaying NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(bool recordingPaused READ recordingPaused NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(bool recordedIqMetadataRequired READ recordedIqMetadataRequired NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(QString recordingTransportText READ recordingTransportText NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(bool gainSupported READ gainSupported NOTIFY deviceCapabilitiesChanged)
     Q_PROPERTY(double minimumGain READ minimumGain NOTIFY deviceCapabilitiesChanged)
@@ -317,10 +320,13 @@ public:
     [[nodiscard]] bool runtimeBusy() const noexcept;
     [[nodiscard]] bool mockMode() const noexcept;
     [[nodiscard]] bool recordedIqSource() const noexcept;
+    [[nodiscard]] bool recordedAudioSource() const noexcept;
+    [[nodiscard]] bool rfControlsSupported() const noexcept;
     [[nodiscard]] QString sourceDescription() const;
     [[nodiscard]] bool recordingLoaded() const noexcept;
     [[nodiscard]] bool recordingPlaying() const noexcept;
     [[nodiscard]] bool recordingPaused() const noexcept;
+    [[nodiscard]] bool recordedIqMetadataRequired() const noexcept;
     [[nodiscard]] QString recordingTransportText() const;
     [[nodiscard]] bool verboseDiagnosticsEnabled() const noexcept;
     [[nodiscard]] bool gainSupported() const noexcept;
@@ -368,6 +374,7 @@ public slots:
     void clearDeviceSelection();
     void selectRecordedIqSource(const QUrl& fileUrl, quint64 centerFrequency,
         quint64 sampleRate);
+    void loadRecording(const QUrl& fileUrl);
     void toggleRecordingPlayback();
     void stopRecordingPlayback();
     void restartRecordingPlayback();
@@ -877,6 +884,7 @@ private:
     bool m_mockMode = true;
     sdr::radio::ReceiverSourceCapabilities m_receiverSourceCapabilities;
     sdr::radio::RecordingTransportState m_recordingTransport;
+    bool m_recordedIqMetadataRequired = false;
     bool m_automaticPpmCalibrationSupported = false;
     bool m_ppmCalibrationRunning = false;
     QString m_ppmCalibrationStatus = QStringLiteral("idle");

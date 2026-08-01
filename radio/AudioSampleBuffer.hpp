@@ -44,6 +44,29 @@ private:
     std::uint64_t m_totalDroppedSamples = 0;
 };
 
+class StereoAudioSampleBuffer final
+{
+public:
+    explicit StereoAudioSampleBuffer(std::size_t frameCapacity = defaultAudioBufferCapacity);
+
+    [[nodiscard]] AudioBufferWriteResult push(std::span<const float> interleavedSamples);
+    [[nodiscard]] std::vector<float> take(std::size_t maximumFrames);
+    void clear();
+
+    [[nodiscard]] std::size_t size() const;
+    [[nodiscard]] std::size_t capacity() const noexcept;
+    [[nodiscard]] std::uint64_t totalProducedFrames() const;
+    [[nodiscard]] std::uint64_t totalDroppedFrames() const;
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<float> m_storage;
+    std::size_t m_readFrame = 0;
+    std::size_t m_sizeFrames = 0;
+    std::uint64_t m_totalProducedFrames = 0;
+    std::uint64_t m_totalDroppedFrames = 0;
+};
+
 class ComplexSampleBuffer final
 {
 public:

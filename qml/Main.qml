@@ -37,12 +37,12 @@ ApplicationWindow {
 
     FileDialog {
         id: recordedIqFileDialog
-        title: qsTr("Select recorded IQ capture")
-        nameFilters: [qsTr("Raw IQ captures (*.raw)")]
+        title: qsTr("Load recording")
+        nameFilters: [qsTr("Recordings (*.raw *.wav)"), qsTr("All files (*)")]
         fileMode: FileDialog.OpenFile
         onAccepted: {
             root.selectedRecordedIqUrl = selectedFile
-            recordedIqMetadataDialog.open()
+            root.applicationModel.loadRecording(selectedFile)
         }
     }
 
@@ -106,6 +106,10 @@ ApplicationWindow {
         function onCenterFrequencyDigitEditChanged() {
             if (!root.applicationModel.centerFrequencyDigitEditActive)
                 root.clearCenterFrequencyDigitFocus()
+        }
+        function onRecordingPlaybackChanged() {
+            if (root.applicationModel.recordedIqMetadataRequired)
+                recordedIqMetadataDialog.open()
         }
     }
 
@@ -3662,8 +3666,8 @@ ApplicationWindow {
                 height: displayWorkspace.spectrumPaneHeight
                 Layout.fillWidth: true
                 applicationModel: root.applicationModel
-                heading: qsTr("Spectrum")
-                detail: qsTr("Wheel: center · Ctrl: filter · Shift: listen")
+                heading: root.applicationModel.recordedAudioSource ? qsTr("Audio spectrum") : qsTr("Spectrum")
+                detail: root.applicationModel.recordedAudioSource ? qsTr("0 Hz to Nyquist") : qsTr("Wheel: center · Ctrl: filter · Shift: listen")
             }
 
             Item {
@@ -3724,8 +3728,8 @@ ApplicationWindow {
                 anchors.top: splitterHandle.bottom
                 anchors.bottom: viewportPanScrollbar.top
                 applicationModel: root.applicationModel
-                heading: qsTr("Waterfall")
-                detail: qsTr("Wheel: zoom · Ctrl: filter · Shift: listen")
+                heading: root.applicationModel.recordedAudioSource ? qsTr("Audio waterfall") : qsTr("Waterfall")
+                detail: root.applicationModel.recordedAudioSource ? qsTr("Audio spectrum history") : qsTr("Wheel: zoom · Ctrl: filter · Shift: listen")
                 waterfallInteraction: true
             }
 
@@ -3779,10 +3783,12 @@ ApplicationWindow {
                     Label {
                         text: root.applicationModel.recordedIqSource
                               ? qsTr("RECORDED IQ")
+                              : (root.applicationModel.recordedAudioSource
+                                 ? qsTr("RECORDED AUDIO")
                               : (root.applicationModel.mockMode
                                  ? qsTr("MOCK")
                                  : (root.applicationModel.backendReady
-                                    ? qsTr("HARDWARE READY") : qsTr("NO DEVICE")))
+                                    ? qsTr("HARDWARE READY") : qsTr("NO DEVICE"))))
                         color: root.applicationModel.backendReady ? "#68d391" : "#f6ad55"
                         font.bold: true
                         font.pixelSize: 9
@@ -4471,7 +4477,7 @@ ApplicationWindow {
                     anchors.right: parent.right
                     anchors.top: playbackControlRow.bottom
                     text: root.applicationModel.recordingTransportText
-                          + (root.applicationModel.recordedIqSource
+                          + ((root.applicationModel.recordedIqSource || root.applicationModel.recordedAudioSource)
                              && root.applicationModel.statusText !== ""
                              ? qsTr(" · ") + root.applicationModel.statusText : "")
                     color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor

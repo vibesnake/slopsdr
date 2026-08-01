@@ -44,6 +44,14 @@ and `QAudioSink` lifecycle remain in `platform/AudioOutputService`. The service
 is constructed and used on the receiver runtime thread. QML only displays
 confirmed application-model state and sends control requests.
 
+Recorded WAV playback is intentionally separate from that RF chain. Its
+standard-C++ source reader decodes supported RIFF/WAVE PCM or float frames at
+the file rate, preserves stereo pairs through a bounded 48 kHz output handoff,
+and lets `AudioOutputService` apply its existing volume/mute policy.
+The visualization downmix is `(left + right) / 2`; it does
+not alter speaker or recording channels. WAV playback cannot be treated as IQ,
+demodulated, squelched, scanned, or captured again as IQ.
+
 ## Recording path
 
 The receiver runtime sends analog or decoded 48 kHz stereo samples to the WAV

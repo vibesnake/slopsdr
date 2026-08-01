@@ -151,21 +151,30 @@ normally. Configure DSD-FME only when using DMR/P25. Use `--mock` for deliberate
 hardware-free runs. [Building](docs/BUILDING.md) documents debug, mock,
 hardware-test, diagnostic, and install commands.
 
-### Recorded IQ playback
+### Recorded playback
 
-Use **Open IQ…** while reception is stopped to select one recorded `.raw`
-capture. slopSDR accepts interleaved little-endian `cf32_le` samples. A matching
-adjacent `.json` sidecar produced by slopSDR supplies the capture center and
-sample rate automatically; otherwise enter those values explicitly. Playback
-uses the normal receiver pipeline and is paced at the recorded rate. Capture
-center and sample rate are fixed, while listening-frequency tuning remains
-available inside the recorded passband. Pause, seek, loop, multi-file sessions,
-scanner playback, and playback IQ re-recording are not available yet.
+Use the footer **Load recording** action while reception is stopped to select a
+recording. slopSDR identifies RIFF/WAVE audio from its container rather than
+the filename extension and supports mono or stereo unsigned 8-bit PCM, signed
+little-endian 16-, 24-, and 32-bit PCM, and little-endian IEEE float32 WAV.
+Compressed codecs and malformed/truncated files are rejected before playback
+starts. WAV playback preserves stereo, honours the normal volume/mute controls,
+and displays an **Audio spectrum** and waterfall from the L/R average over
+0 Hz through the file Nyquist frequency; it never enters RF demodulation.
 
-The compact transport stays visible beside receiver start/stop controls. Load a
-recording, then use restart, play/pause, stop/rewind, and eject; elapsed time is
-derived from consumed samples. Eject returns to the selected hardware source
-without starting it.
+Recorded `.raw` IQ captures remain interleaved little-endian `cf32_le`. A
+matching adjacent `.json` sidecar produced by slopSDR supplies capture center
+and sample rate automatically; otherwise the footer requests those values.
+IQ playback uses the normal RF receiver pipeline and is paced at the recorded
+rate. Capture center and sample rate are fixed, while listening-frequency
+tuning remains available inside the recorded passband.
+
+The compact transport stays visible in the footer. Load a recording, then use
+restart, play/pause, stop/rewind, and eject; elapsed time is derived from
+consumed frames. RF tuning, gain, PPM, demodulation, squelch, scanning, IQ
+recording, and RF bookmarks are unavailable for WAV playback; Start reception
+switches back to the selected SDR. Seeking, loop, playlists, compressed codecs,
+and scanner playback are not available yet.
 
 ## Development and testing
 

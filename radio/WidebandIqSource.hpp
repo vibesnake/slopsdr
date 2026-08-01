@@ -17,6 +17,7 @@ enum class ReceiverSourceKind {
     Synthetic,
     Hardware,
     RecordedIq,
+    RecordedAudio,
 };
 
 struct ReceiverSourceCapabilities {
@@ -26,6 +27,9 @@ struct ReceiverSourceCapabilities {
     bool ppmCorrectionSupported = false;
     bool automaticPpmCalibrationSupported = false;
     bool sampleRateChangeSupported = true;
+    bool rfControlsSupported = true;
+    bool scannerSupported = true;
+    bool iqRecordingSupported = true;
 };
 
 struct RecordedIqSourceConfiguration {

@@ -177,6 +177,10 @@ public:
         return {};
     }
     [[nodiscard]] virtual RecordingTransportState recordingTransport() const noexcept { return {}; }
+    [[nodiscard]] virtual std::optional<std::string> takePlaybackEnd()
+    {
+        return std::nullopt;
+    }
     [[nodiscard]] virtual OperationResult setPlaybackPaused(bool)
     { return {ReceiverError::BackendFailure, false, false, "Recording playback is unavailable"}; }
     [[nodiscard]] virtual OperationResult restartPlayback()
@@ -260,6 +264,15 @@ public:
         std::size_t maximumSamples)
     {
         static_cast<void>(maximumSamples);
+        return {};
+    }
+    // Recorded-audio adapters preserve the original channel layout through
+    // this bounded frame handoff.  RF backends continue to provide mono audio
+    // through takeAudioSamples().
+    [[nodiscard]] virtual std::vector<float> takeStereoAudioSamples(
+        std::size_t maximumFrames)
+    {
+        static_cast<void>(maximumFrames);
         return {};
     }
     virtual void clearAudioSamples() {}

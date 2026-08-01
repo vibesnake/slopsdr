@@ -87,6 +87,80 @@ void AudioSampleBuffer::clear()
     m_size = 0;
 }
 
+StereoAudioSampleBuffer::StereoAudioSampleBuffer(std::size_t frameCapacity)
+    : m_storage(std::max<std::size_t>(std::size_t{1}, frameCapacity) * 2U)
+{
+}
+
+AudioBufferWriteResult StereoAudioSampleBuffer::push(
+    std::span<const float> interleavedSamples)
+{
+    const std::size_t incomingFrames = interleavedSamples.size() / 2U;
+    if (incomingFrames == 0) return {};
+    interleavedSamples = interleavedSamples.first(incomingFrames * 2U);
+    std::scoped_lock lock(m_mutex);
+    const std::size_t capacityFrames = capacity();
+    const std::size_t acceptedFrames = std::min(incomingFrames, capacityFrames);
+    const std::size_t sourceOffsetFrames = incomingFrames - acceptedFrames;
+    const std::size_t overflowFrames = m_sizeFrames + acceptedFrames > capacityFrames
+                                           ? m_sizeFrames + acceptedFrames - capacityFrames
+                                           : 0;
+    m_readFrame = (m_readFrame + overflowFrames) % capacityFrames;
+    m_sizeFrames -= overflowFrames;
+    const std::size_t writeFrame = (m_readFrame + m_sizeFrames) % capacityFrames;
+    for (std::size_t frame = 0; frame < acceptedFrames; ++frame) {
+        const std::size_t destination = ((writeFrame + frame) % capacityFrames) * 2U;
+        const std::size_t source = (sourceOffsetFrames + frame) * 2U;
+        m_storage[destination] = interleavedSamples[source];
+        m_storage[destination + 1U] = interleavedSamples[source + 1U];
+    }
+    m_sizeFrames += acceptedFrames;
+    m_totalProducedFrames += incomingFrames;
+    m_totalDroppedFrames += sourceOffsetFrames + overflowFrames;
+    return {.acceptedSamples = acceptedFrames, .droppedSamples = sourceOffsetFrames + overflowFrames};
+}
+
+std::vector<float> StereoAudioSampleBuffer::take(std::size_t maximumFrames)
+{
+    std::scoped_lock lock(m_mutex);
+    const std::size_t frames = std::min(maximumFrames, m_sizeFrames);
+    std::vector<float> result(frames * 2U);
+    const std::size_t capacityFrames = capacity();
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const std::size_t source = ((m_readFrame + frame) % capacityFrames) * 2U;
+        result[frame * 2U] = m_storage[source];
+        result[frame * 2U + 1U] = m_storage[source + 1U];
+    }
+    m_readFrame = (m_readFrame + frames) % capacityFrames;
+    m_sizeFrames -= frames;
+    return result;
+}
+
+void StereoAudioSampleBuffer::clear()
+{
+    std::scoped_lock lock(m_mutex);
+    m_readFrame = 0;
+    m_sizeFrames = 0;
+}
+
+std::size_t StereoAudioSampleBuffer::size() const
+{
+    std::scoped_lock lock(m_mutex);
+    return m_sizeFrames;
+}
+
+std::size_t StereoAudioSampleBuffer::capacity() const noexcept { return m_storage.size() / 2U; }
+std::uint64_t StereoAudioSampleBuffer::totalProducedFrames() const
+{
+    std::scoped_lock lock(m_mutex);
+    return m_totalProducedFrames;
+}
+std::uint64_t StereoAudioSampleBuffer::totalDroppedFrames() const
+{
+    std::scoped_lock lock(m_mutex);
+    return m_totalDroppedFrames;
+}
+
 std::size_t AudioSampleBuffer::size() const
 {
     std::scoped_lock lock(m_mutex);

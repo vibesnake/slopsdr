@@ -45,6 +45,7 @@ struct ReceiverRuntimeSnapshot {
     radio::ReceiverCapabilities receiverCapabilities;
     radio::ReceiverSourceCapabilities receiverSourceCapabilities;
     radio::RecordingTransportState recordingTransport;
+    bool recordedIqMetadataRequired = false;
     bool squelchOpen = false;
     quint64 effectiveSampleRate = 0;
     quint64 tuningGeneration = 0;
@@ -130,6 +131,8 @@ public:
             std::unique_ptr<devices::DeviceController>)>;
     using RecordedBackendFactory = std::function<
         std::unique_ptr<radio::ReceiverBackend>(radio::RecordedIqSourceConfiguration)>;
+    using RecordedAudioBackendFactory = std::function<
+        std::unique_ptr<radio::ReceiverBackend>(const std::string&)>;
     using AudioOutputServiceFactory =
         std::function<std::unique_ptr<platform::AudioOutputService>()>;
     using DsdFmeProcessServiceFactory =
@@ -142,6 +145,7 @@ public:
         DeviceProviderFactory createDeviceProvider;
         HardwareBackendFactory createHardwareBackend;
         RecordedBackendFactory createRecordedBackend;
+        RecordedAudioBackendFactory createRecordedAudioBackend;
         AudioOutputServiceFactory createAudioOutputService;
         DsdFmeProcessServiceFactory createDsdFmeProcessService;
         MonotonicClock monotonicClock;
@@ -177,6 +181,7 @@ public slots:
     void clearDeviceSelection();
     void selectRecordedIqSource(const QString& path, quint64 centerFrequency,
         quint64 sampleRate);
+    void loadRecording(const QString& path);
     void toggleRecordingPlayback();
     void stopRecordingPlayback();
     void restartRecordingPlayback();
@@ -259,6 +264,7 @@ signals:
     void clearDeviceSelectionRequested();
     void selectRecordedIqSourceRequested(const QString& path, quint64 centerFrequency,
         quint64 sampleRate);
+    void loadRecordingRequested(const QString& path);
     void toggleRecordingPlaybackRequested();
     void stopRecordingPlaybackRequested();
     void restartRecordingPlaybackRequested();

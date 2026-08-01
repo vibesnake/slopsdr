@@ -8,6 +8,7 @@
 
 #if SDR_RECEIVER_ENABLE_GNURADIO && SDR_RECEIVER_ENABLE_SOAPYSDR
 #include "GnuRadioReceiverBackend.hpp"
+#include "RecordedAudioBackend.hpp"
 #include "SoapyDeviceProvider.hpp"
 
 #include <SoapySDR/Modules.hpp>
@@ -204,6 +205,11 @@ int main(int argc, char* argv[])
                                          sdr::radio::RecordedIqSourceConfiguration source) {
         return std::make_unique<sdr::dsp::GnuRadioReceiverBackend>(
             std::move(source), spectrumConfiguration, verboseDspMetrics);
+    };
+    factories.createRecordedAudioBackend = [spectrumConfiguration](
+                                                 const std::string& path) {
+        return std::make_unique<sdr::dsp::RecordedAudioBackend>(
+            std::filesystem::path(path), spectrumConfiguration);
     };
 #endif
     sdr::app::ReceiverRuntime runtime(

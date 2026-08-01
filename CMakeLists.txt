@@ -112,6 +112,8 @@ add_library(
     radio/DemodulatorRegistry.hpp
     radio/AudioSampleBuffer.cpp
     radio/AudioSampleBuffer.hpp
+    radio/RecordedAudioSource.cpp
+    radio/RecordedAudioSource.hpp
     radio/MockReceiverBackend.cpp
     radio/MockReceiverBackend.hpp
     radio/ReceiverBackend.hpp
@@ -220,6 +222,8 @@ if(ENABLE_GNURADIO)
         dsp/FlowgraphLifecycle.hpp
         dsp/GnuRadioReceiverBackend.cpp
         dsp/GnuRadioReceiverBackend.hpp
+        dsp/RecordedAudioBackend.cpp
+        dsp/RecordedAudioBackend.hpp
         dsp/WidebandIqSources.cpp
         dsp/WidebandIqSources.hpp
     )

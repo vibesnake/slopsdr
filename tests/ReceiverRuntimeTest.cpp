@@ -760,6 +760,7 @@ sdr::app::ReceiverRuntime::Factories factoriesFor(
             return std::make_unique<TrackingBackend>(trace);
         },
         .createRecordedBackend = {},
+        .createRecordedAudioBackend = {},
         .createAudioOutputService = [trace] {
             trace->audioServiceThreadToken = reinterpret_cast<quintptr>(
                 QThread::currentThreadId());

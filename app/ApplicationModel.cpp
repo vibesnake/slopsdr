@@ -1467,7 +1467,7 @@ QString ApplicationModel::scanValidationError() const
 
 bool ApplicationModel::scanCanStart() const noexcept
 {
-    return !recordedIqSource() && !m_bookmarkScanSession && !scannerOwnsTuning() && receiverRunning() &&
+    return m_receiverSourceCapabilities.scannerSupported && !m_bookmarkScanSession && !scannerOwnsTuning() && receiverRunning() &&
            m_scanValidationError.isEmpty();
 }
 
@@ -1496,7 +1496,7 @@ bool ApplicationModel::scanCanStop() const noexcept
 
 bool ApplicationModel::bookmarkScanCanStart() const
 {
-    return !recordedIqSource() && !scannerOwnsTuning() && receiverRunning() &&
+    return m_receiverSourceCapabilities.scannerSupported && !scannerOwnsTuning() && receiverRunning() &&
            bookmarkScanValidationError(m_bookmarkModel.scannerBookmarks()).isEmpty();
 }
 
@@ -1847,11 +1847,22 @@ bool ApplicationModel::recordedIqSource() const noexcept
     return m_receiverSourceCapabilities.kind == sdr::radio::ReceiverSourceKind::RecordedIq;
 }
 
+bool ApplicationModel::recordedAudioSource() const noexcept
+{
+    return m_receiverSourceCapabilities.kind == sdr::radio::ReceiverSourceKind::RecordedAudio;
+}
+
+bool ApplicationModel::rfControlsSupported() const noexcept
+{
+    return m_receiverSourceCapabilities.rfControlsSupported;
+}
+
 QString ApplicationModel::sourceDescription() const
 {
     return recordedIqSource() ? QStringLiteral("RECORDED IQ")
+                              : (recordedAudioSource() ? QStringLiteral("RECORDED AUDIO")
                               : (m_mockMode ? QStringLiteral("MOCK")
-                                            : QStringLiteral("HARDWARE"));
+                                            : QStringLiteral("HARDWARE")));
 }
 
 bool ApplicationModel::recordingLoaded() const noexcept
@@ -1860,6 +1871,8 @@ bool ApplicationModel::recordingPlaying() const noexcept
 { return m_recordingTransport.state == sdr::radio::RecordingPlaybackState::Playing; }
 bool ApplicationModel::recordingPaused() const noexcept
 { return m_recordingTransport.state == sdr::radio::RecordingPlaybackState::Paused; }
+bool ApplicationModel::recordedIqMetadataRequired() const noexcept
+{ return m_recordedIqMetadataRequired; }
 QString ApplicationModel::recordingTransportText() const
 {
     if (!recordingLoaded()) return QStringLiteral("No recording loaded");
@@ -2005,7 +2018,7 @@ bool ApplicationModel::iqRecordingActive() const noexcept
 bool ApplicationModel::iqRecordingCanStart() const noexcept
 {
     return receiverRunning() && m_recordingsFolderValid && !m_iqRecordingActive &&
-           !recordedIqSource();
+           m_receiverSourceCapabilities.iqRecordingSupported;
 }
 
 QString ApplicationModel::iqRecordingElapsedText() const
@@ -2136,6 +2149,14 @@ void ApplicationModel::selectRecordedIqSource(const QUrl& fileUrl,
         return;
     }
     m_runtime->selectRecordedIqSource(fileUrl.toLocalFile(), centerFrequency, sampleRate);
+}
+void ApplicationModel::loadRecording(const QUrl& fileUrl)
+{
+    if (!m_runtime || !fileUrl.isLocalFile()) {
+        setStatusText(QStringLiteral("Select a local recording file"));
+        return;
+    }
+    m_runtime->loadRecording(fileUrl.toLocalFile());
 }
 void ApplicationModel::toggleRecordingPlayback() { if (m_runtime) m_runtime->toggleRecordingPlayback(); }
 void ApplicationModel::stopRecordingPlayback() { if (m_runtime) m_runtime->stopRecordingPlayback(); }
@@ -4000,6 +4021,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     const QString previousBackendDescription = m_backendDescription;
     const QString previousCapabilitySummary = m_deviceCapabilitySummary;
     const auto previousCapabilities = m_runtimeCapabilities;
+    const auto previousSourceCapabilities = m_receiverSourceCapabilities;
     const auto previousFrequencyRanges = m_deviceFrequencyRanges;
     const auto previousSampleRateRanges = m_deviceSampleRateRanges;
     const QStringList previousCaptureBandwidthOptions = m_captureBandwidthOptions;
@@ -4060,6 +4082,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_runtimeCapabilities = snapshot.receiverCapabilities;
     m_receiverSourceCapabilities = snapshot.receiverSourceCapabilities;
     m_recordingTransport = snapshot.recordingTransport;
+    m_recordedIqMetadataRequired = snapshot.recordedIqMetadataRequired;
     m_runtimeEffectiveSampleRate = snapshot.effectiveSampleRate == 0
                                       ? snapshot.receiverState.sampleRate
                                       : snapshot.effectiveSampleRate;
@@ -4270,6 +4293,12 @@ void ApplicationModel::applyRuntimeSnapshot(
     }
     emit recordingPlaybackChanged();
     if (previousCapabilitySummary != m_deviceCapabilitySummary ||
+        previousSourceCapabilities.rfControlsSupported !=
+            m_receiverSourceCapabilities.rfControlsSupported ||
+        previousSourceCapabilities.scannerSupported !=
+            m_receiverSourceCapabilities.scannerSupported ||
+        previousSourceCapabilities.iqRecordingSupported !=
+            m_receiverSourceCapabilities.iqRecordingSupported ||
         previousCapabilities.ppmCorrectionSupported !=
             m_runtimeCapabilities.ppmCorrectionSupported ||
         previousCapabilities.automaticPpmCalibrationSupported !=

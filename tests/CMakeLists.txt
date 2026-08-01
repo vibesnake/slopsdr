@@ -183,6 +183,11 @@ sdr_enable_warnings(receiver_domain_tests)
 
 add_test(NAME receiver_domain_tests COMMAND receiver_domain_tests)
 
+add_executable(recorded_audio_source_tests RecordedAudioSourceTest.cpp)
+target_link_libraries(recorded_audio_source_tests PRIVATE sdr_radio_domain Qt6::Test)
+sdr_enable_warnings(recorded_audio_source_tests)
+add_test(NAME recorded_audio_source_tests COMMAND recorded_audio_source_tests)
+
 add_executable(spectrum_data_path_tests SpectrumDataPathTest.cpp)
 target_link_libraries(
     spectrum_data_path_tests
@@ -264,6 +269,12 @@ sdr_enable_warnings(ppm_calibration_tests)
 add_test(NAME ppm_calibration_tests COMMAND ppm_calibration_tests)
 
 if(ENABLE_GNURADIO)
+    add_executable(recorded_audio_backend_tests RecordedAudioBackendTest.cpp)
+    target_link_libraries(recorded_audio_backend_tests PRIVATE sdr_gnuradio_backend Qt6::Test)
+    sdr_enable_warnings(recorded_audio_backend_tests)
+    add_test(NAME recorded_audio_backend_tests COMMAND recorded_audio_backend_tests)
+    set_tests_properties(recorded_audio_backend_tests PROPERTIES TIMEOUT 20)
+
     add_executable(gnuradio_smoke_test GnuRadioSmokeTest.cpp)
     target_link_libraries(
         gnuradio_smoke_test

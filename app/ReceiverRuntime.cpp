@@ -10,6 +10,7 @@
 #include "RtlSdrCapabilities.hpp"
 #include "SpectrumFramePacing.hpp"
 #include "WaterfallFrameDelivery.hpp"
+#include "RecordedAudioSource.hpp"
 
 #include <QLocale>
 #include <QElapsedTimer>
@@ -641,6 +642,13 @@ public slots:
     void selectRecordedIqSource(const QString& path, quint64 centerFrequency,
         quint64 sampleRate)
     {
+        // The manual metadata dialog is also reachable after a content probe.
+        // Keep WAVE detection content-based here so an audio file with a
+        // misleading extension never enters the raw-IQ path.
+        if (radio::RecordedAudioSource::hasWaveSignature(path.toStdString())) {
+            loadRecording(path);
+            return;
+        }
         if (m_backend && m_backend->state().running) {
             m_statusText = QStringLiteral("Stop reception before selecting a recorded IQ file");
             publishSnapshot(false);
@@ -660,17 +668,60 @@ public slots:
             static_cast<void>(backend->setSpectrumFramesPerSecond(m_targetSpectrumFramesPerSecond));
             m_backend = std::move(backend);
             m_recordedSourceSelected = true;
-            m_selectedCapabilities.reset();
-            m_selectedDeviceIdentifier.clear();
+            m_recordedIqMetadataRequired = false;
             m_deviceState = QStringLiteral("Recorded IQ file selected");
             m_backendDescription = QStringLiteral("GNU Radio recorded IQ playback");
             m_statusText = QStringLiteral("Recorded IQ selected; press Start to play");
             publishSnapshot(true);
         } catch (const std::exception& error) {
+            if (centerFrequency == 0 && sampleRate == 0 &&
+                QString::fromUtf8(error.what()).contains(QStringLiteral("metadata is missing"))) {
+                m_recordedIqMetadataRequired = true;
+                m_statusText = QStringLiteral("Recorded IQ metadata is missing; enter a center frequency and sample rate");
+                publishSnapshot(false);
+                return;
+            }
             m_statusText = QStringLiteral("Recorded IQ selection failed: %1")
                                .arg(QString::fromUtf8(error.what()));
             publishSnapshot(false);
         }
+    }
+
+    void loadRecording(const QString& path)
+    {
+        if (m_backend && m_backend->state().running) {
+            m_statusText = QStringLiteral("Stop reception before loading a recording");
+            publishSnapshot(false);
+            return;
+        }
+        if (radio::RecordedAudioSource::hasWaveSignature(path.toStdString())) {
+            if (!m_factories.createRecordedAudioBackend) {
+                m_statusText = QStringLiteral("Recorded audio playback is unavailable in this build");
+                publishSnapshot(false);
+                return;
+            }
+            try {
+                auto backend = m_factories.createRecordedAudioBackend(path.toStdString());
+                if (!backend) throw std::runtime_error("backend factory returned no backend");
+                static_cast<void>(backend->setSpectrumFftSize(m_spectrumFftSize));
+                static_cast<void>(backend->setSpectrumFramesPerSecond(m_targetSpectrumFramesPerSecond));
+                m_backend = std::move(backend);
+                m_recordedSourceSelected = true;
+                m_recordedIqMetadataRequired = false;
+                m_deviceState = QStringLiteral("Recorded audio file selected");
+                m_backendDescription = QStringLiteral("Recorded audio playback");
+                m_statusText = QStringLiteral("Recorded audio selected; press Play to start");
+                publishSnapshot(true);
+            } catch (const std::exception& error) {
+                m_statusText = QStringLiteral("Recorded audio selection failed: %1")
+                                   .arg(QString::fromUtf8(error.what()));
+                publishSnapshot(false);
+            }
+            return;
+        }
+        // Raw IQ remains content-agnostic.  The existing sidecar/manual flow
+        // supplies its required capture metadata after this selection attempt.
+        selectRecordedIqSource(path, 0, 0);
     }
 
     void toggleRecordingPlayback()
@@ -707,7 +758,10 @@ public slots:
         if (m_backend && m_backend->state().running) static_cast<void>(m_backend->stopReception());
         m_backend.reset();
         m_recordedSourceSelected = false;
-        m_deviceState = QStringLiteral("No recording loaded");
+        m_recordedIqMetadataRequired = false;
+        m_deviceState = m_selectedDeviceIdentifier.isEmpty()
+                            ? QStringLiteral("No recording loaded")
+                            : QStringLiteral("SDR device selected; it will open when Start is pressed");
         m_backendDescription = QStringLiteral("GNU Radio + SoapySDR hardware runtime");
         m_statusText = QStringLiteral("Recording ejected; select an SDR and press Start");
         publishSnapshot(true);
@@ -715,6 +769,14 @@ public slots:
 
     void startReception()
     {
+        if (m_recordedSourceSelected && !m_selectedDeviceIdentifier.isEmpty()) {
+            if (m_backend && m_backend->state().running) {
+                static_cast<void>(m_backend->stopReception());
+            }
+            m_backend.reset();
+            m_recordedSourceSelected = false;
+            m_recordedIqMetadataRequired = false;
+        }
         if (!m_backend && m_selectedDeviceIdentifier.isEmpty()) {
             m_statusText = QStringLiteral(
                 "Select a usable SDR device before starting reception");
@@ -2612,6 +2674,13 @@ private:
         }
         if (m_backend && !m_ppmCalibrationRunning) {
             serviceIqRecording();
+            if (auto playbackEnd = m_backend->takePlaybackEnd()) {
+                if (m_audioOutput) m_audioOutput->stop();
+                if (m_recording) m_recording->stop();
+                m_statusText = QString::fromStdString(*playbackEnd);
+                updateAudioDeviceRefreshTimer();
+                publishSnapshot(true);
+            }
             if (auto runtimeError = m_backend->takeRuntimeError()) {
                 if (m_audioOutput) {
                     m_audioOutput->stop();
@@ -2826,6 +2895,25 @@ private:
                 m_audioOutput->enqueueStereo(decoded);
             }
         } else if (m_audioOutput || m_recording) {
+            if (m_backend->sourceCapabilities().kind ==
+                radio::ReceiverSourceKind::RecordedAudio) {
+                const auto audio = m_backend->takeStereoAudioSamples(
+                    m_recording && m_recording->state().active
+                        ? maximumAudioTransferFrames
+                        : std::min(
+                              maximumAudioTransferFrames,
+                              m_audioOutput ? m_audioOutput->availableBufferCapacity()
+                                            : maximumAudioTransferFrames));
+                m_audioTransferredSamples += audio.size() / 2U;
+                if (m_recording) {
+                    // The post-source writer receives the bounded stereo
+                    // handoff. It remains safe and non-recursive because it
+                    // records playback audio, not its own output file.
+                    m_recording->enqueueStereo(audio, true);
+                    publishRecordingStateIfChanged();
+                }
+                if (m_audioOutput) m_audioOutput->enqueueStereo(audio);
+            } else {
             const auto audio = m_backend->takeAudioSamples(
                 m_recording && m_recording->state().active
                     ? maximumAudioTransferFrames
@@ -2841,6 +2929,7 @@ private:
             serviceScannerRecording(audio, m_backend->squelchOpen(), false);
             if (m_audioOutput) {
                 m_audioOutput->enqueueMono(audio);
+            }
             }
         }
         if (m_audioOutput) {
@@ -3276,6 +3365,7 @@ private:
             log(3, QStringLiteral("Receiver"), m_statusText);
         }
         ReceiverRuntimeSnapshot snapshot;
+        snapshot.recordedIqMetadataRequired = m_recordedIqMetadataRequired;
         if (m_backend) {
             snapshot.receiverState = m_backend->state();
             snapshot.receiverLimits = m_backend->limits();
@@ -3468,6 +3558,14 @@ private:
             snapshot.captureBandwidthOptions = {formatCaptureBandwidth(
                 snapshot.receiverState.sampleRate)};
         }
+        if (snapshot.receiverSourceCapabilities.kind == radio::ReceiverSourceKind::RecordedAudio) {
+            snapshot.deviceCapabilitySummary = QStringLiteral(
+                "Recorded audio · %1 Hz · RF controls unavailable")
+                .arg(snapshot.effectiveSampleRate);
+            snapshot.gainSupported = false;
+            snapshot.customCaptureBandwidthSupported = false;
+            snapshot.captureBandwidthOptions.clear();
+        }
         emit snapshotChanged(snapshot);
     }
 
@@ -3520,6 +3618,7 @@ private:
     ApplicationLogHandler m_applicationLogHandler;
     std::unique_ptr<radio::ReceiverBackend> m_backend;
     bool m_recordedSourceSelected = false;
+    bool m_recordedIqMetadataRequired = false;
     std::optional<bool> m_lastPublishedSquelchOpen;
     std::optional<bool> m_lastPublishedSquelchMeasurement;
     bool m_autoSquelchRunning = false;
@@ -3673,6 +3772,8 @@ ReceiverRuntime::ReceiverRuntime(
         m_worker,
         &Worker::selectRecordedIqSource,
         Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::loadRecordingRequested, m_worker,
+        &Worker::loadRecording, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::toggleRecordingPlaybackRequested, m_worker, &Worker::toggleRecordingPlayback, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::stopRecordingPlaybackRequested, m_worker, &Worker::stopRecordingPlayback, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::restartRecordingPlaybackRequested, m_worker, &Worker::restartRecordingPlayback, Qt::QueuedConnection);
@@ -4028,6 +4129,10 @@ void ReceiverRuntime::selectRecordedIqSource(const QString& path,
 {
     markPending(QStringLiteral("Validating recorded IQ file…"));
     emit selectRecordedIqSourceRequested(path, centerFrequency, sampleRate);
+}
+void ReceiverRuntime::loadRecording(const QString& path)
+{
+    emit loadRecordingRequested(path);
 }
 
 void ReceiverRuntime::toggleRecordingPlayback() { emit toggleRecordingPlaybackRequested(); }
