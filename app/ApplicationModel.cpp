@@ -4056,6 +4056,8 @@ void ApplicationModel::applyRuntimeSnapshot(
         m_ppmCalibrationProgressPercent;
     const quint64 previousPpmCalibrationDisplayResetGeneration =
         m_ppmCalibrationDisplayResetGeneration;
+    const quint64 previousRecordedPlaybackDisplayResetGeneration =
+        m_recordedPlaybackDisplayResetGeneration;
     const QStringList previousAudioIdentifiers = m_audioDeviceIdentifiers;
     const QStringList previousAudioDisplayNames = m_audioDeviceDisplayNames;
     const QString previousSelectedAudioIdentifier =
@@ -4134,6 +4136,8 @@ void ApplicationModel::applyRuntimeSnapshot(
         snapshot.ppmCalibrationProgressPercent;
     m_ppmCalibrationDisplayResetGeneration =
         snapshot.ppmCalibrationDisplayResetGeneration;
+    m_recordedPlaybackDisplayResetGeneration =
+        snapshot.recordedPlaybackDisplayResetGeneration;
     m_audioDeviceIdentifiers = snapshot.audioDeviceIdentifiers;
     m_audioDeviceDisplayNames = snapshot.audioDeviceDisplayNames;
     m_selectedAudioDeviceIdentifier = snapshot.selectedAudioDeviceIdentifier;
@@ -4341,6 +4345,11 @@ void ApplicationModel::applyRuntimeSnapshot(
     }
     if (previousPpmCalibrationDisplayResetGeneration !=
         m_ppmCalibrationDisplayResetGeneration) {
+        resetSpectrumFrame();
+        emit waterfallReset();
+    }
+    if (previousRecordedPlaybackDisplayResetGeneration !=
+        m_recordedPlaybackDisplayResetGeneration) {
         resetSpectrumFrame();
         emit waterfallReset();
     }

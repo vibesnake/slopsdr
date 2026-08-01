@@ -51,6 +51,11 @@ and lets `AudioOutputService` apply its existing volume/mute policy.
 The visualization downmix is `(left + right) / 2`; it does
 not alter speaker or recording channels. WAV playback cannot be treated as IQ,
 demodulated, squelched, scanned, or captured again as IQ.
+Its display keeps the persisted RF FFT request but caps the effective audio FFT
+at a supported size no larger than 4,096 bins or roughly one tenth of the file
+sample rate (with a 1,024-bin minimum). Overlapping windows use the requested
+display cadence and retain fractional sample hops, so audio spectrum and
+waterfall rows remain steady without changing the live SDR/IQ scheduler.
 
 ## Recording path
 

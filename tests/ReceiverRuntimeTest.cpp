@@ -3087,14 +3087,24 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
     QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
     QSignalSpy spectrumFrames(&model, &ApplicationModel::spectrumFrameReady);
     QSignalSpy waterfallFrames(&model, &ApplicationModel::waterfallFrameReady);
+    QSignalSpy waterfallResets(&model, &ApplicationModel::waterfallReset);
 
     runtime.start();
     QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    model.setSpectrumFftSize(65'536);
+    QVERIFY(waitUntil([&model] {
+        return model.spectrumFftSize() == 65'536 &&
+               model.effectiveSpectrumFftSize() == 65'536;
+    }));
     // The selected receiver has an FM-band-only range, deliberately excluding
     // the audio source's 0..24 kHz display geometry.
     QVERIFY(model.visibleLowerFrequency() >= 88'000'000U);
     model.loadRecording(QUrl::fromLocalFile(wavPath));
-    QVERIFY(waitUntil([&model] { return model.recordedAudioSource(); }));
+    QVERIFY(waitUntil([&model] {
+        return model.recordedAudioSource() &&
+               model.spectrumFftSize() == 65'536 &&
+               model.effectiveSpectrumFftSize() == 4'096;
+    }));
     QCOMPARE(model.visibleLowerFrequency(), 0U);
     QCOMPARE(model.visibleUpperFrequency(), 24'000U);
 
@@ -3104,8 +3114,8 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
                trace->audioPlaybackStarts > 0 &&
                trace->audioSinkWrittenBytes > 0 &&
                trace->audioSinkNonzeroBytes > 0 &&
-               spectrumFrames.count() > 0 && waterfallFrames.count() > 0;
-    }));
+               spectrumFrames.count() >= 5 && waterfallFrames.count() >= 3;
+    }, 1'500));
     QVERIFY(waitUntil([&snapshots] {
         return !snapshots.empty() &&
                latestSnapshot(snapshots).recordingTransport.positionSamples > 0;
@@ -3116,15 +3126,25 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
     QVERIFY(waitUntil([&model] {
         return !model.receiverRunning() && !model.audioRunning();
     }));
+    const auto resetsAfterStop = waterfallResets.count();
     model.restartRecordingPlayback();
     QVERIFY(waitUntil([&model, &trace, firstPlaybackStarts] {
         return model.receiverRunning() && model.audioRunning() &&
                trace->audioPlaybackStarts > firstPlaybackStarts;
     }));
+    QVERIFY(waitUntil([&waterfallResets, resetsAfterStop] {
+        return waterfallResets.count() > resetsAfterStop;
+    }));
     model.ejectRecording();
     QVERIFY(waitUntil([&model] {
         return !model.recordingLoaded() && !model.receiverRunning() &&
                !model.audioRunning() && model.selectedDeviceIndex() == 0;
+    }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] {
+        return model.receiverRunning() &&
+               model.spectrumFftSize() == 65'536 &&
+               model.effectiveSpectrumFftSize() == 65'536;
     }));
     runtime.shutdown();
 }

@@ -88,6 +88,7 @@ struct ReceiverRuntimeSnapshot {
     QString ppmCalibrationStatus = QStringLiteral("idle");
     int ppmCalibrationProgressPercent = 0;
     quint64 ppmCalibrationDisplayResetGeneration = 0;
+    quint64 recordedPlaybackDisplayResetGeneration = 0;
     bool operationSucceeded = true;
     int audioVolumePercent = 75;
     bool audioMuted = false;

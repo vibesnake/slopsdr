@@ -25,6 +25,66 @@ namespace {
 
 constexpr std::size_t readFrames = 480;
 constexpr std::size_t audioFrameCapacity = radio::receiverAudioSampleRate / 20;
+constexpr std::size_t maximumAudioVisualizationFftSize = 4'096;
+
+[[nodiscard]] std::size_t effectiveAudioVisualizationFftSize(
+    std::uint64_t sampleRate, std::size_t requestedFftSize) noexcept
+{
+    const std::size_t boundedByWindow = static_cast<std::size_t>(
+        std::max<std::uint64_t>(supportedSpectrumFftSizes.front(), sampleRate / 10U));
+    const std::size_t maximum = std::min(
+        {requestedFftSize, maximumAudioVisualizationFftSize, boundedByWindow});
+    auto selected = supportedSpectrumFftSizes.front();
+    for (const auto size : supportedSpectrumFftSizes) {
+        if (size > maximum) break;
+        selected = size;
+    }
+    return selected;
+}
+
+// Audio files deliver individual samples rather than the live backend's FFT
+// vectors.  Keep the fractional remainder here so non-integral source-rate /
+// display-rate ratios neither drift nor turn into periodic long waterfall rows.
+class AudioVisualizationHopScheduler final
+{
+public:
+    AudioVisualizationHopScheduler(
+        std::uint64_t sampleRate, std::uint32_t targetFramesPerSecond)
+        : m_sampleRate(sampleRate)
+        , m_targetFramesPerSecond(targetFramesPerSecond)
+        , m_integralHop(targetFramesPerSecond == 0 ? 0 : sampleRate / targetFramesPerSecond)
+        , m_remainder(targetFramesPerSecond == 0 ? 0 : sampleRate % targetFramesPerSecond)
+    {
+    }
+
+    [[nodiscard]] std::size_t nextHopSize() noexcept
+    {
+        if (m_targetFramesPerSecond == 0) return 1;
+        std::uint64_t hop = m_integralHop;
+        m_fractionalRemainder += m_remainder;
+        if (m_fractionalRemainder >= m_targetFramesPerSecond) {
+            m_fractionalRemainder -= m_targetFramesPerSecond;
+            ++hop;
+        }
+        return static_cast<std::size_t>(std::max<std::uint64_t>(1, hop));
+    }
+
+    void reset() noexcept { m_fractionalRemainder = 0; }
+
+    [[nodiscard]] double nominalHopSize() const noexcept
+    {
+        if (m_targetFramesPerSecond == 0) return 0.0;
+        return static_cast<double>(m_sampleRate) /
+               static_cast<double>(m_targetFramesPerSecond);
+    }
+
+private:
+    std::uint64_t m_sampleRate;
+    std::uint32_t m_targetFramesPerSecond;
+    std::uint64_t m_integralHop;
+    std::uint64_t m_remainder;
+    std::uint64_t m_fractionalRemainder = 0;
+};
 
 [[nodiscard]] radio::OperationResult unavailable(const char* control)
 {
@@ -86,7 +146,10 @@ public:
         , audio(std::make_shared<radio::StereoAudioSampleBuffer>(audioFrameCapacity))
         , frames(std::make_shared<radio::SpectrumFrameQueue>(64))
         , counters(std::make_shared<SpectrumProcessingCounters>())
+        , requestedFftSize(requestedConfiguration.fftSize)
         , configuration(requestedConfiguration)
+        , visualizationHop(source.metadata().sampleRate,
+              requestedConfiguration.targetFramesPerSecond)
     {
         if (!validConfiguration(requestedConfiguration)) {
             throw std::invalid_argument("Recorded audio spectrum configuration is invalid");
@@ -94,6 +157,8 @@ public:
         static_cast<void>(model.setSampleRate(displaySampleRate));
         static_cast<void>(model.setCenterFrequency(displaySampleRate / 2U));
         static_cast<void>(model.setListeningFrequency(displaySampleRate / 2U));
+        configuration.fftSize = effectiveAudioVisualizationFftSize(
+            source.metadata().sampleRate, requestedFftSize);
         createProcessor();
     }
 
@@ -105,7 +170,15 @@ public:
         processor = std::make_shared<FftFrameProcessor>(frames, counters,
             configuration.fftSize, coherentGain(window),
             configuration.minimumDbfs, configuration.maximumDbfs);
+        resetVisualization();
+    }
+
+    void resetVisualization() noexcept
+    {
         visualization.clear();
+        visualizationWindowReady = false;
+        visualizationNextHop = 0;
+        visualizationHop.reset();
     }
 
     void start()
@@ -121,7 +194,10 @@ public:
         frames->clear();
         {
             std::scoped_lock lock(visualizationMutex);
-            visualization.clear();
+            resetVisualization();
+            if (visualizationTimestampOriginNanoseconds == 0) {
+                visualizationTimestampOriginNanoseconds = monotonicNanoseconds();
+            }
         }
         readerRunning = true;
         resampleInput.clear();
@@ -136,6 +212,8 @@ public:
         if (reader.joinable()) reader.join();
         audio->clear();
         frames->clear();
+        std::scoped_lock lock(visualizationMutex);
+        resetVisualization();
     }
 
     void readerLoop() noexcept
@@ -189,8 +267,25 @@ public:
     {
         std::scoped_lock lock(visualizationMutex);
         visualization.push_back(std::isfinite(sample) ? std::clamp(sample, -1.0F, 1.0F) : 0.0F);
+        ++visualizationSamplesProcessed;
         counters->inputSamples.fetch_add(1, std::memory_order_relaxed);
-        if (visualization.size() < configuration.fftSize) return;
+        if (!visualizationWindowReady) {
+            if (visualization.size() < configuration.fftSize) return;
+            visualizationWindowReady = true;
+            publishVisualizationFrame();
+            visualizationNextHop = visualizationHop.nextHopSize();
+            return;
+        }
+        if (visualization.size() < configuration.fftSize + visualizationNextHop) return;
+        visualization.erase(
+            visualization.begin(),
+            visualization.begin() + static_cast<std::ptrdiff_t>(visualizationNextHop));
+        publishVisualizationFrame();
+        visualizationNextHop = visualizationHop.nextHopSize();
+    }
+
+    void publishVisualizationFrame()
+    {
         std::vector<std::complex<float>> bins(configuration.fftSize);
         for (std::size_t index = 0; index < bins.size(); ++index) {
             bins[index] = {visualization[index] * window[index], 0.0F};
@@ -212,14 +307,14 @@ public:
             const float second = std::abs(bins[upper]);
             magnitudes[index] = first + (second - first) * fraction;
         }
+        const auto elapsedNanoseconds = static_cast<std::uint64_t>(
+            static_cast<long double>(visualizationSamplesProcessed) *
+            1'000'000'000.0L /
+            static_cast<long double>(source.metadata().sampleRate));
         static_cast<void>(processor->submitMagnitudeFrame(magnitudes,
-            displaySampleRate / 2U, displaySampleRate, monotonicNanoseconds()));
+            displaySampleRate / 2U, displaySampleRate,
+            visualizationTimestampOriginNanoseconds + elapsedNanoseconds));
         counters->vectorsReceived.fetch_add(1, std::memory_order_relaxed);
-        const SpectrumWindowHopScheduler hop(source.metadata().sampleRate,
-            configuration.fftSize, configuration.targetFramesPerSecond);
-        const std::size_t discard = static_cast<std::size_t>(hop.nominalHopSize());
-        visualization.erase(visualization.begin(), visualization.begin() +
-            static_cast<std::ptrdiff_t>(std::min(discard, visualization.size())));
     }
 
     [[nodiscard]] std::vector<float> resampleForOutput(
@@ -261,10 +356,16 @@ public:
     std::shared_ptr<radio::StereoAudioSampleBuffer> audio;
     std::shared_ptr<radio::SpectrumFrameQueue> frames;
     std::shared_ptr<SpectrumProcessingCounters> counters;
+    std::size_t requestedFftSize;
     SpectrumDisplayConfiguration configuration;
+    AudioVisualizationHopScheduler visualizationHop;
     std::shared_ptr<FftFrameProcessor> processor;
     std::vector<float> window;
     std::vector<float> visualization;
+    bool visualizationWindowReady = false;
+    std::size_t visualizationNextHop = 0;
+    std::uint64_t visualizationSamplesProcessed = 0;
+    std::uint64_t visualizationTimestampOriginNanoseconds = 0;
     std::vector<float> resampleInput;
     double resamplePosition = 0.0;
     mutable std::mutex visualizationMutex;
@@ -314,6 +415,11 @@ std::optional<std::string> RecordedAudioBackend::takePlaybackEnd()
     if (!m_impl->reachedEnd || m_impl->endReported.exchange(true)) return std::nullopt;
     m_impl->endedPosition = m_impl->source.positionFrames();
     static_cast<void>(m_impl->source.stop());
+    {
+        std::scoped_lock lock(m_impl->visualizationMutex);
+        m_impl->resetVisualization();
+    }
+    m_impl->frames->clear();
     if (m_impl->model.state().running) static_cast<void>(m_impl->model.stopReception());
     return std::string("Recorded audio playback reached end of file");
 }
@@ -345,7 +451,9 @@ radio::SpectrumProcessingMetrics RecordedAudioBackend::spectrumProcessingMetrics
 {
     const auto fftCount = m_impl->counters->fftsExecuted.load(std::memory_order_relaxed);
     const auto sourceRate = m_impl->source.metadata().sampleRate;
-    const SpectrumWindowHopScheduler scheduler(sourceRate, m_impl->configuration.fftSize, m_impl->configuration.targetFramesPerSecond);
+    const AudioVisualizationHopScheduler scheduler(
+        sourceRate, m_impl->configuration.targetFramesPerSecond);
+    const double nominalHop = scheduler.nominalHopSize();
     return {.inputSamples = m_impl->counters->inputSamples.load(std::memory_order_relaxed),
             .vectorsReceived = m_impl->counters->vectorsReceived.load(std::memory_order_relaxed),
             .fftsExecuted = fftCount,
@@ -353,27 +461,41 @@ radio::SpectrumProcessingMetrics RecordedAudioBackend::spectrumProcessingMetrics
             .framesDropped = m_impl->frames->droppedFrameCount(),
             .fftSize = m_impl->configuration.fftSize,
             .queueDepth = m_impl->frames->size(),
-            .effectiveSampleRate = static_cast<double>(sourceRate),
+            .effectiveSampleRate = static_cast<double>(m_impl->displaySampleRate),
             .availableVectorsPerSecond = static_cast<double>(sourceRate) /
                                        static_cast<double>(m_impl->configuration.fftSize),
             .targetFramesPerSecond = static_cast<double>(m_impl->configuration.targetFramesPerSecond),
-            .achievableFramesPerSecond = scheduler.achievableFramesPerSecond(),
-            .hertzPerBin = static_cast<double>(sourceRate) /
+            .achievableFramesPerSecond = static_cast<double>(m_impl->configuration.targetFramesPerSecond),
+            .hertzPerBin = static_cast<double>(m_impl->displaySampleRate) /
                             static_cast<double>(m_impl->configuration.fftSize),
-            .hopSize = scheduler.nominalHopSize(),
-            .overlapPercentage = scheduler.overlapPercentage()};
+            .hopSize = nominalHop,
+            .overlapPercentage = 100.0 * std::max(
+                0.0, 1.0 - nominalHop /
+                    static_cast<double>(m_impl->configuration.fftSize))};
 }
 std::size_t RecordedAudioBackend::spectrumFftSize() const noexcept { return m_impl->configuration.fftSize; }
-std::size_t RecordedAudioBackend::requestedSpectrumFftSize() const noexcept { return spectrumFftSize(); }
+std::size_t RecordedAudioBackend::requestedSpectrumFftSize() const noexcept { return m_impl->requestedFftSize; }
 radio::OperationResult RecordedAudioBackend::setSpectrumFftSize(std::size_t fftSize)
 {
     if (!isSupportedSpectrumFftSize(fftSize)) return {radio::ReceiverError::BackendFailure, false, false, "Unsupported recorded audio spectrum FFT size"};
-    if (fftSize == m_impl->configuration.fftSize) return {};
     std::scoped_lock lock(m_impl->visualizationMutex);
-    m_impl->configuration.fftSize = fftSize;
-    m_impl->createProcessor();
+    if (fftSize == m_impl->requestedFftSize) return {};
+    const auto effectiveFftSize = effectiveAudioVisualizationFftSize(
+        m_impl->source.metadata().sampleRate, fftSize);
+    const bool effectiveSizeChanged =
+        effectiveFftSize != m_impl->configuration.fftSize;
+    m_impl->requestedFftSize = fftSize;
+    if (effectiveSizeChanged) {
+        m_impl->configuration.fftSize = effectiveFftSize;
+        m_impl->createProcessor();
+    } else {
+        m_impl->resetVisualization();
+    }
     m_impl->frames->clear();
-    return {radio::ReceiverError::None, true, false, "Recorded audio spectrum FFT size updated"};
+    return {radio::ReceiverError::None, true, effectiveFftSize != fftSize,
+            effectiveFftSize == fftSize
+                ? "Recorded audio spectrum FFT size updated"
+                : "Recorded audio spectrum FFT size capped for smooth playback"};
 }
 std::uint32_t RecordedAudioBackend::spectrumFramesPerSecond() const noexcept { return m_impl->configuration.targetFramesPerSecond; }
 radio::OperationResult RecordedAudioBackend::setSpectrumFramesPerSecond(std::uint32_t frames)
@@ -382,7 +504,10 @@ radio::OperationResult RecordedAudioBackend::setSpectrumFramesPerSecond(std::uin
     if (frames == m_impl->configuration.targetFramesPerSecond) return {};
     std::scoped_lock lock(m_impl->visualizationMutex);
     m_impl->configuration.targetFramesPerSecond = frames;
-    m_impl->visualization.clear();
+    m_impl->visualizationHop = AudioVisualizationHopScheduler(
+        m_impl->source.metadata().sampleRate, frames);
+    m_impl->resetVisualization();
+    m_impl->frames->clear();
     return {radio::ReceiverError::None, true, false, "Recorded audio spectrum cadence updated"};
 }
 std::vector<float> RecordedAudioBackend::takeStereoAudioSamples(std::size_t maximumFrames) { return m_impl->audio->take(maximumFrames); }

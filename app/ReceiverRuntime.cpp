@@ -763,6 +763,7 @@ public slots:
         const auto result = m_backend->restartPlayback();
         if (result.succeeded() && m_backend->state().running) {
             activateBackendServices();
+            ++m_recordedPlaybackDisplayResetGeneration;
         }
         m_statusText = QString::fromStdString(result.message);
         appendAudioStartFailure();
@@ -3571,6 +3572,8 @@ private:
             m_ppmCalibrationProgressPercent;
         snapshot.ppmCalibrationDisplayResetGeneration =
             m_ppmCalibrationDisplayResetGeneration;
+        snapshot.recordedPlaybackDisplayResetGeneration =
+            m_recordedPlaybackDisplayResetGeneration;
         snapshot.operationSucceeded = operationSucceeded;
         snapshot.workerThreadToken = reinterpret_cast<quintptr>(
             QThread::currentThreadId());
@@ -3781,6 +3784,7 @@ private:
     QString m_ppmCalibrationStatus = QStringLiteral("idle");
     int m_ppmCalibrationProgressPercent = 0;
     quint64 m_ppmCalibrationDisplayResetGeneration = 0;
+    quint64 m_recordedPlaybackDisplayResetGeneration = 0;
 };
 
 ReceiverRuntime::ReceiverRuntime(

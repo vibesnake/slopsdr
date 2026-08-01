@@ -890,6 +890,7 @@ private:
     QString m_ppmCalibrationStatus = QStringLiteral("idle");
     int m_ppmCalibrationProgressPercent = 0;
     quint64 m_ppmCalibrationDisplayResetGeneration = 0;
+    quint64 m_recordedPlaybackDisplayResetGeneration = 0;
     int m_audioVolumePercent = 75;
     bool m_audioMuted = false;
     bool m_audioReady = false;
