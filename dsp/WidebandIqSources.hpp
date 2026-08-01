@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <fstream>
+#include <atomic>
 #include <memory>
 
 namespace sdr::devices {
@@ -75,6 +76,10 @@ public:
         std::chrono::milliseconds timeout) override;
 
     [[nodiscard]] std::uint64_t sampleCount() const noexcept;
+    [[nodiscard]] std::uint64_t positionSamples() const noexcept;
+    [[nodiscard]] bool paused() const noexcept;
+    [[nodiscard]] bool ended() const noexcept;
+    void setPaused(bool paused) noexcept;
 
 private:
     radio::RecordedIqSourceConfiguration m_configuration;
@@ -83,7 +88,10 @@ private:
     std::uint64_t m_samplesRead = 0;
     std::ifstream m_file;
     std::chrono::steady_clock::time_point m_nextDeadline;
-    bool m_running = false;
+    std::atomic_bool m_running = false;
+    std::atomic_bool m_paused = false;
+    std::atomic_bool m_resumeNeedsDeadline = false;
+    std::atomic_bool m_ended = false;
 };
 
 }  // namespace sdr::dsp

@@ -266,6 +266,8 @@ radio::WidebandIqSourceOperationResult RecordedIqSource::start()
     if (!m_file) return {false, false, "Recorded IQ file cannot be opened for playback"};
     m_samplesRead = 0;
     m_nextDeadline = std::chrono::steady_clock::now();
+    m_paused = false;
+    m_ended = false;
     m_running = true;
     return {true, true, "Recorded IQ playback started"};
 }
@@ -274,6 +276,7 @@ radio::WidebandIqSourceOperationResult RecordedIqSource::stop()
 {
     if (!m_running) return {true, false, "Recorded IQ playback is already stopped"};
     m_running = false;
+    m_paused = false;
     m_file.close();
     return {true, true, "Recorded IQ playback stopped"};
 }
@@ -283,8 +286,18 @@ radio::WidebandIqReadResult RecordedIqSource::read(
 {
     static_cast<void>(timeout);
     if (!m_running) return {radio::WidebandIqReadStatus::Stopped, 0, "Recorded IQ playback is stopped"};
+    if (m_paused) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return {radio::WidebandIqReadStatus::Timeout, 0, {}};
+    }
+    if (m_resumeNeedsDeadline.exchange(false)) {
+        m_nextDeadline = std::chrono::steady_clock::now();
+    }
     if (samples.empty()) return {radio::WidebandIqReadStatus::Failed, 0, "Recorded IQ source received an empty buffer"};
-    if (m_samplesRead == m_sampleCount) return {radio::WidebandIqReadStatus::EndOfFile, 0, "Recorded IQ playback reached end of file"};
+    if (m_samplesRead == m_sampleCount) {
+        m_ended = true;
+        return {radio::WidebandIqReadStatus::EndOfFile, 0, "Recorded IQ playback reached end of file"};
+    }
     const auto now = std::chrono::steady_clock::now();
     if (m_nextDeadline > now) std::this_thread::sleep_until(m_nextDeadline);
     const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(samples.size(), m_sampleCount - m_samplesRead));
@@ -308,6 +321,15 @@ radio::WidebandIqReadResult RecordedIqSource::read(
         std::chrono::duration<double>(static_cast<double>(count) /
             static_cast<double>(m_metadata.effectiveSampleRate)));
     return {radio::WidebandIqReadStatus::Samples, count, {}};
+}
+
+std::uint64_t RecordedIqSource::positionSamples() const noexcept { return m_samplesRead; }
+bool RecordedIqSource::paused() const noexcept { return m_paused; }
+bool RecordedIqSource::ended() const noexcept { return m_ended; }
+void RecordedIqSource::setPaused(bool paused) noexcept
+{
+    const bool wasPaused = m_paused.exchange(paused);
+    if (wasPaused && !paused) m_resumeNeedsDeadline = true;
 }
 
 }  // namespace sdr::dsp

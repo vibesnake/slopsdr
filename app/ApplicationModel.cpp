@@ -1854,6 +1854,22 @@ QString ApplicationModel::sourceDescription() const
                                             : QStringLiteral("HARDWARE"));
 }
 
+bool ApplicationModel::recordingLoaded() const noexcept
+{ return m_recordingTransport.state != sdr::radio::RecordingPlaybackState::Unloaded; }
+bool ApplicationModel::recordingPlaying() const noexcept
+{ return m_recordingTransport.state == sdr::radio::RecordingPlaybackState::Playing; }
+bool ApplicationModel::recordingPaused() const noexcept
+{ return m_recordingTransport.state == sdr::radio::RecordingPlaybackState::Paused; }
+QString ApplicationModel::recordingTransportText() const
+{
+    if (!recordingLoaded()) return QStringLiteral("No recording loaded");
+    const auto format = [](quint64 seconds) { return QStringLiteral("%1:%2").arg(seconds / 60U).arg(seconds % 60U, 2, 10, QLatin1Char('0')); };
+    const auto rate = m_recordingTransport.sampleRate;
+    const auto elapsed = rate == 0 ? 0 : m_recordingTransport.positionSamples / rate;
+    const auto total = rate == 0 ? 0 : m_recordingTransport.totalSamples / rate;
+    return QString::fromStdString(m_recordingTransport.displayName) + QStringLiteral(" · %1 / %2").arg(format(elapsed), format(total));
+}
+
 bool ApplicationModel::verboseDiagnosticsEnabled() const noexcept
 {
     return m_verboseDiagnostics;
@@ -2121,6 +2137,10 @@ void ApplicationModel::selectRecordedIqSource(const QUrl& fileUrl,
     }
     m_runtime->selectRecordedIqSource(fileUrl.toLocalFile(), centerFrequency, sampleRate);
 }
+void ApplicationModel::toggleRecordingPlayback() { if (m_runtime) m_runtime->toggleRecordingPlayback(); }
+void ApplicationModel::stopRecordingPlayback() { if (m_runtime) m_runtime->stopRecordingPlayback(); }
+void ApplicationModel::restartRecordingPlayback() { if (m_runtime) m_runtime->restartRecordingPlayback(); }
+void ApplicationModel::ejectRecording() { if (m_runtime) m_runtime->ejectRecording(); }
 
 void ApplicationModel::selectAudioDeviceIndex(int index)
 {
@@ -4039,6 +4059,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_runtimeLimits = snapshot.receiverLimits;
     m_runtimeCapabilities = snapshot.receiverCapabilities;
     m_receiverSourceCapabilities = snapshot.receiverSourceCapabilities;
+    m_recordingTransport = snapshot.recordingTransport;
     m_runtimeEffectiveSampleRate = snapshot.effectiveSampleRate == 0
                                       ? snapshot.receiverState.sampleRate
                                       : snapshot.effectiveSampleRate;
@@ -4247,6 +4268,7 @@ void ApplicationModel::applyRuntimeSnapshot(
         previousMockMode != m_mockMode) {
         emit deviceStateChanged();
     }
+    emit recordingPlaybackChanged();
     if (previousCapabilitySummary != m_deviceCapabilitySummary ||
         previousCapabilities.ppmCorrectionSupported !=
             m_runtimeCapabilities.ppmCorrectionSupported ||

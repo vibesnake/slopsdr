@@ -162,6 +162,11 @@ center and sample rate are fixed, while listening-frequency tuning remains
 available inside the recorded passband. Pause, seek, loop, multi-file sessions,
 scanner playback, and playback IQ re-recording are not available yet.
 
+The compact transport stays visible beside receiver start/stop controls. Load a
+recording, then use restart, play/pause, stop/rewind, and eject; elapsed time is
+derived from consumed samples. Eject returns to the selected hardware source
+without starting it.
+
 ## Development and testing
 
 Use the separate release-oriented maintainer build when compiling and running

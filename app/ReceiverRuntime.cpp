@@ -673,6 +673,46 @@ public slots:
         }
     }
 
+    void toggleRecordingPlayback()
+    {
+        if (!m_backend || !m_recordedSourceSelected) return;
+        const auto state = m_backend->recordingTransport();
+        radio::OperationResult result;
+        if (state.state == radio::RecordingPlaybackState::Playing) result = m_backend->setPlaybackPaused(true);
+        else if (state.state == radio::RecordingPlaybackState::Paused) result = m_backend->setPlaybackPaused(false);
+        else result = m_backend->restartPlayback();
+        m_statusText = QString::fromStdString(result.message);
+        publishSnapshot(result.succeeded());
+    }
+
+    void stopRecordingPlayback()
+    {
+        if (!m_backend || !m_recordedSourceSelected) return;
+        if (m_backend->state().running) static_cast<void>(m_backend->stopReception());
+        m_statusText = QStringLiteral("Recorded playback stopped and rewound");
+        publishSnapshot(true);
+    }
+
+    void restartRecordingPlayback()
+    {
+        if (!m_backend || !m_recordedSourceSelected) return;
+        const auto result = m_backend->restartPlayback();
+        m_statusText = QString::fromStdString(result.message);
+        publishSnapshot(result.succeeded());
+    }
+
+    void ejectRecording()
+    {
+        if (!m_recordedSourceSelected) return;
+        if (m_backend && m_backend->state().running) static_cast<void>(m_backend->stopReception());
+        m_backend.reset();
+        m_recordedSourceSelected = false;
+        m_deviceState = QStringLiteral("No recording loaded");
+        m_backendDescription = QStringLiteral("GNU Radio + SoapySDR hardware runtime");
+        m_statusText = QStringLiteral("Recording ejected; select an SDR and press Start");
+        publishSnapshot(true);
+    }
+
     void startReception()
     {
         if (!m_backend && m_selectedDeviceIdentifier.isEmpty()) {
@@ -3241,6 +3281,7 @@ private:
             snapshot.receiverLimits = m_backend->limits();
             snapshot.receiverCapabilities = m_backend->capabilities();
             snapshot.receiverSourceCapabilities = m_backend->sourceCapabilities();
+            snapshot.recordingTransport = m_backend->recordingTransport();
             snapshot.squelchOpen = m_backend->squelchOpen();
             snapshot.squelchMeasurementAvailable =
                 [this] {
@@ -3632,6 +3673,10 @@ ReceiverRuntime::ReceiverRuntime(
         m_worker,
         &Worker::selectRecordedIqSource,
         Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::toggleRecordingPlaybackRequested, m_worker, &Worker::toggleRecordingPlayback, Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::stopRecordingPlaybackRequested, m_worker, &Worker::stopRecordingPlayback, Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::restartRecordingPlaybackRequested, m_worker, &Worker::restartRecordingPlayback, Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::ejectRecordingRequested, m_worker, &Worker::ejectRecording, Qt::QueuedConnection);
     connect(
         this,
         &ReceiverRuntime::selectAudioDeviceRequested,
@@ -3984,6 +4029,11 @@ void ReceiverRuntime::selectRecordedIqSource(const QString& path,
     markPending(QStringLiteral("Validating recorded IQ file…"));
     emit selectRecordedIqSourceRequested(path, centerFrequency, sampleRate);
 }
+
+void ReceiverRuntime::toggleRecordingPlayback() { emit toggleRecordingPlaybackRequested(); }
+void ReceiverRuntime::stopRecordingPlayback() { emit stopRecordingPlaybackRequested(); }
+void ReceiverRuntime::restartRecordingPlayback() { emit restartRecordingPlaybackRequested(); }
+void ReceiverRuntime::ejectRecording() { emit ejectRecordingRequested(); }
 
 void ReceiverRuntime::selectAudioDevice(const QString& identifier)
 {

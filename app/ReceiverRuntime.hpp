@@ -44,6 +44,7 @@ struct ReceiverRuntimeSnapshot {
     radio::ReceiverLimits receiverLimits;
     radio::ReceiverCapabilities receiverCapabilities;
     radio::ReceiverSourceCapabilities receiverSourceCapabilities;
+    radio::RecordingTransportState recordingTransport;
     bool squelchOpen = false;
     quint64 effectiveSampleRate = 0;
     quint64 tuningGeneration = 0;
@@ -176,6 +177,10 @@ public slots:
     void clearDeviceSelection();
     void selectRecordedIqSource(const QString& path, quint64 centerFrequency,
         quint64 sampleRate);
+    void toggleRecordingPlayback();
+    void stopRecordingPlayback();
+    void restartRecordingPlayback();
+    void ejectRecording();
     void selectAudioDevice(const QString& identifier);
     void setAudioVolume(int volumePercent);
     void setAudioMuted(bool muted);
@@ -254,6 +259,10 @@ signals:
     void clearDeviceSelectionRequested();
     void selectRecordedIqSourceRequested(const QString& path, quint64 centerFrequency,
         quint64 sampleRate);
+    void toggleRecordingPlaybackRequested();
+    void stopRecordingPlaybackRequested();
+    void restartRecordingPlaybackRequested();
+    void ejectRecordingRequested();
     void selectAudioDeviceRequested(const QString& identifier);
     void setAudioVolumeRequested(int volumePercent);
     void setAudioMutedRequested(bool muted);

@@ -625,6 +625,12 @@ void GnuRadioReceiverBackendTest::readsRecordedIqSidecarAndManualMetadata()
     QCOMPARE(source.sampleCount(), std::uint64_t{2});
     QVERIFY(source.start().succeeded);
     std::array<std::complex<float>, 8> samples{};
+    source.setPaused(true);
+    QVERIFY(source.paused());
+    QVERIFY(source.read(samples, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::Timeout);
+    QCOMPARE(source.positionSamples(), std::uint64_t{0});
+    source.setPaused(false);
     const auto first = source.read(samples, std::chrono::milliseconds(1));
     QCOMPARE(first.sampleCount, std::size_t{2});
     QCOMPARE(samples[0], std::complex<float>(1.0F, -0.5F));

@@ -35,6 +35,17 @@ struct RecordedIqSourceConfiguration {
     std::string format = "cf32_le";
 };
 
+enum class RecordingPlaybackState { Unloaded, Stopped, Playing, Paused, Ended, Error };
+
+struct RecordingTransportState {
+    RecordingPlaybackState state = RecordingPlaybackState::Unloaded;
+    std::uint64_t positionSamples = 0;
+    std::uint64_t totalSamples = 0;
+    std::uint64_t sampleRate = 0;
+    std::string displayName;
+    std::string message;
+};
+
 struct WidebandIqCaptureMetadata {
     std::uint64_t centerFrequency = 0;
     std::uint64_t effectiveSampleRate = 0;

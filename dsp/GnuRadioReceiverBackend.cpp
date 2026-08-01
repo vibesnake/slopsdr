@@ -42,6 +42,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -1122,6 +1123,10 @@ public:
     class Flowgraph final
     {
     public:
+        [[nodiscard]] RecordedIqSource* recordedSource() const noexcept
+        {
+            return dynamic_cast<RecordedIqSource*>(m_source.get());
+        }
         Flowgraph(
             const radio::ReceiverState& state,
             std::uint64_t effectiveSampleRate,
@@ -2055,6 +2060,47 @@ radio::ReceiverSourceCapabilities GnuRadioReceiverBackend::sourceCapabilities()
     const noexcept
 {
     return m_impl->sourceCapabilities;
+}
+
+radio::RecordingTransportState GnuRadioReceiverBackend::recordingTransport() const noexcept
+{
+    if (!m_impl->recordedSource) return {};
+    const auto* source = m_impl->flowgraph->recordedSource();
+    radio::RecordingTransportState state{
+        .state = radio::RecordingPlaybackState::Stopped,
+        .sampleRate = m_impl->recordedSource->sampleRate,
+        .displayName = std::filesystem::path(m_impl->recordedSource->path).filename().string(),
+        .message = {},
+    };
+    if (!source) return state;
+    state.positionSamples = source->positionSamples();
+    state.totalSamples = source->sampleCount();
+    if (source->ended()) state.state = radio::RecordingPlaybackState::Ended;
+    else if (source->paused()) state.state = radio::RecordingPlaybackState::Paused;
+    else if (m_impl->model.state().running) state.state = radio::RecordingPlaybackState::Playing;
+    return state;
+}
+
+radio::OperationResult GnuRadioReceiverBackend::setPlaybackPaused(bool paused)
+{
+    auto* source = m_impl->flowgraph->recordedSource();
+    if (!source || !m_impl->model.state().running) {
+        return {radio::ReceiverError::BackendFailure, false, false,
+                "Recorded playback is not running"};
+    }
+    source->setPaused(paused);
+    return {radio::ReceiverError::None, true, true,
+            paused ? "Recorded playback paused" : "Recorded playback resumed"};
+}
+
+radio::OperationResult GnuRadioReceiverBackend::restartPlayback()
+{
+    if (!m_impl->recordedSource) {
+        return {radio::ReceiverError::BackendFailure, false, false,
+                "Recording playback is unavailable"};
+    }
+    if (m_impl->model.state().running) static_cast<void>(stopReception());
+    return startReception();
 }
 
 const radio::ReceiverState& GnuRadioReceiverBackend::state() const noexcept
