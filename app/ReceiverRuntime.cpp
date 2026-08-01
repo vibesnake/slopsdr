@@ -42,7 +42,6 @@ constexpr std::size_t minimumWaterfallQueueCapacity = 64;
 // One retained waterfall row per normal 60 Hz FFT presentation interval keeps
 // short bursts distinct while the bounded delivery queue handles stalls.
 constexpr double waterfallLiveRowsPerSecond = 60.0;
-constexpr int audioDeviceRefreshIntervalMilliseconds = 5'000;
 constexpr std::size_t maximumAudioTransferFrames =
     static_cast<std::size_t>(radio::receiverAudioSampleRate / 50);
 constexpr quint64 conservativeCaptureBandwidth = 2'000'000;
@@ -292,6 +291,9 @@ public:
         : m_startupMode(startupMode)
         , m_factories(std::move(factories))
         , m_verboseAudioMetrics(verboseAudioMetrics)
+        , m_audioDeviceRefreshIntervalMilliseconds(std::max(
+              1,
+              m_factories.audioDeviceRefreshIntervalMilliseconds))
         , m_waterfallDelivery(
               std::max(
                   minimumWaterfallQueueCapacity,
@@ -348,7 +350,8 @@ public slots:
         m_audioServiceTimer->start();
 
         m_audioDeviceTimer = new QTimer(this);
-        m_audioDeviceTimer->setInterval(audioDeviceRefreshIntervalMilliseconds);
+        m_audioDeviceTimer->setInterval(
+            m_audioDeviceRefreshIntervalMilliseconds);
         m_audioDeviceTimer->setTimerType(Qt::CoarseTimer);
         connect(
             m_audioDeviceTimer,
@@ -802,6 +805,10 @@ public slots:
             }
             if (result.succeeded() && m_backend->state().running) {
                 resetWaterfallDelivery();
+                // Platform device enumeration can synchronously touch a
+                // sound server or driver, so it must not periodically block
+                // the worker while it is delivering live FFT rows.
+                updateAudioDeviceRefreshTimer();
                 log(1, QStringLiteral("SDR"), m_statusText);
             }
             publishSnapshot(result.succeeded());
@@ -837,6 +844,7 @@ public slots:
                 m_audioOutput->stop();
             }
             m_statusText = QStringLiteral("No receiver backend is running");
+            updateAudioDeviceRefreshTimer();
             publishSnapshot(false);
             return;
         }
@@ -860,6 +868,7 @@ public slots:
                 m_backendDescription = QStringLiteral(
                     "Selected SDR opens when Start is pressed");
             }
+            updateAudioDeviceRefreshTimer();
             publishSnapshot(result.succeeded());
         } catch (const std::exception& error) {
             if (m_dsdFme) {
@@ -870,6 +879,7 @@ public slots:
             }
             m_statusText = QStringLiteral("Receiver operation failed: %1")
                                .arg(QString::fromUtf8(error.what()));
+            updateAudioDeviceRefreshTimer();
             publishSnapshot(false);
         } catch (...) {
             if (m_dsdFme) {
@@ -880,6 +890,7 @@ public slots:
             }
             m_statusText = QStringLiteral(
                 "Receiver operation failed with an unknown error");
+            updateAudioDeviceRefreshTimer();
             publishSnapshot(false);
         }
     }
@@ -2079,9 +2090,7 @@ private:
             if (m_audioServiceTimer) {
                 m_audioServiceTimer->start();
             }
-            if (m_audioDeviceTimer) {
-                m_audioDeviceTimer->start();
-            }
+            updateAudioDeviceRefreshTimer();
             scheduleNextWaterfallTick();
         }
         const bool receptionValid =
@@ -2501,6 +2510,7 @@ private:
                 }
                 m_statusText = QString::fromStdString(runtimeError->message);
                 m_waterfallDelivery.stop();
+                updateAudioDeviceRefreshTimer();
                 publishSnapshot(false);
             }
             auto frames = m_backend->takePendingSpectrumFrames(
@@ -2566,16 +2576,22 @@ private:
             scheduleNextWaterfallTick();
             return;
         }
-        if (m_waterfallDelivery.size() > 0) {
+        const std::size_t rowBudget =
+            waterfallPresentationRowBudget(m_waterfallDelivery.size());
+        bool publishIntervalRecorded = false;
+        for (std::size_t row = 0; row < rowBudget; ++row) {
             auto frame = m_waterfallDelivery.takeNextRow();
             if (frame) {
-                if (m_waterfallPublishIntervalTimer.isValid()) {
-                    m_lastWaterfallPublishedIntervalNanoseconds =
-                        static_cast<std::uint64_t>(
-                            m_waterfallPublishIntervalTimer.nsecsElapsed());
-                    m_waterfallPublishIntervalTimer.restart();
-                } else {
-                    m_waterfallPublishIntervalTimer.start();
+                if (!publishIntervalRecorded) {
+                    if (m_waterfallPublishIntervalTimer.isValid()) {
+                        m_lastWaterfallPublishedIntervalNanoseconds =
+                            static_cast<std::uint64_t>(
+                                m_waterfallPublishIntervalTimer.nsecsElapsed());
+                        m_waterfallPublishIntervalTimer.restart();
+                    } else {
+                        m_waterfallPublishIntervalTimer.start();
+                    }
+                    publishIntervalRecorded = true;
                 }
                 QVector<float> magnitudes(
                     frame->normalizedMagnitudes.begin(),
@@ -2859,6 +2875,18 @@ private:
         if (previousState != m_audioOutput->state()) {
             publishSnapshot(true);
         }
+    }
+
+    void updateAudioDeviceRefreshTimer()
+    {
+        if (!m_audioDeviceTimer) {
+            return;
+        }
+        if (m_backend && m_backend->state().running) {
+            m_audioDeviceTimer->stop();
+            return;
+        }
+        m_audioDeviceTimer->start();
     }
 
     void reportAudioMetrics()
@@ -3331,6 +3359,7 @@ private:
     QTimer* m_centerFrequencyTimer = nullptr;
     QTimer* m_ppmCalibrationTimer = nullptr;
     double m_waterfallTimerFractionalMilliseconds = 0.0;
+    int m_audioDeviceRefreshIntervalMilliseconds = 5'000;
     ApplicationLogHandler m_applicationLogHandler;
     std::unique_ptr<radio::ReceiverBackend> m_backend;
     std::optional<bool> m_lastPublishedSquelchOpen;

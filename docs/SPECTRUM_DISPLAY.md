@@ -52,6 +52,9 @@ newest compatible frame immediately. The waterfall presents real FFT rows at
 60 Hz when available, retaining FIFO row order during normal operation so
 short bursts remain distinct. If the FFT window permits fewer than 60
 independent frames per second, the timer follows that lower achievable rate.
+If timer scheduling falls fractionally behind a normal source cadence, it
+briefly drains one additional real FIFO row to prevent a small steady backlog
+from turning into a periodic bulk drop.
 After a bounded post-stall backlog it collapses to the newest compatible row,
 counting superseded rows as coalesced, rather than replaying stale work. It
 never fabricates duplicate rows. Timestamp rendering separates sample-time FFT
@@ -128,6 +131,11 @@ blocks the producer.
 
 Spectrum delivery is independent of the 5 ms audio-service timer. Display load
 therefore cannot reduce audio-service cadence.
+
+Audio-output device enumeration is deferred while reception is running. The
+periodic idle refresh resumes after Stop, so a slow platform sound-server or
+driver query cannot periodically stall the receiver worker and collapse queued
+waterfall rows.
 
 ## Rendering
 

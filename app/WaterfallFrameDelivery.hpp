@@ -34,6 +34,11 @@ struct WaterfallPresentationInterval {
     double achievableRowsPerSecond,
     double fractionalMilliseconds) noexcept;
 
+// A timer that is fractionally below the source cadence drains one additional
+// real FIFO row before that small lag turns into a periodic bulk collapse.
+[[nodiscard]] std::size_t waterfallPresentationRowBudget(
+    std::size_t pendingRows) noexcept;
+
 class WaterfallFrameDelivery final
 {
 public:

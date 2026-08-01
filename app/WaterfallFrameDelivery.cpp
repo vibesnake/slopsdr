@@ -13,6 +13,7 @@ namespace sdr::app {
 namespace {
 
 constexpr std::size_t maximumSequentialBacklogRows = 8;
+constexpr std::size_t normalMaximumPendingRows = 2;
 
 }  // namespace
 
@@ -49,6 +50,14 @@ WaterfallPresentationInterval nextWaterfallPresentationInterval(
         .fractionalMilliseconds =
             exactInterval - static_cast<double>(interval),
     };
+}
+
+std::size_t waterfallPresentationRowBudget(std::size_t pendingRows) noexcept
+{
+    if (pendingRows == 0) {
+        return 0;
+    }
+    return pendingRows > normalMaximumPendingRows ? 2 : 1;
 }
 
 WaterfallFrameDelivery::WaterfallFrameDelivery(std::size_t capacity)

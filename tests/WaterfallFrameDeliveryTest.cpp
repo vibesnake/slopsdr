@@ -129,6 +129,7 @@ private slots:
     void recoversFromOverflowByDroppingOldest();
     void rejectsDuplicateAndRegressingRowsAndReportsSequenceGaps();
     void preservesSequentialRowsAtLiveCadenceAndCollapsesStalls();
+    void catchesUpSmallSteadyBacklogsWithoutDroppingRows();
     void toleratesTemporaryProducerJitter();
     void remainsBoundedAndLeavesSpectrumCurrent();
 };
@@ -305,6 +306,54 @@ void WaterfallFrameDeliveryTest::preservesSequentialRowsAtLiveCadenceAndCollapse
     QCOMPARE(newest->sequence, std::uint64_t{20});
     QCOMPARE(delivery.size(), std::size_t{0});
     QCOMPARE(delivery.metrics().coalescedRows, std::uint64_t{15});
+
+    // After the one bounded recovery, live rows resume in acquisition order.
+    for (std::uint64_t sequence = 21; sequence <= 24; ++sequence) {
+        QVERIFY(delivery.enqueue(frame(sequence)));
+        const auto recovered = delivery.takeNextRow();
+        QVERIFY(recovered.has_value());
+        QCOMPARE(recovered->sequence, sequence);
+        QCOMPARE(
+            recovered->timestampNanoseconds,
+            sequence * 10'000'000ULL);
+    }
+    QCOMPARE(delivery.metrics().coalescedRows, std::uint64_t{15});
+}
+
+void WaterfallFrameDeliveryTest::catchesUpSmallSteadyBacklogsWithoutDroppingRows()
+{
+    sdr::app::WaterfallFrameDelivery delivery(64);
+    delivery.reset(2'000'000, 2);
+    constexpr std::uint64_t sourceRows = 600;
+    constexpr std::uint64_t deliveryTicks = 550;
+    std::uint64_t produced = 0;
+    std::uint64_t expectedSequence = 1;
+
+    for (std::uint64_t tick = 1; tick <= deliveryTicks; ++tick) {
+        const std::uint64_t requiredProduced = tick * sourceRows / deliveryTicks;
+        while (produced < requiredProduced) {
+            QVERIFY(delivery.enqueue(frame(++produced)));
+        }
+        const std::size_t budget =
+            sdr::app::waterfallPresentationRowBudget(delivery.size());
+        for (std::size_t row = 0; row < budget; ++row) {
+            const auto delivered = delivery.takeNextRow();
+            QVERIFY(delivered.has_value());
+            QCOMPARE(delivered->sequence, expectedSequence++);
+            QCOMPARE(
+                delivered->timestampNanoseconds,
+                (expectedSequence - 1) * 10'000'000ULL);
+        }
+    }
+    while (delivery.size() > 0) {
+        const auto delivered = delivery.takeNextRow();
+        QVERIFY(delivered.has_value());
+        QCOMPARE(delivered->sequence, expectedSequence++);
+    }
+    QCOMPARE(produced, sourceRows);
+    QCOMPARE(expectedSequence, sourceRows + 1);
+    QCOMPARE(delivery.metrics().coalescedRows, std::uint64_t{0});
+    QCOMPARE(delivery.metrics().overflowDrops, std::uint64_t{0});
 }
 
 void WaterfallFrameDeliveryTest::toleratesTemporaryProducerJitter()

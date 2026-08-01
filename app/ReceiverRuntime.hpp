@@ -141,6 +141,9 @@ public:
         DsdFmeProcessServiceFactory createDsdFmeProcessService;
         MonotonicClock monotonicClock;
         std::size_t initialSpectrumFftSize = 4'096;
+        // Kept injectable so cadence tests can exercise deferred device
+        // polling without waiting for the normal five-second interval.
+        int audioDeviceRefreshIntervalMilliseconds = 5'000;
     };
 
     explicit ReceiverRuntime(

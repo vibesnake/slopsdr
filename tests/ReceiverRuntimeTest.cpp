@@ -27,6 +27,7 @@
 #include <mutex>
 #include <span>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,7 @@ struct RuntimeTrace {
     int backendDestructions = 0;
     int audioFlushes = 0;
     int audioDeviceEnumerations = 0;
+    int audioDeviceEnumerationDelayMilliseconds = 0;
     int dsdProcessStarts = 0;
     int dsdProcessStops = 0;
     std::uint64_t effectiveSampleRate = 2'000'000;
@@ -172,6 +174,10 @@ public:
     [[nodiscard]] std::vector<platform::AudioOutputDevice> devices() override
     {
         ++m_trace->audioDeviceEnumerations;
+        if (m_trace->audioDeviceEnumerationDelayMilliseconds > 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(
+                m_trace->audioDeviceEnumerationDelayMilliseconds));
+        }
         return {{"audio:test", "Runtime test output", true}};
     }
 
@@ -808,6 +814,7 @@ private slots:
     void reportsDeviceOpenAndStartFailuresWithoutOptimisticState();
     void exposesRuntimeFailuresThroughTheApplicationModel();
     void keepsAudioDeviceEnumerationOffTheRealtimeTimer();
+    void defersAudioDeviceRefreshDuringLiveWaterfallDelivery();
     void exposesEffectiveSampleRateSeparatelyFromTheRequestedRate();
     void changesCaptureBandwidthWhileRunningWithoutManualRestart();
     void persistsValidCaptureBandwidthAndReplacesUnsupportedSavedValue();
@@ -1378,6 +1385,56 @@ void ReceiverRuntimeTest::keepsAudioDeviceEnumerationOffTheRealtimeTimer()
 
     QTest::qWait(250);
     QCOMPARE(trace->audioDeviceEnumerations, 1);
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::defersAudioDeviceRefreshDuringLiveWaterfallDelivery()
+{
+    auto trace = std::make_shared<RuntimeTrace>();
+    // A slow platform enumeration previously blocked the receiver worker on
+    // every refresh tick, building a backlog that was collapsed into a cut.
+    trace->audioDeviceEnumerationDelayMilliseconds = 125;
+    auto factories = factoriesFor(trace);
+    factories.audioDeviceRefreshIntervalMilliseconds = 20;
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        std::move(factories));
+    ApplicationModel model(runtime);
+    QSignalSpy waterfallFrames(&model, &ApplicationModel::waterfallFrameReady);
+    QSignalSpy waterfallResets(&model, &ApplicationModel::waterfallReset);
+
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.backendReady(); }));
+    QVERIFY(trace->audioDeviceEnumerations >= 1);
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+    const int enumerationsWhenLive = trace->audioDeviceEnumerations;
+
+    waterfallFrames.clear();
+    QTest::qWait(300);
+    QCOMPARE(trace->audioDeviceEnumerations, enumerationsWhenLive);
+    QCOMPARE(waterfallResets.count(), 0);
+    QVERIFY(waterfallFrames.count() >= 5);
+
+    quint64 previousSequence = 0;
+    quint64 previousTimestamp = 0;
+    for (const auto& frame : waterfallFrames) {
+        const quint64 sequence = frame.at(4).toULongLong();
+        const quint64 timestamp = frame.at(5).toULongLong();
+        QVERIFY(sequence > previousSequence);
+        QVERIFY(timestamp > previousTimestamp);
+        if (previousTimestamp != 0) {
+            QVERIFY(timestamp - previousTimestamp < 100'000'000ULL);
+        }
+        previousSequence = sequence;
+        previousTimestamp = timestamp;
+    }
+
+    model.stopReception();
+    QVERIFY(waitUntil([&model] { return !model.receiverRunning(); }));
+    QVERIFY(waitUntil([&trace, enumerationsWhenLive] {
+        return trace->audioDeviceEnumerations > enumerationsWhenLive;
+    }));
     runtime.shutdown();
 }
 
