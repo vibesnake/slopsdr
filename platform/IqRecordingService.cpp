@@ -253,6 +253,7 @@ void IqRecordingService::finalize() noexcept
             m_producersInFlight.wait(producers, std::memory_order_acquire);
             producers = m_producersInFlight.load(std::memory_order_acquire);
         }
+        std::lock_guard lock(m_mutex);
         state = m_state;
         state.droppedSamples = m_droppedSamples.load(std::memory_order_acquire);
         request = m_request;

@@ -117,6 +117,26 @@ ctest --preset desktop-tests
 The headless GUI script uses `build/desktop-tests` by default and accepts an
 explicit build-directory override.
 
+## CI and sanitizer validation
+
+GitHub Actions runs independent clean release and Debug sanitizer jobs for
+pushes to `master`, pull requests, and manual dispatches. The clean job uses
+the `ci-desktop-tests` preset, which enables warnings as errors only for
+slopSDR targets. The sanitizer job uses `desktop-tests-sanitized`, which enables
+target-scoped AddressSanitizer and UndefinedBehaviorSanitizer instrumentation.
+
+Run the sanitizer configuration locally with the same headless test harness:
+
+```sh
+cmake --preset desktop-tests-sanitized
+cmake --build build/desktop-tests-sanitized -j2
+./tools/test-gui-headless.sh build/desktop-tests-sanitized
+```
+
+CI does not require SDR or audio hardware. It supplements, rather than
+replaces, the local release-oriented validation described above and physical
+hardware checks when they are relevant.
+
 ## Other tests
 
 Run the dependency-disabled and complete desktop suites with:

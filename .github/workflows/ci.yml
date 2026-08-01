@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clean-build:
+    name: Clean build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake ninja-build \
+            qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
+            qml6-module-qtqml-workerscript qml6-module-qtquick \
+            qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
+            qml6-module-qtquick-layouts qml6-module-qtquick-window \
+            gnuradio-dev libsoapysdr-dev soapysdr-tools \
+            dbus-x11 xvfb
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --preset ci-desktop-tests 2>&1 | tee configure.log
+
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build --preset ci-desktop-tests --parallel 2 2>&1 | tee build.log
+
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tools/test-gui-headless.sh build/ci-desktop-tests 2>&1 | tee test.log
+
+      - name: Verify tracked worktree
+        run: |
+          git diff --check
+          git diff --cached --check
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-build-logs
+          if-no-files-found: ignore
+          path: |
+            configure.log
+            build.log
+            test.log
+            build/ci-desktop-tests/CMakeFiles/CMakeOutput.log
+            build/ci-desktop-tests/Testing/Temporary/LastTest.log
+
+  asan-ubsan:
+    name: ASan/UBSan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake ninja-build \
+            qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
+            qml6-module-qtqml-workerscript qml6-module-qtquick \
+            qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
+            qml6-module-qtquick-layouts qml6-module-qtquick-window \
+            gnuradio-dev libsoapysdr-dev soapysdr-tools \
+            dbus-x11 xvfb
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --preset desktop-tests-sanitized 2>&1 | tee configure.log
+
+      - name: Build
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build --preset desktop-tests-sanitized --parallel 2 2>&1 | tee build.log
+
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tools/test-gui-headless.sh build/desktop-tests-sanitized 2>&1 | tee test.log
+
+      - name: Verify tracked worktree
+        run: |
+          git diff --check
+          git diff --cached --check
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-ubsan-logs
+          if-no-files-found: ignore
+          path: |
+            configure.log
+            build.log
+            test.log
+            build/desktop-tests-sanitized/CMakeFiles/CMakeOutput.log
+            build/desktop-tests-sanitized/Testing/Temporary/LastTest.log

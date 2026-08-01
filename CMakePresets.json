@@ -72,6 +72,27 @@
       "cacheVariables": {
         "BUILD_TESTING": "ON"
       }
+    },
+    {
+      "name": "ci-desktop-tests",
+      "displayName": "CI Desktop Hardware Release Tests",
+      "description": "Clean CI release tests with GNU Radio, SoapySDR, and warnings as errors.",
+      "inherits": "desktop-tests",
+      "binaryDir": "${sourceDir}/build/ci-desktop-tests",
+      "cacheVariables": {
+        "SDR_RECEIVER_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "desktop-tests-sanitized",
+      "displayName": "Desktop Hardware Sanitizer Tests",
+      "description": "Debug GNU Radio and SoapySDR tests with AddressSanitizer and UndefinedBehaviorSanitizer.",
+      "inherits": "desktop-app-debug",
+      "binaryDir": "${sourceDir}/build/desktop-tests-sanitized",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "SDR_RECEIVER_ENABLE_SANITIZERS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -100,6 +121,14 @@
     {
       "name": "desktop-tests",
       "configurePreset": "desktop-tests"
+    },
+    {
+      "name": "ci-desktop-tests",
+      "configurePreset": "ci-desktop-tests"
+    },
+    {
+      "name": "desktop-tests-sanitized",
+      "configurePreset": "desktop-tests-sanitized"
     }
   ],
   "testPresets": [
@@ -127,6 +156,20 @@
     {
       "name": "desktop-tests",
       "configurePreset": "desktop-tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "ci-desktop-tests",
+      "configurePreset": "ci-desktop-tests",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-tests-sanitized",
+      "configurePreset": "desktop-tests-sanitized",
       "output": {
         "outputOnFailure": true
       }
