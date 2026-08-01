@@ -82,7 +82,6 @@ QString scanTypeName(int scanTypeIndex)
 }
 constexpr auto dsdFmeBinaryPathSetting = "externalDecoder/dsdFmeBinaryPath";
 constexpr auto recordingsFolderSetting = "recording/folder";
-constexpr auto recordingLoadFolderSetting = "recording/lastLoadFolder";
 constexpr auto skipQuietRecordingPartsSetting = "recording/skipQuietParts";
 constexpr auto recordingPreRollSecondsSetting = "recording/preRollSeconds";
 constexpr auto recordingTailSecondsSetting = "recording/tailSeconds";
@@ -189,16 +188,6 @@ QString normalizedRecordingsFolder(const QString& path)
     return QDir::cleanPath(QDir::isRelativePath(trimmed)
                                ? QDir::current().absoluteFilePath(trimmed)
                                : trimmed);
-}
-
-QString normalizedRecordingLoadFolder(const QString& path)
-{
-    const QString normalized = normalizedRecordingsFolder(path);
-    if (QFileInfo(normalized).isDir()) {
-        return normalized;
-    }
-    const QString fallback = QFileInfo(defaultRecordingsFolder()).absolutePath();
-    return QFileInfo(fallback).isDir() ? fallback : QDir::homePath();
 }
 
 QString recordingsFolderStatusForPath(const QString& path, bool* valid)
@@ -850,13 +839,6 @@ void ApplicationModel::restorePersistedDisplaySettings()
     m_recordingsFolderStatus = recordingsFolderStatusForPath(
         m_recordingsFolder, &recordingsFolderValid);
     m_recordingsFolderValid = recordingsFolderValid;
-    const QString storedRecordingLoadFolder = settings.value(
-        recordingLoadFolderSetting).toString();
-    m_recordingLoadFolder = normalizedRecordingLoadFolder(
-        storedRecordingLoadFolder);
-    if (storedRecordingLoadFolder != m_recordingLoadFolder) {
-        settings.setValue(recordingLoadFolderSetting, m_recordingLoadFolder);
-    }
     m_skipQuietRecordingParts = settings.value(
         skipQuietRecordingPartsSetting, false).toBool();
     m_recordingPreRollSeconds = std::clamp(
@@ -1633,11 +1615,6 @@ bool ApplicationModel::recordingsFolderValid() const noexcept
     return m_recordingsFolderValid;
 }
 
-QUrl ApplicationModel::recordingLoadFolder() const
-{
-    return QUrl::fromLocalFile(m_recordingLoadFolder);
-}
-
 bool ApplicationModel::skipQuietRecordingParts() const noexcept
 {
     return m_skipQuietRecordingParts;
@@ -2190,18 +2167,11 @@ void ApplicationModel::loadRecording(const QUrl& fileUrl)
         setStatusText(QStringLiteral("Select a local recording file"));
         return;
     }
-    const QString localPath = QDir::cleanPath(fileUrl.toLocalFile());
-    const QString loadFolder = QFileInfo(localPath).absolutePath();
-    if (m_recordingLoadFolder != loadFolder) {
-        m_recordingLoadFolder = loadFolder;
-        QSettings().setValue(recordingLoadFolderSetting, m_recordingLoadFolder);
-        emit recordingLoadFolderChanged();
-    }
     if (!m_runtime) {
         setStatusText(QStringLiteral("Recording playback is unavailable in mock mode"));
         return;
     }
-    m_runtime->loadRecording(localPath);
+    m_runtime->loadRecording(QDir::cleanPath(fileUrl.toLocalFile()));
 }
 void ApplicationModel::toggleRecordingPlayback() { if (m_runtime) m_runtime->toggleRecordingPlayback(); }
 void ApplicationModel::stopRecordingPlayback() { if (m_runtime) m_runtime->stopRecordingPlayback(); }

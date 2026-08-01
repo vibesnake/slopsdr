@@ -154,10 +154,11 @@ hardware-test, diagnostic, and install commands.
 ### Recorded playback
 
 Use the footer **Load recording** action while reception is stopped to select a
-recording with the system file dialog. Its filters cover WAV audio, raw IQ,
-all supported recordings, and all files, so a supported recording may still be
-chosen when its extension is missing or unusual. The dialog restores the last
-folder from which a recording was accepted. slopSDR identifies RIFF/WAVE audio from its container rather than
+recording with Qt's non-native widget file dialog. Its detailed view and filters
+cover WAV audio, raw IQ, all supported recordings, and all files, so a
+supported recording may still be chosen when its extension is missing or
+unusual. On accepted selection, it restores the last folder, filter, and dialog
+layout. slopSDR identifies RIFF/WAVE audio from its container rather than
 the filename extension and supports mono or stereo unsigned 8-bit PCM, signed
 little-endian 16-, 24-, and 32-bit PCM, and little-endian IEEE float32 WAV.
 Compressed codecs and malformed/truncated files are rejected before playback

@@ -976,10 +976,6 @@ void ReceiverRuntimeTest::convertsRecordingFileUrlAndPreservesLoadedSourceOnFail
 
     model.loadRecording(QUrl::fromLocalFile(rawPath));
     QVERIFY(waitUntil([&model] { return model.recordedIqMetadataRequired(); }));
-    QCOMPARE(model.recordingLoadFolder(),
-             QUrl::fromLocalFile(recordings.path()));
-    QCOMPARE(QSettings().value(QStringLiteral("recording/lastLoadFolder")).toString(),
-             recordings.path());
     {
         const std::scoped_lock lock(requestMutex);
         QCOMPARE(requests.size(), std::size_t{1});

@@ -11,6 +11,7 @@ ApplicationWindow {
     id: root
 
     required property var applicationModel
+    required property var recordingFileDialogController
     property string applicationVersion
     property string applicationReleaseDate
 
@@ -73,23 +74,6 @@ ApplicationWindow {
         }
     }
 
-    FileDialog {
-        id: recordingFileDialog
-        objectName: "recordingFileDialog"
-        title: qsTr("Load recording")
-        nameFilters: [
-            qsTr("All supported recordings (*.wav *.WAV *.raw *.RAW)"),
-            qsTr("WAV audio recordings (*.wav *.WAV)"),
-            qsTr("Raw IQ recordings (*.raw *.RAW)"),
-            qsTr("All files (*)")
-        ]
-        fileMode: FileDialog.OpenFile
-        onAccepted: {
-            root.selectedRecordingUrl = selectedFile
-            root.applicationModel.loadRecording(selectedFile)
-        }
-    }
-
     Dialog {
         id: recordedIqMetadataDialog
         title: qsTr("Recorded IQ metadata")
@@ -144,9 +128,7 @@ ApplicationWindow {
     }
 
     function openRecordingFileDialog() {
-        recordingFileDialog.currentFolder =
-            root.applicationModel.recordingLoadFolder
-        recordingFileDialog.open()
+        root.recordingFileDialogController.open()
     }
 
     function clearCenterFrequencyDigitFocus() {
@@ -172,6 +154,13 @@ ApplicationWindow {
         function onRecordingPlaybackChanged() {
             if (root.applicationModel.recordedIqMetadataRequired)
                 recordedIqMetadataDialog.open()
+        }
+    }
+
+    Connections {
+        target: root.recordingFileDialogController
+        function onRecordingFileSelected(fileUrl) {
+            root.selectedRecordingUrl = fileUrl
         }
     }
 

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 vibesnake
 
 #include "ApplicationModel.hpp"
+#include "RecordingFileDialogController.hpp"
 #include "ReceiverRuntime.hpp"
 #include "SpectrumFramePacing.hpp"
 #include "project_config.hpp"
@@ -21,7 +22,7 @@
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QEvent>
-#include <QGuiApplication>
+#include <QApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QUrl>
@@ -121,9 +122,9 @@ int printGnuRadioDiagnostics()
 
 int main(int argc, char* argv[])
 {
-    QGuiApplication::setApplicationName(sdr_receiver::application_name);
-    QGuiApplication::setApplicationVersion(sdr_receiver::application_version);
-    QGuiApplication::setOrganizationName(
+    QCoreApplication::setApplicationName(sdr_receiver::application_name);
+    QCoreApplication::setApplicationVersion(sdr_receiver::application_version);
+    QCoreApplication::setOrganizationName(
         QString::fromLatin1(sdr_receiver::application_name));
 
     if (hasArgument(argc, argv, "--diagnose-gnuradio")) {
@@ -136,7 +137,7 @@ int main(int argc, char* argv[])
 #endif
     }
 
-    QGuiApplication application(argc, argv);
+    QApplication application(argc, argv);
     application.setQuitOnLastWindowClosed(true);
     QCommandLineParser commandLine;
     commandLine.setApplicationDescription(QStringLiteral(
@@ -219,6 +220,11 @@ int main(int argc, char* argv[])
         commandLine.isSet(verboseOption));
     ApplicationModel applicationModel(
         runtime, nullptr, commandLine.isSet(verboseOption));
+    sdr::gui::RecordingFileDialogController recordingFileDialogController(
+        [&applicationModel](const QUrl& fileUrl) {
+            applicationModel.loadRecording(fileUrl);
+        },
+        [&applicationModel] { return applicationModel.recordingsFolder(); });
     QQmlApplicationEngine engine;
 
     engine.setInitialProperties({
@@ -228,6 +234,8 @@ int main(int argc, char* argv[])
          QString::fromLatin1(sdr_receiver::application_version)},
         {QStringLiteral("applicationReleaseDate"),
          QString::fromLatin1(sdr_receiver::application_release_date)},
+        {QStringLiteral("recordingFileDialogController"),
+         QVariant::fromValue<QObject*>(&recordingFileDialogController)},
     });
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/SDRReceiver/Main.qml")));
 
@@ -239,6 +247,7 @@ int main(int argc, char* argv[])
     if (!mainWindow) {
         return EXIT_FAILURE;
     }
+    recordingFileDialogController.setTransientParent(mainWindow);
     MainWindowCloseFilter mainWindowCloseFilter;
     mainWindow->installEventFilter(&mainWindowCloseFilter);
 

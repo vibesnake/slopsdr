@@ -445,6 +445,11 @@ bounded squelch-driven pre-roll, writes while squelch is open, and retains the
 configured tail; longer quiet gaps are omitted. The default pre-roll is 1 second
 and tail is 2 seconds, within bounded settings limits.
 
+While reception is stopped, use the footer **Load recording** control to open
+the non-native Qt widget file dialog. It starts from the last accepted recording
+folder when available, shows a detailed file list, and remembers its accepted
+filter and layout. Cancelling leaves the current recording unchanged.
+
 **Record scanner activity** creates separate squelch-gated WAV clips while a
 scanner is active, with JSON sidecars containing target, mode, scanner source,
 timing, format, and duration. Scanner clips use the same pre-roll/tail behavior

@@ -117,7 +117,6 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(QString recordingsFolder READ recordingsFolder NOTIFY recordingsFolderChanged)
     Q_PROPERTY(QString recordingsFolderStatus READ recordingsFolderStatus NOTIFY recordingsFolderChanged)
     Q_PROPERTY(bool recordingsFolderValid READ recordingsFolderValid NOTIFY recordingsFolderChanged)
-    Q_PROPERTY(QUrl recordingLoadFolder READ recordingLoadFolder NOTIFY recordingLoadFolderChanged)
     Q_PROPERTY(bool skipQuietRecordingParts READ skipQuietRecordingParts WRITE setSkipQuietRecordingParts NOTIFY recordingSettingsChanged)
     Q_PROPERTY(int recordingPreRollSeconds READ recordingPreRollSeconds WRITE setRecordingPreRollSeconds NOTIFY recordingSettingsChanged)
     Q_PROPERTY(int recordingTailSeconds READ recordingTailSeconds WRITE setRecordingTailSeconds NOTIFY recordingSettingsChanged)
@@ -292,7 +291,6 @@ public:
     [[nodiscard]] QString recordingsFolder() const;
     [[nodiscard]] QString recordingsFolderStatus() const;
     [[nodiscard]] bool recordingsFolderValid() const noexcept;
-    [[nodiscard]] QUrl recordingLoadFolder() const;
     [[nodiscard]] bool skipQuietRecordingParts() const noexcept;
     [[nodiscard]] int recordingPreRollSeconds() const noexcept;
     [[nodiscard]] int recordingTailSeconds() const noexcept;
@@ -545,7 +543,6 @@ signals:
     void dsdFmeBinaryPathChanged();
     void dsdFmeBinaryStatusChanged();
     void recordingsFolderChanged();
-    void recordingLoadFolderChanged();
     void recordingSettingsChanged();
     void recordingStateChanged();
     void filterWidthChanged();
@@ -837,7 +834,6 @@ private:
     QString m_recordingsFolder;
     QString m_recordingsFolderStatus;
     bool m_recordingsFolderValid = false;
-    QString m_recordingLoadFolder;
     bool m_skipQuietRecordingParts = false;
     int m_recordingPreRollSeconds = 1;
     int m_recordingTailSeconds = 2;

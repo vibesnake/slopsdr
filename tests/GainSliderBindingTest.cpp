@@ -30,7 +30,7 @@ private slots:
     void recordingFooterUsesGroupedTwoRowDarkLayout();
     void themedCheckBoxKeepsTextClearOfItsIndicator();
     void affectedDarkControlsUseSharedTheming();
-    void recordingLoaderUsesQtFileDialogSafely();
+    void recordingLoaderUsesWidgetDialogBridge();
 };
 
 void GainSliderBindingTest::themedCheckBoxKeepsTextClearOfItsIndicator()
@@ -109,42 +109,34 @@ void GainSliderBindingTest::affectedDarkControlsUseSharedTheming()
     }
 }
 
-void GainSliderBindingTest::recordingLoaderUsesQtFileDialogSafely()
+void GainSliderBindingTest::recordingLoaderUsesWidgetDialogBridge()
 {
     const QString qmlPath = QFINDTESTDATA("../qml/Main.qml");
     QVERIFY2(!qmlPath.isEmpty(), "Main.qml test data was not found");
     QFile qmlInput(qmlPath);
     QVERIFY(qmlInput.open(QIODevice::ReadOnly));
     const QByteArray source = qmlInput.readAll();
-    const qsizetype dialogStart = source.indexOf("id: recordingFileDialog");
-    const qsizetype dialogEnd = source.indexOf("\n    Dialog {", dialogStart);
-    QVERIFY(dialogStart >= 0);
-    QVERIFY(dialogEnd > dialogStart);
-    const QByteArray dialog = source.mid(dialogStart, dialogEnd - dialogStart);
-
     QVERIFY(source.contains("import QtQuick.Dialogs"));
-    QVERIFY(dialog.contains("fileMode: FileDialog.OpenFile"));
-    QVERIFY(dialog.contains("All supported recordings (*.wav *.WAV *.raw *.RAW)"));
-    QVERIFY(dialog.contains("WAV audio recordings (*.wav *.WAV)"));
-    QVERIFY(dialog.contains("Raw IQ recordings (*.raw *.RAW)"));
-    QVERIFY(dialog.contains("All files (*)"));
-    QVERIFY(dialog.contains("root.applicationModel.loadRecording(selectedFile)"));
-    QVERIFY(!dialog.contains("onRejected"));
+    QVERIFY(!source.contains("id: recordingFileDialog"));
     QVERIFY(!source.contains("recordedIqFileDialog"));
-    QVERIFY(source.contains("recordingFileDialog.currentFolder ="));
-    QVERIFY(source.contains("root.applicationModel.recordingLoadFolder"));
-    QVERIFY(source.contains("root.openRecordingFileDialog()"));
+    QVERIFY(source.contains("root.recordingFileDialogController.open()"));
+    QVERIFY(source.contains("onRecordingFileSelected(fileUrl)"));
 
-    const QString modelPath = QFINDTESTDATA("../app/ApplicationModel.cpp");
-    QVERIFY2(!modelPath.isEmpty(), "ApplicationModel.cpp test data was not found");
-    QFile modelInput(modelPath);
-    QVERIFY(modelInput.open(QIODevice::ReadOnly));
-    const QByteArray model = modelInput.readAll();
-    const qsizetype loadStart = model.indexOf("void ApplicationModel::loadRecording");
-    QVERIFY(loadStart >= 0);
-    const QByteArray load = model.mid(loadStart, 900);
-    QVERIFY(load.contains("fileUrl.isLocalFile()"));
-    QVERIFY(load.contains("fileUrl.toLocalFile()"));
+    const QString mainPath = QFINDTESTDATA("../app/main.cpp");
+    QVERIFY2(!mainPath.isEmpty(), "main.cpp test data was not found");
+    QFile mainInput(mainPath);
+    QVERIFY(mainInput.open(QIODevice::ReadOnly));
+    const QByteArray main = mainInput.readAll();
+    QVERIFY(main.contains("RecordingFileDialogController"));
+    QVERIFY(main.contains("applicationModel.loadRecording(fileUrl)"));
+    QVERIFY(main.contains("QApplication application"));
+
+    const QString cmakePath = QFINDTESTDATA("../CMakeLists.txt");
+    QVERIFY2(!cmakePath.isEmpty(), "CMakeLists.txt test data was not found");
+    QFile cmakeInput(cmakePath);
+    QVERIFY(cmakeInput.open(QIODevice::ReadOnly));
+    const QByteArray cmake = cmakeInput.readAll();
+    QVERIFY(cmake.contains("Qt6::Widgets"));
 }
 
 void GainSliderBindingTest::recordingFooterUsesGroupedTwoRowDarkLayout()

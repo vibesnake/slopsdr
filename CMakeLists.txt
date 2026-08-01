@@ -45,6 +45,7 @@ find_package(
         Quick
         QuickControls2
         QuickDialogs2
+        Widgets
 )
 
 message(STATUS "GNU Radio integration: ${ENABLE_GNURADIO}")
@@ -281,6 +282,21 @@ target_link_libraries(
 )
 sdr_enable_warnings(sdr_application_model)
 
+add_library(
+    sdr_presentation STATIC
+    gui/RecordingFileDialogController.cpp
+    gui/RecordingFileDialogController.hpp
+)
+target_include_directories(sdr_presentation PUBLIC gui)
+target_link_libraries(
+    sdr_presentation
+    PUBLIC
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+)
+sdr_enable_warnings(sdr_presentation)
+
 qt_add_executable(slopsdr app/main.cpp)
 add_executable(slopsdr::app ALIAS slopsdr)
 
@@ -295,11 +311,13 @@ target_link_libraries(
     slopsdr
     PRIVATE
         sdr_application_model
+        sdr_presentation
         Qt6::Gui
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
         Qt6::QuickDialogs2
+        Qt6::Widgets
 )
 if(ENABLE_GNURADIO AND ENABLE_SOAPYSDR)
     target_link_libraries(
