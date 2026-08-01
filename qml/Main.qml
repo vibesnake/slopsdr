@@ -3843,58 +3843,6 @@ ApplicationWindow {
                                  !root.applicationModel.runtimeBusy
                         onClicked: root.applicationModel.stopReception()
                     }
-                    Button {
-                        Layout.minimumWidth: 0
-                        implicitHeight: root.controlHeight
-                        text: "⏮"
-                        enabled: root.applicationModel.recordingLoaded
-                        Accessible.name: qsTr("Restart recording playback")
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Restart recording playback")
-                        onClicked: root.applicationModel.restartRecordingPlayback()
-                    }
-                    Button {
-                        Layout.minimumWidth: 0
-                        implicitHeight: root.controlHeight
-                        text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
-                        enabled: root.applicationModel.recordingLoaded
-                        Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        onClicked: root.applicationModel.toggleRecordingPlayback()
-                    }
-                    Button {
-                        Layout.minimumWidth: 0
-                        implicitHeight: root.controlHeight
-                        text: "■"
-                        enabled: root.applicationModel.recordingLoaded
-                        Accessible.name: qsTr("Stop and rewind recording playback")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        onClicked: root.applicationModel.stopRecordingPlayback()
-                    }
-                    Button {
-                        Layout.minimumWidth: 0
-                        implicitHeight: root.controlHeight
-                        text: root.applicationModel.recordingLoaded ? qsTr("Eject") : qsTr("Load")
-                        enabled: !root.applicationModel.receiverRunning &&
-                                 !root.applicationModel.runtimeBusy
-                        Accessible.name: root.applicationModel.recordingLoaded ? qsTr("Eject recording") : qsTr("Load recording")
-                        onClicked: {
-                            if (root.applicationModel.recordingLoaded)
-                                root.applicationModel.ejectRecording()
-                            else
-                                recordedIqFileDialog.open()
-                        }
-                    }
-                }
-
-                Label {
-                    Layout.fillWidth: true
-                    text: root.applicationModel.recordingTransportText
-                    color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor
-                    font.pixelSize: 10
-                    elide: Text.ElideRight
                 }
 
                 RowLayout {
@@ -4553,6 +4501,16 @@ ApplicationWindow {
             }
 
             Label {
+                id: recordingTransportSummary
+                objectName: "recordingTransportSummary"
+                Layout.maximumWidth: 220
+                text: root.applicationModel.recordingTransportText
+                color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor
+                font.pixelSize: 9
+                elide: Text.ElideRight
+            }
+
+            Label {
                 id: runtimeServiceStatus
                 objectName: "runtimeServiceStatus"
                 readonly property string audioState: root.applicationModel.audioReady
@@ -4579,6 +4537,53 @@ ApplicationWindow {
                 text: root.applicationModel.backendDescription
                 color: root.secondaryTextColor
                 font.pixelSize: 9
+            }
+        }
+
+        RowLayout {
+            id: recordingTransport
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+
+            Button {
+                implicitHeight: 30
+                text: "⏮"
+                enabled: root.applicationModel.recordingLoaded
+                Accessible.name: qsTr("Restart recording playback")
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Restart recording playback")
+                onClicked: root.applicationModel.restartRecordingPlayback()
+            }
+            Button {
+                implicitHeight: 30
+                text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
+                enabled: root.applicationModel.recordingLoaded
+                Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: root.applicationModel.toggleRecordingPlayback()
+            }
+            Button {
+                implicitHeight: 30
+                text: "■"
+                enabled: root.applicationModel.recordingLoaded
+                Accessible.name: qsTr("Stop and rewind recording playback")
+                ToolTip.visible: hovered
+                ToolTip.text: Accessible.name
+                onClicked: root.applicationModel.stopRecordingPlayback()
+            }
+            Button {
+                implicitHeight: 30
+                text: root.applicationModel.recordingLoaded ? qsTr("Eject") : qsTr("Load")
+                enabled: !root.applicationModel.receiverRunning && !root.applicationModel.runtimeBusy
+                Accessible.name: root.applicationModel.recordingLoaded ? qsTr("Eject recording") : qsTr("Load recording")
+                onClicked: {
+                    if (root.applicationModel.recordingLoaded)
+                        root.applicationModel.ejectRecording()
+                    else
+                        recordedIqFileDialog.open()
+                }
             }
         }
     }
