@@ -4388,6 +4388,8 @@ ApplicationWindow {
     }
 
     footer: ToolBar {
+        property int footerButtonHeight: 30
+        property int footerButtonSpacing: 2
         implicitHeight: root.denseLayout ? 58 : 64
         background: Rectangle {
             color: "#111a2b"
@@ -4410,11 +4412,12 @@ ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 32
-                    spacing: 2
+                    Layout.preferredHeight: footerButtonHeight
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: footerButtonSpacing
 
                     Button {
-                        implicitHeight: 30
+                        implicitHeight: footerButtonHeight
                         text: "⏮"
                         enabled: root.applicationModel.recordingLoaded
                         Accessible.name: qsTr("Restart recording playback")
@@ -4423,7 +4426,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.restartRecordingPlayback()
                     }
                     Button {
-                        implicitHeight: 30
+                        implicitHeight: footerButtonHeight
                         text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
                         enabled: root.applicationModel.recordingLoaded
                         Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
@@ -4432,7 +4435,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.toggleRecordingPlayback()
                     }
                     Button {
-                        implicitHeight: 30
+                        implicitHeight: footerButtonHeight
                         text: "■"
                         enabled: root.applicationModel.recordingLoaded
                         Accessible.name: qsTr("Stop and rewind recording playback")
@@ -4441,7 +4444,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.stopRecordingPlayback()
                     }
                     Button {
-                        implicitHeight: 30
+                        implicitHeight: footerButtonHeight
                         text: "⏏"
                         enabled: !root.applicationModel.receiverRunning &&
                                  !root.applicationModel.runtimeBusy
@@ -4486,7 +4489,7 @@ ApplicationWindow {
             Button {
                 id: audioRecordingButton
                 objectName: "audioRecordingButton"
-                implicitHeight: 30
+                implicitHeight: footerButtonHeight
                 text: root.applicationModel.recordingActive
                       ? qsTr("Stop") : qsTr("Record audio")
                 enabled: root.applicationModel.recordingActive
@@ -4531,7 +4534,7 @@ ApplicationWindow {
             Button {
                 id: iqRecordingButton
                 objectName: "iqRecordingButton"
-                implicitHeight: 30
+                implicitHeight: footerButtonHeight
                 text: root.applicationModel.iqRecordingActive
                       ? qsTr("Stop IQ") : qsTr("Record IQ")
                 enabled: root.applicationModel.iqRecordingActive
