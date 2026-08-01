@@ -880,12 +880,12 @@ void GainSliderBindingTest::toolbarUsesEmbeddedSlopSdrLogo()
 
                     Text {
                         objectName: "versionLabel"
-                        text: "v0.11.2"
+                        text: "v0.12.0"
                     }
 
                     Text {
                         objectName: "releaseDateLabel"
-                        text: "2026-08-01"
+                        text: "2026-08-02"
                     }
                 }
 
