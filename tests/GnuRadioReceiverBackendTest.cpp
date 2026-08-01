@@ -417,6 +417,7 @@ private slots:
     void destroysSafelyAfterPartialInitialization();
     void exposesSourceCapabilitiesAndAdapters();
     void readsRecordedIqSidecarAndManualMetadata();
+    void loadsRecordedIqBackendFromAdjacentSidecar();
     void tracksCenterListeningOffset();
     void rebuildsRunningFlowgraphForSampleRateChange();
     void repeatsCaptureBandwidthChangesWithoutStaleFrames();
@@ -648,6 +649,34 @@ void GnuRadioReceiverBackendTest::readsRecordedIqSidecarAndManualMetadata()
     QVERIFY_EXCEPTION_THROWN(
         sdr::dsp::RecordedIqSource({.path = rawPath.string(), .format = "ci16_le"}),
         std::invalid_argument);
+}
+
+void GnuRadioReceiverBackendTest::loadsRecordedIqBackendFromAdjacentSidecar()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) /
+                         "dialog-selected.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        const std::array<float, 8> values{};
+        raw.write(reinterpret_cast<const char*>(values.data()),
+                  static_cast<std::streamsize>(sizeof(values)));
+    }
+    {
+        auto sidecarPath = rawPath;
+        sidecarPath.replace_extension(".json");
+        std::ofstream sidecar(sidecarPath);
+        sidecar << "{\"hardware_center_frequency_hz\": 101000000,"
+                   "\"sample_rate_hz\": 200000,\"sample_format\":\"cf32_le\","
+                   "\"byte_order\":\"little-endian\",\"written_sample_count\":4}";
+    }
+
+    GnuRadioReceiverBackend receiver({.path = rawPath.string()});
+    const auto transport = receiver.recordingTransport();
+    QVERIFY(transport.state == sdr::radio::RecordingPlaybackState::Stopped);
+    QCOMPARE(transport.displayName, std::string{"dialog-selected.raw"});
+    QCOMPARE(transport.sampleRate, std::uint64_t{200'000});
 }
 
 void GnuRadioReceiverBackendTest::tracksCenterListeningOffset()

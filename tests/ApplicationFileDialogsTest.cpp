@@ -3,8 +3,16 @@
 
 #include "ApplicationFileDialogs.hpp"
 
+#if SDR_RECEIVER_TEST_GNURADIO
+#include "ApplicationModel.hpp"
+#include "GnuRadioReceiverBackend.hpp"
+#include "RecordedAudioBackend.hpp"
+#include "ReceiverRuntime.hpp"
+#endif
+
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -14,6 +22,11 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <utility>
 
 namespace
 {
@@ -50,6 +63,54 @@ bool hasSidebarDirectory(const QList<QUrl>& urls, const QString& expected)
                        });
 }
 
+#if SDR_RECEIVER_TEST_GNURADIO
+void appendLittleEndian16(QByteArray& bytes, std::uint16_t value)
+{
+    bytes.append(static_cast<char>(value & 0xffU));
+    bytes.append(static_cast<char>((value >> 8U) & 0xffU));
+}
+
+void appendLittleEndian32(QByteArray& bytes, std::uint32_t value)
+{
+    for (unsigned shift = 0; shift < 32U; shift += 8U)
+        bytes.append(static_cast<char>((value >> shift) & 0xffU));
+}
+
+QString writePcmWav(const QTemporaryDir& directory)
+{
+    QByteArray samples(32, '\0');
+    QByteArray wav{"RIFF", 4};
+    appendLittleEndian32(wav, static_cast<std::uint32_t>(36 + samples.size()));
+    wav.append("WAVEfmt ", 8);
+    appendLittleEndian32(wav, 16);
+    appendLittleEndian16(wav, 1);
+    appendLittleEndian16(wav, 1);
+    appendLittleEndian32(wav, 48'000);
+    appendLittleEndian32(wav, 96'000);
+    appendLittleEndian16(wav, 2);
+    appendLittleEndian16(wav, 16);
+    wav.append("data", 4);
+    appendLittleEndian32(wav, static_cast<std::uint32_t>(samples.size()));
+    wav.append(samples);
+    const QString path = directory.filePath(QStringLiteral("content-detected.bin"));
+    QFile output(path);
+    if (!output.open(QIODevice::WriteOnly) || output.write(wav) != wav.size())
+        return {};
+    return path;
+}
+
+bool waitUntil(const std::function<bool()>& predicate)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (!predicate() && timer.elapsed() < 3'000) {
+        QCoreApplication::processEvents();
+        QTest::qWait(5);
+    }
+    return predicate();
+}
+#endif
+
 } // namespace
 
 class ApplicationFileDialogsTest final : public QObject
@@ -67,6 +128,9 @@ class ApplicationFileDialogsTest final : public QObject
     void configuresDirectoryAndExecutablePurposes();
     void keepsPurposeDirectoriesIndependentAndRestoresSharedGeometry();
     void rejectsInvalidDirectoryAndExecutableSelections();
+#if SDR_RECEIVER_TEST_GNURADIO
+    void loadsRawIqManualFallbackAndWavThroughSharedDialog();
+#endif
 
   private:
     QTemporaryDir m_settingsDirectory;
@@ -408,6 +472,128 @@ void ApplicationFileDialogsTest::rejectsInvalidDirectoryAndExecutableSelections(
         QStringLiteral("dialogs/recordingDirectory/lastDirectory")));
     QVERIFY(!QSettings().contains(QStringLiteral("dialogs/dsdFme/lastDirectory")));
 }
+
+#if SDR_RECEIVER_TEST_GNURADIO
+void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDialog()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    const QString rawPath = recordings.filePath(QStringLiteral("sidecar capture.raw"));
+    {
+        QFile raw(rawPath);
+        QVERIFY(raw.open(QIODevice::WriteOnly));
+        QCOMPARE(raw.write(QByteArray(32, '\0')), qint64{32});
+    }
+    {
+        QFile sidecar(recordings.filePath(QStringLiteral("sidecar capture.json")));
+        QVERIFY(sidecar.open(QIODevice::WriteOnly));
+        const QByteArray json =
+            "{\"hardware_center_frequency_hz\":101000000,"
+            "\"sample_rate_hz\":200000,\"sample_format\":\"cf32_le\","
+            "\"byte_order\":\"little-endian\",\"written_sample_count\":4}";
+        QCOMPARE(sidecar.write(json), json.size());
+    }
+    const QString manualPath = recordings.filePath(QStringLiteral("manual.raw"));
+    {
+        QFile raw(manualPath);
+        QVERIFY(raw.open(QIODevice::WriteOnly));
+        QCOMPARE(raw.write(QByteArray(32, '\0')), qint64{32});
+    }
+    const QString malformedPath =
+        recordings.filePath(QStringLiteral("malformed.raw"));
+    {
+        QFile raw(malformedPath);
+        QVERIFY(raw.open(QIODevice::WriteOnly));
+        QCOMPARE(raw.write("bad", 3), qint64{3});
+    }
+    const QString invalidSidecarPath =
+        recordings.filePath(QStringLiteral("invalid-sidecar.raw"));
+    {
+        QFile raw(invalidSidecarPath);
+        QVERIFY(raw.open(QIODevice::WriteOnly));
+        QCOMPARE(raw.write(QByteArray(32, '\0')), qint64{32});
+        QFile sidecar(
+            recordings.filePath(QStringLiteral("invalid-sidecar.json")));
+        QVERIFY(sidecar.open(QIODevice::WriteOnly));
+        QCOMPARE(sidecar.write("{}", 2), qint64{2});
+    }
+    const QString wavPath = writePcmWav(recordings);
+    QVERIFY(!wavPath.isEmpty());
+
+    sdr::app::ReceiverRuntime::Factories factories;
+    factories.createRecordedBackend = [](
+                                          sdr::radio::RecordedIqSourceConfiguration source) {
+        return std::make_unique<sdr::dsp::GnuRadioReceiverBackend>(
+            std::move(source));
+    };
+    factories.createRecordedAudioBackend = [](const std::string& path) {
+        return std::make_unique<sdr::dsp::RecordedAudioBackend>(
+            std::filesystem::path(path));
+    };
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Mock, std::move(factories));
+    ApplicationModel model(runtime);
+    runtime.start();
+
+    int forwardedCount = 0;
+    QStringList forwardedPaths;
+    sdr::gui::ApplicationFileDialogs dialogs(
+        [&model, &forwardedCount, &forwardedPaths](const QUrl& url) {
+            ++forwardedCount;
+            forwardedPaths.append(url.toLocalFile());
+            model.loadRecording(url);
+        },
+        {}, {}, [&recordings] { return recordings.path(); }, {});
+    const auto acceptRecording = [&dialogs](const QString& path) {
+        dialogs.openRecordingFileDialog();
+        dialogs.dialog()->selectFile(path);
+        return QMetaObject::invokeMethod(
+            dialogs.dialog(), "accept", Qt::DirectConnection);
+    };
+
+    QVERIFY(QDir().mkpath(recordings.filePath(QStringLiteral("nested"))));
+    QVERIFY(acceptRecording(
+        recordings.filePath(QStringLiteral("nested/../sidecar capture.raw"))));
+    QVERIFY(waitUntil([&model] { return model.recordingLoaded(); }));
+    QCOMPARE(forwardedCount, 1);
+    QCOMPARE(forwardedPaths.constFirst(), cleanPath(rawPath));
+    QCOMPARE(model.recordingDisplayName(), QStringLiteral("sidecar capture.raw"));
+
+    QVERIFY(acceptRecording(manualPath));
+    QVERIFY(waitUntil([&model] { return model.recordedIqMetadataRequired(); }));
+    QVERIFY(model.recordingLoaded());
+    QCOMPARE(model.recordingDisplayName(), QStringLiteral("sidecar capture.raw"));
+    model.selectRecordedIqSource(
+        QUrl::fromLocalFile(manualPath), 102'000'000, 250'000);
+    QVERIFY(waitUntil([&model] {
+        return model.recordingLoaded() && !model.recordedIqMetadataRequired() &&
+               model.recordingDisplayName() == QStringLiteral("manual.raw");
+    }));
+
+    QVERIFY(acceptRecording(invalidSidecarPath));
+    QVERIFY(waitUntil([&model] { return model.recordedIqMetadataRequired(); }));
+    QVERIFY(model.recordingLoaded());
+    QCOMPARE(model.recordingDisplayName(), QStringLiteral("manual.raw"));
+
+    QVERIFY(acceptRecording(malformedPath));
+    QVERIFY(waitUntil([&model] {
+        return model.statusText().contains(QStringLiteral("selection failed"));
+    }));
+    QVERIFY(model.recordingLoaded());
+    QCOMPARE(model.recordingDisplayName(), QStringLiteral("manual.raw"));
+    QVERIFY(model.statusText().contains(QStringLiteral("truncated")));
+
+    QVERIFY(acceptRecording(wavPath));
+    QVERIFY(waitUntil([&model, &wavPath] {
+        return model.recordingLoaded() &&
+               model.recordingDisplayName() == QFileInfo(wavPath).fileName();
+    }));
+    QVERIFY(model.recordedAudioSource());
+    QCOMPARE(forwardedCount, 5);
+
+    runtime.shutdown();
+}
+#endif
 
 QTEST_MAIN(ApplicationFileDialogsTest)
 

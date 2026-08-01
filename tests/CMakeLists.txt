@@ -93,9 +93,17 @@ add_executable(
 target_link_libraries(
     application_file_dialogs_tests
     PRIVATE
+        sdr_application_model
         sdr_presentation
         Qt6::Test
 )
+target_compile_definitions(
+    application_file_dialogs_tests
+    PRIVATE SDR_RECEIVER_TEST_GNURADIO=$<BOOL:${ENABLE_GNURADIO}>
+)
+if(ENABLE_GNURADIO)
+    target_link_libraries(application_file_dialogs_tests PRIVATE sdr_gnuradio_backend)
+endif()
 sdr_enable_warnings(application_file_dialogs_tests)
 add_test(
     NAME application_file_dialogs_tests

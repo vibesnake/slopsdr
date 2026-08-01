@@ -381,10 +381,10 @@ the right of Listening Frequency select one persisted, horizontally resizable
 panel on the left of the radio display. The four panels are mutually exclusive
 and any may be closed. Each retains its own saved width; opening one reduces
 display width rather than overlaying the spectrum or waterfall. The Settings
-panel contains the optional DSD-FME executable-path field, native file chooser,
-clear action, and local file-validation message. It also contains an **SDR
-calibration** section showing the effective signed PPM correction, one **Auto
-PPM** button that becomes **Cancel**, a progress indicator, and the preparing,
+panel contains the optional DSD-FME executable-path field, shared non-native
+Qt widget file chooser, clear action, and local file-validation message. It
+also contains an **SDR calibration** section showing the effective signed PPM
+correction, one **Auto PPM** button that becomes **Cancel**, a progress indicator, and the preparing,
 settling, measuring 1/3 through 3/3, applying, completed, failed, and cancelled
 states. Auto PPM is disabled unless the selected physical device exposes both
 RTL-SDR test mode and frequency correction. Concise decoder runtime state is

@@ -1120,6 +1120,17 @@ public:
                 .sampleRate = {source.sampleRate, source.sampleRate}};
     }
 
+    [[nodiscard]] static radio::ReceiverStateModel receiverModelForRecordedSource(
+        const radio::RecordedIqSourceConfiguration& source)
+    {
+        radio::ReceiverState state;
+        state.centerFrequency = source.centerFrequency;
+        state.listeningFrequency = source.centerFrequency;
+        state.sampleRate = source.sampleRate;
+        return radio::ReceiverStateModel(
+            receiverLimitsForRecordedSource(source), state);
+    }
+
     class Flowgraph final
     {
     public:
@@ -1761,8 +1772,8 @@ public:
         SpectrumDisplayConfiguration spectrumConfiguration = {},
         bool verboseDspMetrics = false)
         : m_initialSpectrum(spectrumConfiguration)
-        , model(recorded ? receiverLimitsForRecordedSource(*recorded)
-                         : receiverLimitsForDevice(device))
+        , model(recorded ? receiverModelForRecordedSource(*recorded)
+                         : radio::ReceiverStateModel(receiverLimitsForDevice(device)))
         , spectrumFrames(std::make_shared<radio::SpectrumFrameQueue>(64))
         , spectrumCounters(std::make_shared<SpectrumProcessingCounters>())
         , spectrumProcessor(makeSpectrumProcessor(
@@ -1787,8 +1798,6 @@ public:
               model.state(), std::move(m_initialSpectrum.resources)))
     {
         if (recordedSource) {
-            static_cast<void>(model.setSampleRate(recordedSource->sampleRate));
-            static_cast<void>(model.setCenterFrequency(recordedSource->centerFrequency));
             sourceCapabilities = {.kind = radio::ReceiverSourceKind::RecordedIq,
                                   .sampleRateChangeSupported = false};
         }

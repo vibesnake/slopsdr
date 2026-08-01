@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,30 @@ std::optional<double> estimateOneShotSquelchThreshold(
 ReceiverStateModel::ReceiverStateModel(ReceiverLimits limits)
     : m_limits(std::move(limits))
 {
+}
+
+ReceiverStateModel::ReceiverStateModel(
+    ReceiverLimits limits, ReceiverState initialState)
+    : m_limits(std::move(limits))
+    , m_state(std::move(initialState))
+{
+    if (!m_limits.sampleRate.contains(m_state.sampleRate)) {
+        throw std::invalid_argument("Initial sample rate is outside the receiver limits");
+    }
+    if (!validCenterFrequencyRange(m_limits, m_state.sampleRate)
+             .contains(m_state.centerFrequency)) {
+        throw std::invalid_argument(
+            "Initial center frequency cannot provide the complete passband");
+    }
+    if (!availablePassband(m_state).contains(m_state.listeningFrequency)) {
+        throw std::invalid_argument(
+            "Initial listening frequency is outside the receiver passband");
+    }
+    if (!filterWidthRange(m_state.demodulationMode, m_state.sampleRate)
+             .contains(m_state.filterWidth)) {
+        throw std::invalid_argument(
+            "Initial filter width is unsupported at the receiver sample rate");
+    }
 }
 
 FilterWidthRange filterWidthRange(

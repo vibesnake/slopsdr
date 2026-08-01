@@ -17,6 +17,7 @@ class ReceiverStateModel final
 {
 public:
     explicit ReceiverStateModel(ReceiverLimits limits = {});
+    ReceiverStateModel(ReceiverLimits limits, ReceiverState initialState);
 
     [[nodiscard]] const ReceiverLimits& limits() const noexcept;
     [[nodiscard]] const ReceiverState& state() const noexcept;
