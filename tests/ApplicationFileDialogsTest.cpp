@@ -558,6 +558,8 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
         sdr::app::ReceiverRuntime::StartupMode::Mock, std::move(factories));
     ApplicationModel model(runtime);
     QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
+    QSignalSpy loadRequests(
+        &runtime, &sdr::app::ReceiverRuntime::loadRecordingRequested);
     runtime.start();
     QVERIFY2(waitUntil([&model, &snapshots] {
         return snapshots.count() > 0 && model.mockMode() &&
@@ -573,17 +575,29 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
             model.loadRecording(url);
         },
         {}, {}, [&recordings] { return recordings.path(); }, {});
+    QSignalSpy recordingSelections(
+        &dialogs, &sdr::gui::ApplicationFileDialogs::recordingFileSelected);
     const auto acceptRecording = [&dialogs](const QString& path) {
         dialogs.openRecordingFileDialog();
         dialogs.dialog()->selectFile(path);
-        return QMetaObject::invokeMethod(
-            dialogs.dialog(), "accept", Qt::DirectConnection);
+        // QFileDialog::accept() also exercises its asynchronously populated
+        // filesystem view.  Hosted Xvfb can still be loading that view here,
+        // causing accept() to decline the selection even though invokeMethod()
+        // succeeds.  Emit the dialog's accepted signal directly so this
+        // integration test deterministically exercises our acceptance path.
+        const bool accepted = QMetaObject::invokeMethod(
+            dialogs.dialog(), "accepted", Qt::DirectConnection);
+        dialogs.dialog()->hide();
+        return accepted;
     };
 
     QVERIFY(QDir().mkpath(recordings.filePath(QStringLiteral("nested"))));
     qsizetype snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(
         recordings.filePath(QStringLiteral("nested/../sidecar capture.raw"))));
+    QCOMPARE(recordingSelections.count(), 1);
+    QCOMPARE(loadRequests.count(), 1);
+    QCOMPARE(loadRequests.constFirst().constFirst().toString(), cleanPath(rawPath));
     QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
         return model.recordingLoaded() && model.recordedIqSource() &&
                model.recordingDisplayName() == QStringLiteral("sidecar capture.raw");
@@ -594,6 +608,9 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
 
     snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(manualPath));
+    QCOMPARE(recordingSelections.count(), 2);
+    QCOMPARE(loadRequests.count(), 2);
+    QCOMPARE(loadRequests.at(1).constFirst().toString(), cleanPath(manualPath));
     QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
         return model.recordedIqMetadataRequired();
     }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
@@ -609,6 +626,10 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
 
     snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(invalidSidecarPath));
+    QCOMPARE(recordingSelections.count(), 3);
+    QCOMPARE(loadRequests.count(), 3);
+    QCOMPARE(loadRequests.at(2).constFirst().toString(),
+             cleanPath(invalidSidecarPath));
     QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
         return model.recordedIqMetadataRequired();
     }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
@@ -617,6 +638,9 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
 
     snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(malformedPath));
+    QCOMPARE(recordingSelections.count(), 4);
+    QCOMPARE(loadRequests.count(), 4);
+    QCOMPARE(loadRequests.at(3).constFirst().toString(), cleanPath(malformedPath));
     QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
         return model.statusText().contains(QStringLiteral("selection failed"));
     }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
@@ -632,6 +656,9 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
 
     snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(wavPath));
+    QCOMPARE(recordingSelections.count(), 5);
+    QCOMPARE(loadRequests.count(), 5);
+    QCOMPARE(loadRequests.at(4).constFirst().toString(), cleanPath(wavPath));
     QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model, &wavPath] {
         return model.recordingLoaded() &&
                model.recordingDisplayName() == QFileInfo(wavPath).fileName();
