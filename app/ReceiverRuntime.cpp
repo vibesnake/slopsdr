@@ -995,7 +995,8 @@ public slots:
                   m_iqRecording->state().filePath.filename().string()))
             : QString::fromStdString(m_iqRecording->state().statusText);
         log(started ? 1 : 3, QStringLiteral("IQ recording"), m_statusText);
-        publishSnapshot(started);
+        m_iqTelemetryInitialized = false;
+        publishIqRecordingTelemetry(started, true);
     }
 
     void stopIqRecording()
@@ -1013,6 +1014,7 @@ public slots:
             log(m_iqRecording->state().failed ? 3 : 1,
                 QStringLiteral("IQ recording"), m_statusText);
         }
+        publishIqRecordingTelemetry(true, true);
     }
 
     void serviceIqRecording()
@@ -1035,8 +1037,40 @@ public slots:
             m_statusText = QString::fromStdString(m_iqRecording->state().statusText);
             log(3, QStringLiteral("IQ recording"),
                 m_statusText);
-            publishSnapshot(false);
+            publishIqRecordingTelemetry(false, true);
         }
+        publishIqRecordingTelemetry(true, false);
+    }
+
+    void publishIqRecordingTelemetry(bool operationSucceeded, bool force)
+    {
+        if (!m_iqRecording) return;
+        const auto state = m_iqRecording->state();
+        const bool wasActive = m_lastPublishedIqActive;
+        const bool immediateChange = force || !m_iqTelemetryInitialized ||
+            state.active != m_lastPublishedIqActive ||
+            state.failed != m_lastPublishedIqFailed ||
+            state.droppedSamples != m_lastPublishedIqDroppedSamples ||
+            state.statusText != m_lastPublishedIqStatusText;
+        const bool elapsedChange = state.active &&
+            state.elapsedSeconds != m_lastPublishedIqElapsedSeconds &&
+            (!m_iqElapsedPublishTimer.isValid() ||
+             m_iqElapsedPublishTimer.elapsed() >= 1'000);
+        if (!immediateChange && !elapsedChange) return;
+        m_iqTelemetryInitialized = true;
+        m_lastPublishedIqActive = state.active;
+        m_lastPublishedIqFailed = state.failed;
+        m_lastPublishedIqDroppedSamples = state.droppedSamples;
+        m_lastPublishedIqElapsedSeconds = state.elapsedSeconds;
+        m_lastPublishedIqStatusText = state.statusText;
+        if (state.active) {
+            if (!m_iqElapsedPublishTimer.isValid()) m_iqElapsedPublishTimer.start();
+            else if (immediateChange && !wasActive)
+                m_iqElapsedPublishTimer.restart();
+        } else {
+            m_iqElapsedPublishTimer.invalidate();
+        }
+        publishSnapshot(operationSucceeded);
     }
 
     void segmentIqRecordingIfCaptureChanged(
@@ -2492,10 +2526,6 @@ private:
             m_recording->stop();
             publishSnapshot(true);
         }
-        const std::optional<platform::AudioOutputState> previousAudioState =
-            m_audioOutput
-                ? std::optional<platform::AudioOutputState>(m_audioOutput->state())
-                : std::nullopt;
         if (m_backend && !m_ppmCalibrationRunning) {
             serviceIqRecording();
             if (auto runtimeError = m_backend->takeRuntimeError()) {
@@ -2563,11 +2593,7 @@ private:
             sampleAutoSquelch();
         }
         reportSpectrumMetrics();
-        if (m_audioOutput &&
-            (!previousAudioState.has_value() ||
-             *previousAudioState != m_audioOutput->state())) {
-            publishSnapshot(true);
-        }
+        publishAudioTelemetryIfChanged();
     }
 
     void publishNextWaterfallRow()
@@ -2754,11 +2780,37 @@ private:
                 m_lastDecoderPlatformAudioUnderruns =
                     audio.platformUnderrunEvents;
             }
+            publishAudioTelemetryIfChanged();
         }
         reportAudioMetrics();
         if (previousDsdState && *previousDsdState != m_dsdFme->state()) {
             publishSnapshot(true);
         }
+    }
+
+    void publishAudioTelemetryIfChanged()
+    {
+        if (!m_audioOutput) return;
+        const auto& state = m_audioOutput->state();
+        const bool statusChanged = !m_audioTelemetryInitialized ||
+            state.statusText != m_lastPublishedAudioStatusText ||
+            state.ready != m_lastPublishedAudioReady ||
+            state.running != m_lastPublishedAudioRunning;
+        const bool countersChanged = !m_audioTelemetryInitialized ||
+            state.overflowEvents != m_lastPublishedAudioOverflowEvents ||
+            state.underrunEvents != m_lastPublishedAudioUnderrunEvents;
+        if (!statusChanged && !countersChanged) return;
+        if (countersChanged && !statusChanged &&
+            m_audioTelemetryPublishTimer.isValid() &&
+            m_audioTelemetryPublishTimer.elapsed() < 100) return;
+        m_audioTelemetryInitialized = true;
+        m_lastPublishedAudioStatusText = state.statusText;
+        m_lastPublishedAudioReady = state.ready;
+        m_lastPublishedAudioRunning = state.running;
+        m_lastPublishedAudioOverflowEvents = state.overflowEvents;
+        m_lastPublishedAudioUnderrunEvents = state.underrunEvents;
+        m_audioTelemetryPublishTimer.restart();
+        publishSnapshot(true);
     }
 
     void publishRecordingStateIfChanged()
@@ -3379,6 +3431,13 @@ private:
     bool m_scannerClipWriting = false;
     bool m_lastPublishedRecordingWriting = false;
     quint64 m_lastPublishedRecordingElapsedSeconds = 0;
+    bool m_iqTelemetryInitialized = false;
+    bool m_lastPublishedIqActive = false;
+    bool m_lastPublishedIqFailed = false;
+    quint64 m_lastPublishedIqElapsedSeconds = 0;
+    quint64 m_lastPublishedIqDroppedSamples = 0;
+    std::string m_lastPublishedIqStatusText;
+    QElapsedTimer m_iqElapsedPublishTimer;
     quint64 m_lastBackendIqDroppedSamples = 0;
     quint64 m_iqSegmentSampleRate = 0;
     std::unique_ptr<platform::DsdFmeProcessService> m_dsdFme;
@@ -3411,6 +3470,13 @@ private:
     std::uint64_t m_lastMetricsServicePasses = 0;
     std::uint64_t m_lastMetricsWrittenSamples = 0;
     QElapsedTimer m_audioMetricsTimer;
+    bool m_audioTelemetryInitialized = false;
+    bool m_lastPublishedAudioReady = false;
+    bool m_lastPublishedAudioRunning = false;
+    std::uint64_t m_lastPublishedAudioOverflowEvents = 0;
+    std::uint64_t m_lastPublishedAudioUnderrunEvents = 0;
+    std::string m_lastPublishedAudioStatusText;
+    QElapsedTimer m_audioTelemetryPublishTimer;
     std::uint32_t m_targetSpectrumFramesPerSecond =
         dsp::defaultSpectrumDisplayFramesPerSecond;
     double m_visibleWaterfallHistorySeconds =
