@@ -35,6 +35,42 @@ ApplicationWindow {
     readonly property string sidebarModeScan: "scan"
     readonly property string sidebarModeSettings: "settings"
 
+    component FooterDarkButton: Button {
+        id: footerButton
+        property bool stateActive: false
+        implicitHeight: 30
+        implicitWidth: Math.max(30, footerButtonText.implicitWidth + 18)
+        leftPadding: 9
+        rightPadding: 9
+        activeFocusOnTab: true
+
+        background: Rectangle {
+            radius: 4
+            color: !footerButton.enabled ? "#141d2d"
+                   : footerButton.down ? "#314968"
+                   : footerButton.checked || footerButton.stateActive ? "#274b63"
+                   : footerButton.hovered ? "#25364f"
+                   : "#1a2639"
+            border.color: footerButton.activeFocus ? root.centerColor
+                          : footerButton.checked || footerButton.stateActive ? "#4eb8d8"
+                          : footerButton.hovered ? "#526882"
+                          : "#34445d"
+            border.width: footerButton.activeFocus ? 2 : 1
+        }
+
+        contentItem: Text {
+            id: footerButtonText
+            text: footerButton.text
+            color: !footerButton.enabled ? "#647187"
+                   : footerButton.checked || footerButton.stateActive ? "#dff7ff"
+                   : root.primaryTextColor
+            font: footerButton.font
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+    }
+
     FileDialog {
         id: recordedIqFileDialog
         title: qsTr("Load recording")
@@ -4409,14 +4445,27 @@ ApplicationWindow {
 
     footer: ToolBar {
         id: footerBar
-        property int footerButtonHeight: 30
-        property int footerButtonSpacing: 2
-        property int footerPrimaryRowTopMargin: 2
-        // The transport and receiver indicators always occupy the first row;
-        // playback seeking owns the complete second row.
-        implicitHeight: root.denseLayout ? 66 : 72
+        readonly property int edgeMargin: 10
+        readonly property int controlHeight: 30
+        readonly property int transportButtonSize: 30
+        readonly property int regionSpacing: 8
+        readonly property bool playbackError:
+            root.applicationModel.recordingLoaded &&
+            (root.applicationModel.statusText.toLowerCase().indexOf("failed") >= 0 ||
+             root.applicationModel.statusText.toLowerCase().indexOf("error") >= 0)
+        readonly property string playbackStateText:
+            !root.applicationModel.recordingLoaded ? ""
+            : playbackError ? qsTr("Error")
+            : root.applicationModel.recordingPlaying ? qsTr("Playing")
+            : root.applicationModel.recordingPaused ? qsTr("Paused")
+            : root.applicationModel.recordingDurationFrames > 0 &&
+              root.applicationModel.recordingPositionFrames >=
+                  root.applicationModel.recordingDurationFrames ? qsTr("EOF")
+            : qsTr("Stopped")
+
+        implicitHeight: 76
         background: Rectangle {
-            color: "#111a2b"
+            color: "#101827"
             border.color: root.panelBorderColor
         }
 
@@ -4424,242 +4473,309 @@ ApplicationWindow {
             anchors.fill: parent
 
             RowLayout {
-                id: playbackControlRow
+                id: footerTopRow
+                objectName: "footerTopRow"
                 anchors.left: parent.left
-                anchors.leftMargin: 10
+                anchors.leftMargin: footerBar.edgeMargin
                 anchors.right: parent.right
-                anchors.rightMargin: 10
+                anchors.rightMargin: footerBar.edgeMargin
                 anchors.top: parent.top
-                anchors.topMargin: footerBar.footerPrimaryRowTopMargin
-                height: footerBar.footerButtonHeight
-                spacing: footerBar.footerButtonSpacing
+                anchors.topMargin: 4
+                height: footerBar.controlHeight
+                spacing: footerBar.regionSpacing
 
-                    Button {
-                        Layout.preferredWidth: footerBar.footerButtonHeight
-                        implicitHeight: footerBar.footerButtonHeight
-                        text: "⏮"
-                        enabled: root.applicationModel.recordingLoaded
-                        Accessible.name: qsTr("Restart recording playback")
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Restart recording playback")
-                        onClicked: root.applicationModel.restartRecordingPlayback()
-                    }
-                    Button {
-                        Layout.preferredWidth: footerBar.footerButtonHeight
-                        implicitHeight: footerBar.footerButtonHeight
-                        text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
-                        enabled: root.applicationModel.recordingLoaded
-                        Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        onClicked: root.applicationModel.toggleRecordingPlayback()
-                    }
-                    Button {
-                        Layout.preferredWidth: footerBar.footerButtonHeight
-                        implicitHeight: footerBar.footerButtonHeight
-                        text: "■"
-                        enabled: root.applicationModel.recordingLoaded
-                        Accessible.name: qsTr("Stop and rewind recording playback")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        onClicked: root.applicationModel.stopRecordingPlayback()
-                    }
-                    Button {
-                        Layout.preferredWidth: footerBar.footerButtonHeight
-                        implicitHeight: footerBar.footerButtonHeight
-                        text: "⏏"
-                        enabled: !root.applicationModel.receiverRunning &&
-                                 !root.applicationModel.runtimeBusy
-                        Accessible.name: root.applicationModel.recordingLoaded
-                                         ? qsTr("Eject recording")
-                                         : qsTr("Load recording")
-                        ToolTip.visible: hovered
-                        ToolTip.text: Accessible.name
-                        onClicked: {
-                            if (root.applicationModel.recordingLoaded)
-                                root.applicationModel.ejectRecording()
-                            else
-                                recordedIqFileDialog.open()
-                        }
-                }
+                Rectangle {
+                    id: playbackTransportGroup
+                    objectName: "playbackTransportGroup"
+                    Layout.preferredWidth: footerBar.transportButtonSize * 4 + 14
+                    Layout.minimumWidth: Layout.preferredWidth
+                    Layout.preferredHeight: footerBar.controlHeight
+                    radius: 5
+                    color: "#121d2e"
+                    border.color: "#2f4059"
 
-                Label {
-                    id: recordingFileName
-                    objectName: "recordingFileName"
-                    Layout.minimumWidth: 48
-                    Layout.maximumWidth: root.denseLayout ? 100 : 180
-                    Layout.preferredWidth: root.denseLayout ? 76 : 140
-                    Layout.fillWidth: false
-                    text: root.applicationModel.recordingDisplayName === ""
-                          ? qsTr("No recording") : root.applicationModel.recordingDisplayName
-                    color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor
-                    font.pixelSize: 9
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                    ToolTip.visible: recordingFileNameHover.containsMouse
-                    ToolTip.text: root.applicationModel.recordingDisplayName
-                    MouseArea {
-                        id: recordingFileNameHover
+                    RowLayout {
                         anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.NoButton
+                        anchors.margins: 3
+                        spacing: 2
+
+                        FooterDarkButton {
+                            Layout.preferredWidth: footerBar.transportButtonSize
+                            Layout.minimumWidth: footerBar.transportButtonSize
+                            text: "⏮"
+                            enabled: root.applicationModel.recordingLoaded
+                            Accessible.name: qsTr("Restart recording playback")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: root.applicationModel.restartRecordingPlayback()
+                        }
+                        FooterDarkButton {
+                            Layout.preferredWidth: footerBar.transportButtonSize
+                            Layout.minimumWidth: footerBar.transportButtonSize
+                            text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
+                            stateActive: root.applicationModel.recordingPlaying
+                            enabled: root.applicationModel.recordingLoaded
+                            Accessible.name: root.applicationModel.recordingPlaying
+                                             ? qsTr("Pause recording playback")
+                                             : qsTr("Play recording playback")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: root.applicationModel.toggleRecordingPlayback()
+                        }
+                        FooterDarkButton {
+                            Layout.preferredWidth: footerBar.transportButtonSize
+                            Layout.minimumWidth: footerBar.transportButtonSize
+                            text: "■"
+                            enabled: root.applicationModel.recordingLoaded
+                            Accessible.name: qsTr("Stop and rewind recording playback")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: root.applicationModel.stopRecordingPlayback()
+                        }
+                        FooterDarkButton {
+                            Layout.preferredWidth: footerBar.transportButtonSize
+                            Layout.minimumWidth: footerBar.transportButtonSize
+                            text: "⏏"
+                            enabled: !root.applicationModel.receiverRunning &&
+                                     !root.applicationModel.runtimeBusy
+                            Accessible.name: root.applicationModel.recordingLoaded
+                                             ? qsTr("Eject recording")
+                                             : qsTr("Load recording")
+                            ToolTip.visible: hovered
+                            ToolTip.text: Accessible.name
+                            onClicked: {
+                                if (root.applicationModel.recordingLoaded)
+                                    root.applicationModel.ejectRecording()
+                                else
+                                    recordedIqFileDialog.open()
+                            }
+                        }
                     }
                 }
-            }
 
-            RowLayout {
-                id: footerStatusRow
-                // Receiver/recording controls share the transport's top row.
-                // The separate seek row below never competes for this width.
-                anchors.left: parent.left
-                anchors.leftMargin: root.denseLayout ? 218 : 282
-                anchors.right: parent.right
-                anchors.rightMargin: 10
-                anchors.top: parent.top
-                anchors.topMargin: footerBar.footerPrimaryRowTopMargin
-                height: footerBar.footerButtonHeight
-                spacing: 8
-                clip: true
+                Rectangle {
+                    id: recordingInformationGroup
+                    objectName: "recordingInformationGroup"
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: root.denseLayout ? 104 : 150
+                    Layout.preferredHeight: footerBar.controlHeight
+                    radius: 5
+                    color: "#121d2e"
+                    border.color: "#2a3a52"
+                    clip: true
 
-            Rectangle {
-                implicitWidth: 8
-                implicitHeight: 8
-                radius: width / 2
-                color: "#718096"
-            }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 9
+                        anchors.rightMargin: 7
+                        spacing: 7
 
-            Button {
-                id: audioRecordingButton
-                objectName: "audioRecordingButton"
-                implicitHeight: footerBar.footerButtonHeight
-                text: root.applicationModel.recordingActive
-                      ? qsTr("Stop") : qsTr("Record audio")
-                enabled: root.applicationModel.recordingActive
-                         || root.applicationModel.recordingCanStart
-                Accessible.name: text
-                onClicked: {
-                    if (root.applicationModel.recordingActive)
-                        root.applicationModel.stopAudioRecording()
-                    else
-                        root.applicationModel.startAudioRecording()
+                        Label {
+                            id: recordingFileName
+                            objectName: "recordingFileName"
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 28
+                            text: root.applicationModel.recordingLoaded
+                                  ? root.applicationModel.recordingDisplayName
+                                  : qsTr("No recording loaded")
+                            color: root.applicationModel.recordingLoaded
+                                   ? root.primaryTextColor : "#78869b"
+                            font.pixelSize: 10
+                            elide: Text.ElideMiddle
+                            maximumLineCount: 1
+                            ToolTip.visible: recordingFileNameHover.containsMouse
+                            ToolTip.text: root.applicationModel.recordingLoaded
+                                          ? root.applicationModel.recordingDisplayName
+                                          : qsTr("No recording loaded")
+                            MouseArea {
+                                id: recordingFileNameHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+                        }
+
+                        Label {
+                            id: recordingPlaybackState
+                            objectName: "recordingPlaybackState"
+                            visible: root.applicationModel.recordingLoaded
+                            Layout.maximumWidth: root.denseLayout ? 58 : 92
+                            text: footerBar.playbackStateText
+                            color: footerBar.playbackError ? "#fecaca"
+                                   : root.applicationModel.recordingPlaying ? "#8ee7ad"
+                                   : root.secondaryTextColor
+                            font.bold: true
+                            font.pixelSize: 9
+                            elide: Text.ElideRight
+                            ToolTip.visible: recordingPlaybackStateHover.containsMouse &&
+                                             footerBar.playbackError
+                            ToolTip.text: root.applicationModel.statusText
+                            MouseArea {
+                                id: recordingPlaybackStateHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+                        }
+                    }
                 }
-            }
 
-            Rectangle {
-                objectName: "recordingIndicator"
-                visible: root.applicationModel.recordingWriting
-                implicitWidth: 8
-                implicitHeight: 8
-                radius: width / 2
-                color: "#ef4444"
-            }
+                Rectangle {
+                    id: recordingControlsGroup
+                    objectName: "recordingControlsGroup"
+                    Layout.preferredWidth: recordingControls.implicitWidth + 10
+                    Layout.minimumWidth: Layout.preferredWidth
+                    Layout.preferredHeight: footerBar.controlHeight
+                    radius: 5
+                    color: "#121d2e"
+                    border.color: "#2a3a52"
 
-            Label {
-                objectName: "recordingFormatLabel"
-                text: root.applicationModel.recordingActive
-                      && !root.applicationModel.recordingWriting
-                      ? qsTr("WAV ARMED") : qsTr("WAV")
-                color: root.applicationModel.recordingWriting
-                       ? "#fecaca" : root.secondaryTextColor
-                font.bold: true
-                font.pixelSize: 10
-            }
+                    RowLayout {
+                        id: recordingControls
+                        anchors.fill: parent
+                        anchors.margins: 3
+                        spacing: 5
 
-            Label {
-                objectName: "recordingElapsedLabel"
-                text: root.applicationModel.recordingElapsedText
-                color: root.applicationModel.recordingWriting
-                       ? "#fecaca" : root.secondaryTextColor
-                font.pixelSize: 10
-            }
+                        FooterDarkButton {
+                            id: audioRecordingButton
+                            objectName: "audioRecordingButton"
+                            text: root.applicationModel.recordingActive
+                                  ? qsTr("Stop audio") : qsTr("Record audio")
+                            stateActive: root.applicationModel.recordingActive
+                            enabled: root.applicationModel.recordingActive ||
+                                     root.applicationModel.recordingCanStart
+                            Accessible.name: text
+                            onClicked: {
+                                if (root.applicationModel.recordingActive)
+                                    root.applicationModel.stopAudioRecording()
+                                else
+                                    root.applicationModel.startAudioRecording()
+                            }
+                        }
 
-            Button {
-                id: iqRecordingButton
-                objectName: "iqRecordingButton"
-                implicitHeight: footerBar.footerButtonHeight
-                text: root.applicationModel.iqRecordingActive
-                      ? qsTr("Stop IQ") : qsTr("Record IQ")
-                enabled: root.applicationModel.iqRecordingActive
-                         || root.applicationModel.iqRecordingCanStart
-                Accessible.name: text
-                onClicked: {
-                    if (root.applicationModel.iqRecordingActive)
-                        root.applicationModel.stopIqRecording()
-                    else
-                        root.applicationModel.startIqRecording()
+                        Label {
+                            objectName: "audioRecordingStatus"
+                            visible: root.applicationModel.recordingActive
+                            text: (root.applicationModel.recordingWriting
+                                   ? qsTr("REC ") : qsTr("ARMED ")) +
+                                  root.applicationModel.recordingElapsedText
+                            color: root.applicationModel.recordingWriting
+                                   ? "#fca5a5" : "#f6c66b"
+                            font.bold: true
+                            font.pixelSize: 9
+                        }
+
+                        FooterDarkButton {
+                            id: iqRecordingButton
+                            objectName: "iqRecordingButton"
+                            text: root.applicationModel.iqRecordingActive
+                                  ? qsTr("Stop IQ") : qsTr("Record IQ")
+                            stateActive: root.applicationModel.iqRecordingActive
+                            enabled: root.applicationModel.iqRecordingActive ||
+                                     root.applicationModel.iqRecordingCanStart
+                            Accessible.name: text
+                            onClicked: {
+                                if (root.applicationModel.iqRecordingActive)
+                                    root.applicationModel.stopIqRecording()
+                                else
+                                    root.applicationModel.startIqRecording()
+                            }
+                        }
+
+                        Label {
+                            objectName: "iqRecordingStatusLabel"
+                            visible: root.applicationModel.iqRecordingActive
+                            text: root.applicationModel.iqRecordingDroppedSamples > 0
+                                  ? qsTr("IQ %1 · drop %2")
+                                      .arg(root.applicationModel.iqRecordingElapsedText)
+                                      .arg(root.applicationModel.iqRecordingDroppedSamples)
+                                  : qsTr("IQ %1").arg(
+                                        root.applicationModel.iqRecordingElapsedText)
+                            color: root.applicationModel.iqRecordingDroppedSamples > 0
+                                   ? "#fecaca" : root.secondaryTextColor
+                            font.bold: true
+                            font.pixelSize: 9
+                        }
+
+                        Label {
+                            objectName: "scannerRecordingStatusLabel"
+                            visible: root.applicationModel.scannerRecordingArmed ||
+                                     root.applicationModel.scannerRecordingWriting
+                            text: root.applicationModel.scannerRecordingWriting
+                                  ? qsTr("SCAN REC") : qsTr("SCAN ARMED")
+                            color: root.applicationModel.scannerRecordingWriting
+                                   ? "#fecaca" : "#f6c66b"
+                            font.bold: true
+                            font.pixelSize: 9
+                        }
+
+                        Rectangle {
+                            id: runtimeServiceIndicator
+                            objectName: "runtimeServiceIndicator"
+                            implicitWidth: 8
+                            implicitHeight: 8
+                            radius: 4
+                            color: root.applicationModel.decoderRunning ||
+                                   root.applicationModel.audioReady
+                                   ? "#68d391" : "#66758c"
+                            ToolTip.visible: runtimeServiceHover.containsMouse
+                            ToolTip.text: root.applicationModel.demodulationModeIndex === 5
+                                          ? (root.applicationModel.decoderRunning
+                                             ? qsTr("Decoder running")
+                                             : qsTr("Decoder stopped"))
+                                          : (root.applicationModel.audioReady
+                                             ? qsTr("Audio ready")
+                                             : root.applicationModel.audioStatusText)
+                            MouseArea {
+                                id: runtimeServiceHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+                        }
+
+                        Label {
+                            id: runtimeServiceStatus
+                            objectName: "runtimeServiceStatus"
+                            visible: !root.denseLayout
+                            text: root.applicationModel.demodulationModeIndex === 5
+                                  ? (root.applicationModel.decoderRunning
+                                     ? qsTr("Decoder") : qsTr("Decoder off"))
+                                  : (root.applicationModel.audioReady
+                                     ? qsTr("Audio") : qsTr("Audio off"))
+                            color: root.applicationModel.decoderRunning ||
+                                   root.applicationModel.audioReady
+                                   ? "#8ee7ad" : root.secondaryTextColor
+                            font.pixelSize: 9
+                        }
+                    }
                 }
-            }
-
-            Label {
-                objectName: "iqRecordingStatusLabel"
-                visible: root.applicationModel.iqRecordingActive
-                text: qsTr("IQ %1 · drop %2")
-                      .arg(root.applicationModel.iqRecordingElapsedText)
-                      .arg(root.applicationModel.iqRecordingDroppedSamples)
-                color: root.applicationModel.iqRecordingDroppedSamples > 0
-                       ? "#fecaca" : root.secondaryTextColor
-                font.bold: true
-                font.pixelSize: 10
-            }
-
-            Label {
-                objectName: "scannerRecordingStatusLabel"
-                visible: root.applicationModel.scannerRecordingArmed
-                         || root.applicationModel.scannerRecordingWriting
-                text: root.applicationModel.scannerRecordingWriting
-                      ? qsTr("SCAN REC") : qsTr("SCAN REC ARMED")
-                color: root.applicationModel.scannerRecordingWriting
-                       ? "#fecaca" : root.secondaryTextColor
-                font.bold: true
-                font.pixelSize: 10
-            }
-
-            Label {
-                id: runtimeServiceStatus
-                objectName: "runtimeServiceStatus"
-                readonly property string audioState: root.applicationModel.audioReady
-                                                    ? qsTr("Audio ready")
-                                                    : (root.applicationModel.audioStatusText.indexOf(
-                                                           "initializing") >= 0
-                                                       ? qsTr("Audio initializing")
-                                                       : qsTr("Audio unavailable"))
-                readonly property string decoderState:
-                    root.applicationModel.demodulationModeIndex === 5
-                    ? (root.applicationModel.decoderRunning
-                       ? qsTr("Decoder running") : qsTr("Decoder stopped"))
-                    : ""
-                text: decoderState === "" ? audioState
-                                            : audioState + qsTr(" · ") + decoderState
-                color: root.applicationModel.decoderRunning
-                       || root.applicationModel.audioReady ? "#68d391"
-                                                            : root.secondaryTextColor
-                font.pixelSize: 9
-                elide: Text.ElideRight
-            }
-
-            Label {
-                text: root.applicationModel.backendDescription
-                color: root.secondaryTextColor
-                font.pixelSize: 9
-            }
             }
 
             RowLayout {
                 id: recordingSeekRow
                 objectName: "recordingSeekRow"
                 anchors.left: parent.left
-                anchors.leftMargin: 10
+                anchors.leftMargin: footerBar.edgeMargin
                 anchors.right: parent.right
-                anchors.rightMargin: 10
+                anchors.rightMargin: footerBar.edgeMargin
                 anchors.bottom: parent.bottom
-                anchors.bottomMargin: 3
-                height: root.denseLayout ? 23 : 27
-                spacing: 6
+                anchors.bottomMargin: 5
+                height: 30
+                spacing: 8
 
                 Label {
+                    id: recordingElapsedTime
                     objectName: "recordingElapsedTime"
-                    text: root.applicationModel.recordingPositionText
-                    color: recordingSeekSlider.enabled ? root.secondaryTextColor : "#5a6473"
+                    Layout.minimumWidth: root.applicationModel.recordingDurationFrames >=
+                                         root.applicationModel.recordingSampleRate * 3600
+                                         ? 54 : 34
+                    horizontalAlignment: Text.AlignLeft
+                    text: recordingSeekSlider.pressed
+                          ? root.formatRecordingFrames(recordingSeekSlider.previewFrame)
+                          : root.applicationModel.recordingPositionText
+                    color: recordingSeekSlider.enabled ? "#c5d1e2" : "#667287"
+                    font.family: "monospace"
                     font.pixelSize: 10
                 }
 
@@ -4667,6 +4783,13 @@ ApplicationWindow {
                     id: recordingSeekSlider
                     objectName: "recordingSeekSlider"
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 160
+                    implicitHeight: 26
+                    leftPadding: 8
+                    rightPadding: 8
+                    topPadding: 4
+                    bottomPadding: 4
+                    activeFocusOnTab: true
                     from: 0
                     to: Math.max(1, root.applicationModel.recordingDurationFrames)
                     enabled: root.applicationModel.recordingLoaded &&
@@ -4678,32 +4801,76 @@ ApplicationWindow {
                     Accessible.description: qsTr("Seek recorded playback")
                     ToolTip.visible: pressed || hovered
                     ToolTip.text: root.applicationModel.recordingCanSeek
-                                  ? formatRecordingFrames(pressed ? previewFrame : value)
+                                  ? root.formatRecordingFrames(pressed ? previewFrame : value)
                                   : qsTr("This recording cannot be seeked")
+
+                    background: Rectangle {
+                        x: recordingSeekSlider.leftPadding
+                        y: recordingSeekSlider.topPadding +
+                           (recordingSeekSlider.availableHeight - height) / 2
+                        width: recordingSeekSlider.availableWidth
+                        height: 7
+                        radius: 3.5
+                        color: recordingSeekSlider.enabled ? "#27364c" : "#1a2332"
+                        border.color: recordingSeekSlider.activeFocus
+                                      ? root.centerColor : "#3c4d65"
+                        border.width: recordingSeekSlider.activeFocus ? 2 : 1
+
+                        Rectangle {
+                            width: parent.width * recordingSeekSlider.visualPosition
+                            height: parent.height
+                            radius: parent.radius
+                            color: recordingSeekSlider.enabled ? "#3ca8d0" : "#354154"
+                        }
+                    }
+
+                    handle: Rectangle {
+                        x: recordingSeekSlider.leftPadding +
+                           recordingSeekSlider.visualPosition *
+                           (recordingSeekSlider.availableWidth - width)
+                        y: recordingSeekSlider.topPadding +
+                           (recordingSeekSlider.availableHeight - height) / 2
+                        implicitWidth: recordingSeekSlider.pressed ? 17 : 15
+                        implicitHeight: recordingSeekSlider.pressed ? 17 : 15
+                        radius: width / 2
+                        color: !recordingSeekSlider.enabled ? "#536074"
+                               : recordingSeekSlider.pressed ? "#eefbff"
+                               : recordingSeekSlider.hovered ? "#9ee9ff"
+                               : "#73d4f2"
+                        border.color: recordingSeekSlider.activeFocus
+                                      ? "#ffffff" : "#17364b"
+                        border.width: recordingSeekSlider.activeFocus ? 2 : 1
+                    }
+
                     onMoved: {
                         previewFrame = value
-                        // Pointer drags only preview. Keyboard slider moves
-                        // are discrete commands and commit immediately.
                         if (!pressed)
-                            root.applicationModel.seekRecordingPlayback(Math.round(previewFrame))
+                            root.applicationModel.seekRecordingPlayback(
+                                Math.round(previewFrame))
                     }
                     onPressedChanged: {
                         if (pressed) {
                             previewFrame = root.applicationModel.recordingPositionFrames
                         } else if (enabled) {
-                            root.applicationModel.seekRecordingPlayback(Math.round(previewFrame))
+                            root.applicationModel.seekRecordingPlayback(
+                                Math.round(previewFrame))
                         }
                     }
                 }
 
                 Label {
+                    id: recordingDurationTime
                     objectName: "recordingDurationTime"
+                    Layout.minimumWidth: root.applicationModel.recordingDurationFrames >=
+                                         root.applicationModel.recordingSampleRate * 3600
+                                         ? 54 : 34
+                    horizontalAlignment: Text.AlignRight
                     text: root.applicationModel.recordingDurationText
-                    color: recordingSeekSlider.enabled ? root.secondaryTextColor : "#5a6473"
+                    color: recordingSeekSlider.enabled ? "#c5d1e2" : "#667287"
+                    font.family: "monospace"
                     font.pixelSize: 10
                 }
             }
         }
-
     }
 }

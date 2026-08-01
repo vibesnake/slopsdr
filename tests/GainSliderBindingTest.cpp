@@ -4,6 +4,7 @@
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QCoreApplication>
+#include <QFile>
 #include <QImage>
 #include <QQuickItem>
 #include <QQuickWindow>
@@ -26,7 +27,36 @@ private slots:
     void bookmarkNameDialogSelectsSuggestionAndRejectsWhitespace();
     void bookmarkDragStartsOnlyFromVisibleHandleAndEscapeCancels();
     void centerDigitHoverKeysAvoidTextEditorsAndScannerOwnership();
+    void recordingFooterUsesGroupedTwoRowDarkLayout();
 };
+
+void GainSliderBindingTest::recordingFooterUsesGroupedTwoRowDarkLayout()
+{
+    const QString path = QFINDTESTDATA("../qml/Main.qml");
+    QVERIFY2(!path.isEmpty(), "Main.qml test data was not found");
+    QFile input(path);
+    QVERIFY(input.open(QIODevice::ReadOnly));
+    const QByteArray source = input.readAll();
+    const qsizetype footerStart = source.indexOf("footer: ToolBar");
+    QVERIFY(footerStart >= 0);
+    const QByteArray footer = source.mid(footerStart);
+
+    QVERIFY(source.contains("component FooterDarkButton: Button"));
+    const qsizetype transport = footer.indexOf("playbackTransportGroup");
+    const qsizetype information = footer.indexOf("recordingInformationGroup");
+    const qsizetype recording = footer.indexOf("recordingControlsGroup");
+    const qsizetype seek = footer.indexOf("recordingSeekRow");
+    QVERIFY(transport >= 0);
+    QVERIFY(information > transport);
+    QVERIFY(recording > information);
+    QVERIFY(seek > recording);
+    QVERIFY(footer.contains("objectName: \"recordingSeekSlider\""));
+    QVERIFY(footer.contains("height: 7"));
+    QVERIFY(footer.contains("Layout.minimumWidth: 160"));
+    QVERIFY(!footer.contains("recordingFormatLabel"));
+    QVERIFY(!footer.contains("root.applicationModel.backendDescription"));
+    QVERIFY(!footer.contains("Selected SDR opens when Start is pressed"));
+}
 
 void GainSliderBindingTest::reappliesRequestedGainWhenCapabilitiesArrive()
 {
