@@ -4388,7 +4388,7 @@ ApplicationWindow {
     }
 
     footer: ToolBar {
-        implicitHeight: root.denseLayout ? 40 : 42
+        implicitHeight: root.denseLayout ? 58 : 64
         background: Rectangle {
             color: "#111a2b"
             border.color: root.panelBorderColor
@@ -4398,6 +4398,83 @@ ApplicationWindow {
             anchors.fill: parent
             anchors.leftMargin: 10
             anchors.rightMargin: 10
+            spacing: 8
+
+            ColumnLayout {
+                id: recordingTransportPanel
+                Layout.preferredWidth: root.denseLayout ? 260 : 320
+                Layout.minimumWidth: root.denseLayout ? 220 : 280
+                Layout.maximumWidth: 360
+                Layout.fillHeight: true
+                spacing: 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 32
+                    spacing: 2
+
+                    Button {
+                        implicitHeight: 30
+                        text: "⏮"
+                        enabled: root.applicationModel.recordingLoaded
+                        Accessible.name: qsTr("Restart recording playback")
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Restart recording playback")
+                        onClicked: root.applicationModel.restartRecordingPlayback()
+                    }
+                    Button {
+                        implicitHeight: 30
+                        text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
+                        enabled: root.applicationModel.recordingLoaded
+                        Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.applicationModel.toggleRecordingPlayback()
+                    }
+                    Button {
+                        implicitHeight: 30
+                        text: "■"
+                        enabled: root.applicationModel.recordingLoaded
+                        Accessible.name: qsTr("Stop and rewind recording playback")
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: root.applicationModel.stopRecordingPlayback()
+                    }
+                    Button {
+                        implicitHeight: 30
+                        text: "⏏"
+                        enabled: !root.applicationModel.receiverRunning &&
+                                 !root.applicationModel.runtimeBusy
+                        Accessible.name: root.applicationModel.recordingLoaded
+                                         ? qsTr("Eject recording")
+                                         : qsTr("Load recording")
+                        ToolTip.visible: hovered
+                        ToolTip.text: Accessible.name
+                        onClicked: {
+                            if (root.applicationModel.recordingLoaded)
+                                root.applicationModel.ejectRecording()
+                            else
+                                recordedIqFileDialog.open()
+                        }
+                    }
+                }
+
+                Label {
+                    id: recordingTransportSummary
+                    objectName: "recordingTransportSummary"
+                    Layout.fillWidth: true
+                    text: root.applicationModel.recordingTransportText
+                          + (root.applicationModel.recordedIqSource
+                             && root.applicationModel.statusText !== ""
+                             ? qsTr(" · ") + root.applicationModel.statusText : "")
+                    color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor
+                    font.pixelSize: 9
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+            }
+
+            Item { Layout.fillWidth: true }
 
             Rectangle {
                 implicitWidth: 8
@@ -4501,16 +4578,6 @@ ApplicationWindow {
             }
 
             Label {
-                id: recordingTransportSummary
-                objectName: "recordingTransportSummary"
-                Layout.maximumWidth: 220
-                text: root.applicationModel.recordingTransportText
-                color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor
-                font.pixelSize: 9
-                elide: Text.ElideRight
-            }
-
-            Label {
                 id: runtimeServiceStatus
                 objectName: "runtimeServiceStatus"
                 readonly property string audioState: root.applicationModel.audioReady
@@ -4540,51 +4607,5 @@ ApplicationWindow {
             }
         }
 
-        RowLayout {
-            id: recordingTransport
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-
-            Button {
-                implicitHeight: 30
-                text: "⏮"
-                enabled: root.applicationModel.recordingLoaded
-                Accessible.name: qsTr("Restart recording playback")
-                ToolTip.visible: hovered
-                ToolTip.text: qsTr("Restart recording playback")
-                onClicked: root.applicationModel.restartRecordingPlayback()
-            }
-            Button {
-                implicitHeight: 30
-                text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
-                enabled: root.applicationModel.recordingLoaded
-                Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
-                onClicked: root.applicationModel.toggleRecordingPlayback()
-            }
-            Button {
-                implicitHeight: 30
-                text: "■"
-                enabled: root.applicationModel.recordingLoaded
-                Accessible.name: qsTr("Stop and rewind recording playback")
-                ToolTip.visible: hovered
-                ToolTip.text: Accessible.name
-                onClicked: root.applicationModel.stopRecordingPlayback()
-            }
-            Button {
-                implicitHeight: 30
-                text: root.applicationModel.recordingLoaded ? qsTr("Eject") : qsTr("Load")
-                enabled: !root.applicationModel.receiverRunning && !root.applicationModel.runtimeBusy
-                Accessible.name: root.applicationModel.recordingLoaded ? qsTr("Eject recording") : qsTr("Load recording")
-                onClicked: {
-                    if (root.applicationModel.recordingLoaded)
-                        root.applicationModel.ejectRecording()
-                    else
-                        recordedIqFileDialog.open()
-                }
-            }
-        }
     }
 }
