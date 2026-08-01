@@ -449,7 +449,10 @@ While reception is stopped, use the footer **Load recording** control to open
 the shared non-native Qt widget file dialog. The Settings Browse actions for
 the recordings folder and DSD-FME executable use the same chooser appearance.
 Each purpose remembers its own accepted directory and filter, while geometry
-and detailed-view state are shared. Cancelling leaves existing settings and the
+and detailed-view state are shared. Load recording accepts an existing file and
+offers all-supported, WAV, raw-IQ, and all-files filters; Recordings folder
+accepts a writable directory; DSD-FME binary accepts an executable file.
+Cancelling or rejecting an invalid selection leaves existing settings and the
 current recording unchanged.
 
 **Record scanner activity** creates separate squelch-gated WAV clips while a
@@ -465,6 +468,42 @@ sample rate, format, counts, timing, and device identity. Hardware-center or
 capture-rate changes start a new segment; listening-only changes and scanner
 steps within the same capture do not. IQ samples are handed off from the DSP
 backend through bounded buffers and written by a background service.
+
+### Playback
+
+While reception is stopped, **Load recording** selects either a RIFF/WAVE file
+or a raw-IQ capture. WAVE detection is based on the file container, not its
+extension. Supported WAVE inputs are mono or stereo unsigned 8-bit PCM, signed
+little-endian 16-, 24-, or 32-bit PCM, and little-endian float32. Compressed,
+truncated, and malformed WAVE files are rejected before they replace the
+current source. WAV playback preserves the channels for audio output and uses
+their average only for the **Audio spectrum** and **Audio waterfall**, which
+cover 0 Hz through the file Nyquist frequency. It is not RF demodulation.
+
+Raw-IQ playback accepts interleaved little-endian `cf32_le` samples. A matching
+adjacent slopSDR JSON sidecar supplies the fixed capture center and sample
+rate. If that sidecar is absent or invalid, the application asks for those two
+values; it does not guess a container format. Recorded IQ then uses the normal
+RF spectrum, waterfall, demodulation, squelch, and audio pipeline. Its capture
+center and rate cannot change, but listening-frequency tuning remains available
+inside the recorded passband.
+
+The persistent footer keeps load/eject, restart, play/pause, stop/rewind, and
+recording controls in its top row. WAV sources add a full-width lower-row seek
+bar: drag to preview and release to seek by decoded source frame. The bar is
+disabled for unloaded and non-seekable sources, including raw IQ. **Stop**
+rewinds without ejecting; **Restart** plays from zero; pressing Play after EOF
+also restarts from zero. Pause/resume retains the current waterfall history.
+Seek, stop, restart, EOF replay, eject, and switching to the selected SDR
+clear spectrum/waterfall history before frames from the new position or source
+arrive. EOF itself leaves the final history visible.
+
+WAV playback disables RF tuning, gain, PPM, demodulation, squelch, scans,
+RF-bookmark tuning, and IQ recording. Raw-IQ playback remains a single file:
+there is no seek, loop, playlist, compressed-codec playback, or scanner
+playback. To return to live hardware, eject the recording or press **Start**
+with a selected SDR; the recording source is released and live reception opens
+only then.
 
 Receiver output is 48 kHz stereo. AM, NFM, WFM, USB, and LSB use mode-specific
 mono filtering and correction and are duplicated into both output channels;

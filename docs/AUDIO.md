@@ -62,9 +62,13 @@ time. The source can seek to any clamped frame from zero through EOF while
 playing, paused, stopped, or after EOF. A committed seek serializes with
 source decoding, clears queued output audio, resets output pacing, the
 resampler, FFT overlap accumulation, and queued display frames, and makes the
-runtime reset its waterfall delivery. Playback resumes only when it was
-already playing; paused and stopped states remain so. Recorded IQ retains the
-same source-neutral transport state but does not currently advertise seeking.
+runtime reset its waterfall delivery. Stop, restart, replay after EOF, eject,
+and source switching use the same visualization-reset boundary; it drains
+pre-reset FFT rows and rejects pending GUI frames before a new position can
+publish. Pause/resume does not reset history, and EOF retains the final rows.
+Playback resumes only when it was already playing; paused and stopped states
+remain so. Recorded IQ retains the same source-neutral transport state but
+does not currently advertise seeking.
 
 ## Recording path
 
@@ -88,6 +92,13 @@ little-endian float32 I/Q (`cf32_le`) to `.raw` with a JSON sidecar on its own
 writer thread. A hardware-center or capture-rate change finalizes the current
 segment and starts another; listening-only tuning does not. IQ capture is
 therefore not confined to an unwritable flowgraph-local buffer.
+
+The resulting `.raw`/sidecar pair is the supported raw-IQ playback input. The
+reader accepts only interleaved little-endian `cf32_le` complex samples; a valid
+adjacent sidecar provides the capture center and sample rate, otherwise the
+application requires manual values. It neither infers another raw layout nor
+concatenates sibling segments. Playback is paced at the sidecar or supplied
+sample rate and follows the normal RF processing path, unlike WAV playback.
 
 ## DSP chains
 

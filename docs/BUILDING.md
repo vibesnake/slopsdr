@@ -11,7 +11,9 @@ build, vendor, install, or update them.
 ## APT packages
 
 Install the compiler, build system, Qt development files, QML runtime modules,
-GNU Radio, and SoapySDR development files:
+GNU Radio, and SoapySDR development files. `qt6-base-dev` supplies Qt Widgets,
+which slopSDR uses for the shared non-native `QFileDialog` behind recording,
+recordings-folder, and DSD-FME Browse actions:
 
 ```sh
 sudo apt update

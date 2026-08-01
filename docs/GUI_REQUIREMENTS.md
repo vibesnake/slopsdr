@@ -321,6 +321,19 @@ reception or playback. Recording remains active across manual and scanner
 retunes and finalizes on receiver stop or application shutdown. Settings keeps
 a persistent writable recordings folder, browse/open-folder actions, and clear
 validation text; it does not add a sidebar pane.
+
+The footer's recording transport is source-neutral and stays in a stable
+two-row layout. Its top row contains Load/Eject, restart, play/pause,
+stop/rewind, filename/playback state, and recording/audio controls; WAV uses a
+full-width lower-row decoded-frame seek bar. Loading is allowed only while
+reception is stopped. The shared non-native Qt Widgets dialog selects existing
+recordings, writable recording folders, and executable DSD-FME files with
+separate per-purpose last locations/filters and shared dialog presentation
+state. WAV has 0 Hz-to-Nyquist audio spectrum/waterfall and no RF controls;
+raw `cf32_le` IQ retains the RF path with fixed capture metadata. Pause/resume
+retains waterfall history, while seek, stop, restart, EOF replay, ejection, and
+source switching clear it before new rows are accepted.
+
 The footer also contains compact **Record IQ** and **Stop IQ** controls for
 manual full-bandwidth capture. IQ capture is independent of WAV and scanner
 recording, remains available while scanning, and taps the device complex stream

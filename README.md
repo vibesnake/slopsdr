@@ -98,8 +98,10 @@ download, build, vendor, install, or update them.
 The desktop hardware build requires CMake 3.22 or later, a C++20 compiler,
 Ninja, Qt 6.2 or later (Core, Gui, Multimedia, QML, Quick, Quick Controls 2,
 Widgets, and Test), GNU Radio (analog, blocks, FFT, filter, and runtime
-components), and SoapySDR. On Debian-family systems with the package names used
-by Debian and Ubuntu, install:
+components), and SoapySDR. Qt Widgets is required at runtime as well as build
+time because the application uses one non-native `QFileDialog` service for its
+file and directory workflows. On Debian-family systems with the package names
+used by Debian and Ubuntu, install:
 
 ```sh
 sudo apt update
@@ -155,12 +157,14 @@ hardware-test, diagnostic, and install commands.
 
 Use the footer **Load recording** action while reception is stopped to select a
 recording with Qt's shared non-native widget file dialog. The same detailed
-chooser is used for the Settings recordings-folder and DSD-FME executable Browse
-actions. Its detailed view and filters
-cover WAV audio, raw IQ, all supported recordings, and all files, so a
-supported recording may still be chosen when its extension is missing or
-unusual. On accepted selection, it restores the last folder, filter, and dialog
-layout. slopSDR identifies RIFF/WAVE audio from its container rather than
+chooser powers **Settings → Recordings folder → Browse** and **Settings →
+DSD-FME binary → Browse**. It selects an existing recording, a writable
+directory, or an executable file respectively. Recording selection offers
+all-supported, WAV, raw-IQ, and all-files filters, so a supported recording may
+still be chosen when its extension is missing or unusual. Each workflow keeps
+its own last directory and filter, while dialog size, detailed-view state, and
+sidebar locations are shared. Cancel does not change a setting or loaded
+recording. slopSDR identifies RIFF/WAVE audio from its container rather than
 the filename extension and supports mono or stereo unsigned 8-bit PCM, signed
 little-endian 16-, 24-, and 32-bit PCM, and little-endian IEEE float32 WAV.
 Compressed codecs and malformed/truncated files are rejected before playback
@@ -170,10 +174,11 @@ and displays an **Audio spectrum** and waterfall from the L/R average over
 
 Recorded `.raw` IQ captures remain interleaved little-endian `cf32_le`. A
 matching adjacent `.json` sidecar produced by slopSDR supplies capture center
-and sample rate automatically; otherwise the footer requests those values.
-IQ playback uses the normal RF receiver pipeline and is paced at the recorded
-rate. Capture center and sample rate are fixed, while listening-frequency
-tuning remains available inside the recorded passband.
+and sample rate automatically; a missing or invalid sidecar opens a manual
+center-frequency/sample-rate prompt instead. IQ playback uses the normal RF
+receiver pipeline and is paced at the recorded rate. Capture center and sample
+rate are fixed, while listening-frequency tuning remains available inside the
+recorded passband.
 
 The footer transport stays visible in a stable top row. For WAV recordings its
 full-width lower-row seek bar reports source-frame-derived elapsed and total
@@ -183,7 +188,9 @@ seeks to zero and plays; Stop rewinds to zero without ejecting the file. RF
 tuning, gain, PPM, demodulation, squelch, scanning, IQ recording, and RF
 bookmarks are unavailable for WAV playback; Start reception switches back to
 the selected SDR. Loop, playlists, compressed codecs, and scanner playback are
-not available. Pause and resume retain the displayed waterfall history; seek,
+not available. Raw-IQ playback shares load, eject, play/pause, restart, stop,
+and EOF handling but is not currently seekable. Pause and resume retain the
+displayed waterfall history; seek,
 restart, stop, replay after EOF, ejection, and switching back to SDR clear it
 before frames from the new source position are presented.
 
