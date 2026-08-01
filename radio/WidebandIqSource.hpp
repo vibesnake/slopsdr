@@ -46,6 +46,7 @@ struct RecordingTransportState {
     std::uint64_t positionSamples = 0;
     std::uint64_t totalSamples = 0;
     std::uint64_t sampleRate = 0;
+    bool canSeek = false;
     std::string displayName;
     std::string message;
 };

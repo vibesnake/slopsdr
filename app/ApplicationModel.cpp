@@ -1876,12 +1876,23 @@ bool ApplicationModel::recordedIqMetadataRequired() const noexcept
 QString ApplicationModel::recordingTransportText() const
 {
     if (!recordingLoaded()) return QStringLiteral("No recording loaded");
-    const auto format = [](quint64 seconds) { return QStringLiteral("%1:%2").arg(seconds / 60U).arg(seconds % 60U, 2, 10, QLatin1Char('0')); };
-    const auto rate = m_recordingTransport.sampleRate;
-    const auto elapsed = rate == 0 ? 0 : m_recordingTransport.positionSamples / rate;
-    const auto total = rate == 0 ? 0 : m_recordingTransport.totalSamples / rate;
-    return QString::fromStdString(m_recordingTransport.displayName) + QStringLiteral(" · %1 / %2").arg(format(elapsed), format(total));
+    return recordingDisplayName();
 }
+bool ApplicationModel::recordingCanSeek() const noexcept { return m_recordingTransport.canSeek; }
+quint64 ApplicationModel::recordingPositionFrames() const noexcept { return m_recordingTransport.positionSamples; }
+quint64 ApplicationModel::recordingDurationFrames() const noexcept { return m_recordingTransport.totalSamples; }
+quint64 ApplicationModel::recordingSampleRate() const noexcept { return m_recordingTransport.sampleRate; }
+namespace {
+QString formatRecordingTime(quint64 frames, quint64 rate)
+{
+    const quint64 seconds = rate == 0 ? 0 : frames / rate;
+    if (seconds >= 3600U) return QStringLiteral("%1:%2:%3").arg(seconds / 3600U).arg((seconds / 60U) % 60U, 2, 10, QLatin1Char('0')).arg(seconds % 60U, 2, 10, QLatin1Char('0'));
+    return QStringLiteral("%1:%2").arg(seconds / 60U).arg(seconds % 60U, 2, 10, QLatin1Char('0'));
+}
+}
+QString ApplicationModel::recordingPositionText() const { return formatRecordingTime(recordingPositionFrames(), m_recordingTransport.sampleRate); }
+QString ApplicationModel::recordingDurationText() const { return formatRecordingTime(recordingDurationFrames(), m_recordingTransport.sampleRate); }
+QString ApplicationModel::recordingDisplayName() const { return QString::fromStdString(m_recordingTransport.displayName); }
 
 bool ApplicationModel::verboseDiagnosticsEnabled() const noexcept
 {
@@ -2162,6 +2173,7 @@ void ApplicationModel::toggleRecordingPlayback() { if (m_runtime) m_runtime->tog
 void ApplicationModel::stopRecordingPlayback() { if (m_runtime) m_runtime->stopRecordingPlayback(); }
 void ApplicationModel::restartRecordingPlayback() { if (m_runtime) m_runtime->restartRecordingPlayback(); }
 void ApplicationModel::ejectRecording() { if (m_runtime) m_runtime->ejectRecording(); }
+void ApplicationModel::seekRecordingPlayback(quint64 frame) { if (m_runtime) m_runtime->seekRecordingPlayback(frame); }
 
 void ApplicationModel::selectAudioDeviceIndex(int index)
 {

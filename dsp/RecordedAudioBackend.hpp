@@ -33,6 +33,7 @@ public:
     [[nodiscard]] std::optional<std::string> takePlaybackEnd() override;
     [[nodiscard]] radio::OperationResult setPlaybackPaused(bool paused) override;
     [[nodiscard]] radio::OperationResult restartPlayback() override;
+    [[nodiscard]] radio::OperationResult seekPlayback(std::uint64_t frame) override;
     [[nodiscard]] const radio::ReceiverState& state() const noexcept override;
     [[nodiscard]] std::uint64_t effectiveSampleRate() const noexcept override;
     [[nodiscard]] std::optional<radio::SpectrumFrame> takeLatestSpectrumFrame() override;

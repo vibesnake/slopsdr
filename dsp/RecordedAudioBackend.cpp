@@ -179,25 +179,25 @@ public:
         visualizationWindowReady = false;
         visualizationNextHop = 0;
         visualizationHop.reset();
+        visualizationSamplesProcessed = 0;
     }
 
-    void start()
+    void start(bool paused = false)
     {
         if (reader.joinable()) reader.join();
         const auto result = source.start();
         if (!result.succeeded) throw std::runtime_error(result.message);
+        source.setPaused(paused);
         reachedEnd = false;
         endReported = false;
-        endedPosition = 0;
+        endedPosition = source.positionFrames();
         runtimeError.reset();
         audio->clear();
         frames->clear();
         {
             std::scoped_lock lock(visualizationMutex);
             resetVisualization();
-            if (visualizationTimestampOriginNanoseconds == 0) {
-                visualizationTimestampOriginNanoseconds = monotonicNanoseconds();
-            }
+            visualizationTimestampOriginNanoseconds = monotonicNanoseconds();
         }
         readerRunning = true;
         resampleInput.clear();
@@ -216,6 +216,30 @@ public:
         resetVisualization();
     }
 
+    [[nodiscard]] radio::OperationResult seek(std::uint64_t frame)
+    {
+        const auto target = std::min(frame, source.metadata().frameCount);
+        const bool wasRunning = model.state().running;
+        const bool wasPaused = source.paused();
+        // A committed seek owns a short reader reset. This waits for the
+        // current decoded block to finish before clearing its output, so no
+        // pre-seek audio can reach the new source position. It does not
+        // rebuild the receiver model or the backend pipeline.
+        if (wasRunning) stop();
+        const auto result = source.seekFrames(target);
+        if (!result.succeeded) {
+            return {radio::ReceiverError::BackendFailure, false, false, result.message};
+        }
+        if (wasRunning && target < source.metadata().frameCount) start(wasPaused);
+        reachedEnd = target == source.metadata().frameCount;
+        endedPosition = target;
+        endReported = false;
+        return {radio::ReceiverError::None, true, true,
+                target == source.metadata().frameCount
+                    ? "Recorded audio playback reached end of file"
+                    : "Recorded audio playback seeked"};
+    }
+
     void readerLoop() noexcept
     {
         try {
@@ -226,6 +250,7 @@ public:
             std::vector<float> decoded(sourceReadFrames * metadata.channelCount);
             std::vector<float> stereo;
             while (readerRunning) {
+                std::scoped_lock pipelineLock(pipelineMutex);
                 const auto result = source.read(decoded, std::chrono::milliseconds(50));
                 if (result.status == radio::RecordedAudioReadStatus::Timeout) continue;
                 if (result.status == radio::RecordedAudioReadStatus::EndOfFile) {
@@ -368,6 +393,7 @@ public:
     std::uint64_t visualizationTimestampOriginNanoseconds = 0;
     std::vector<float> resampleInput;
     double resamplePosition = 0.0;
+    std::mutex pipelineMutex;
     mutable std::mutex visualizationMutex;
     std::thread reader;
     std::atomic_bool readerRunning = false;
@@ -402,6 +428,7 @@ radio::RecordingTransportState RecordedAudioBackend::recordingTransport() const 
                                                : m_impl->source.positionFrames(),
         .totalSamples = metadata.frameCount,
         .sampleRate = metadata.sampleRate,
+        .canSeek = true,
         .displayName = m_impl->source.path().filename().string(),
         .message = {},
     };
@@ -433,7 +460,12 @@ radio::OperationResult RecordedAudioBackend::setPlaybackPaused(bool paused)
 radio::OperationResult RecordedAudioBackend::restartPlayback()
 {
     if (m_impl->model.state().running) static_cast<void>(stopReception());
+    static_cast<void>(m_impl->source.seekFrames(0));
     return startReception();
+}
+radio::OperationResult RecordedAudioBackend::seekPlayback(std::uint64_t frame)
+{
+    return m_impl->seek(frame);
 }
 const radio::ReceiverState& RecordedAudioBackend::state() const noexcept { return m_impl->model.state(); }
 std::uint64_t RecordedAudioBackend::effectiveSampleRate() const noexcept

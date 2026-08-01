@@ -81,6 +81,7 @@ private slots:
     void selectsEffectiveAudioFftSizes();
     void preservesFractionalAudioHopCadence();
     void pausesWithoutFramesAndRestartsWithFreshFrames();
+    void seeksWithoutChangingPlaybackStateAndResetsDelivery();
 };
 
 void RecordedAudioBackendTest::preservesStereoFramesAndPublishesAudioSpectrum()
@@ -230,6 +231,43 @@ void RecordedAudioBackendTest::pausesWithoutFramesAndRestartsWithFreshFrames()
     QVERIFY(afterRestart.front().sequence > afterResume.back().sequence);
     QVERIFY(afterRestart.front().timestampNanoseconds >
             afterResume.back().timestampNanoseconds);
+    QVERIFY(backend.stopReception().succeeded());
+}
+
+void RecordedAudioBackendTest::seeksWithoutChangingPlaybackStateAndResetsDelivery()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    sdr::dsp::RecordedAudioBackend backend(
+        writeTone(directory, 48'000, 240'000, "seek.capture"));
+    const auto initial = backend.recordingTransport();
+    QVERIFY(initial.canSeek);
+    QCOMPARE(initial.totalSamples, std::uint64_t{240'000});
+
+    // Seeking while stopped selects the next start point without starting the
+    // reader.  Out-of-range targets clamp to the exact EOF frame.
+    QVERIFY(backend.seekPlayback(120'000).succeeded());
+    QCOMPARE(backend.recordingTransport().state, sdr::radio::RecordingPlaybackState::Stopped);
+    QCOMPARE(backend.recordingTransport().positionSamples, std::uint64_t{120'000});
+    QVERIFY(backend.seekPlayback(999'999).succeeded());
+    QCOMPARE(backend.recordingTransport().state, sdr::radio::RecordingPlaybackState::Ended);
+    QCOMPARE(backend.recordingTransport().positionSamples, std::uint64_t{240'000});
+    QVERIFY(backend.seekPlayback(0).succeeded());
+
+    QVERIFY(backend.startReception().succeeded());
+    QVERIFY(!waitForFrames(backend, 2).empty());
+    QVERIFY(backend.seekPlayback(96'000).succeeded());
+    QCOMPARE(backend.recordingTransport().state, sdr::radio::RecordingPlaybackState::Playing);
+    const auto afterPlayingSeek = waitForFrames(backend, 2);
+    QCOMPARE(afterPlayingSeek.size(), std::size_t{2});
+
+    QVERIFY(backend.setPlaybackPaused(true).succeeded());
+    QVERIFY(backend.seekPlayback(144'000).succeeded());
+    QCOMPARE(backend.recordingTransport().state, sdr::radio::RecordingPlaybackState::Paused);
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    QVERIFY(backend.takePendingSpectrumFrames(64).empty());
+    QVERIFY(backend.setPlaybackPaused(false).succeeded());
+    QVERIFY(!waitForFrames(backend, 1).empty());
     QVERIFY(backend.stopReception().succeeded());
 }
 

@@ -57,6 +57,7 @@ public:
     [[nodiscard]] const std::filesystem::path& path() const noexcept;
     [[nodiscard]] RecordedAudioSourceOperationResult start();
     [[nodiscard]] RecordedAudioSourceOperationResult stop();
+    [[nodiscard]] RecordedAudioSourceOperationResult seekFrames(std::uint64_t frame);
     [[nodiscard]] RecordedAudioReadResult read(
         std::span<float> interleavedSamples, std::chrono::milliseconds timeout);
     void setPaused(bool paused) noexcept;

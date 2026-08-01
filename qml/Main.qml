@@ -87,6 +87,18 @@ ApplicationWindow {
         return root.focusedCenterFrequencyDigitIndex >= 0
     }
 
+    function formatRecordingFrames(frames) {
+        const rate = applicationModel.recordingSampleRate
+        const seconds = rate > 0 ? Math.floor(frames / rate) : 0
+        const minutes = Math.floor(seconds / 60)
+        const secondsPart = String(seconds % 60).padStart(2, "0")
+        if (seconds >= 3600) {
+            return Math.floor(minutes / 60) + ":" +
+                   String(minutes % 60).padStart(2, "0") + ":" + secondsPart
+        }
+        return minutes + ":" + secondsPart
+    }
+
     function clearCenterFrequencyDigitFocus() {
         centerDigit0.focus = false
         centerDigit1.focus = false
@@ -1105,6 +1117,7 @@ ApplicationWindow {
         id: deleteScanPresetDialog
         anchors.centerIn: Overlay.overlay
         modal: true
+        width: 360
         title: qsTr("Delete scanner preset")
         standardButtons: Dialog.Ok | Dialog.Cancel
         closePolicy: Popup.CloseOnEscape
@@ -4399,7 +4412,9 @@ ApplicationWindow {
         property int footerButtonHeight: 30
         property int footerButtonSpacing: 2
         property int footerPrimaryRowTopMargin: 2
-        implicitHeight: root.denseLayout ? 58 : 64
+        // The transport and receiver indicators always occupy the first row;
+        // playback seeking owns the complete second row.
+        implicitHeight: root.denseLayout ? 66 : 72
         background: Rectangle {
             color: "#111a2b"
             border.color: root.panelBorderColor
@@ -4408,24 +4423,19 @@ ApplicationWindow {
         Item {
             anchors.fill: parent
 
-            Item {
-                id: recordingTransportPanel
+            RowLayout {
+                id: playbackControlRow
                 anchors.left: parent.left
                 anchors.leftMargin: 10
+                anchors.right: parent.right
+                anchors.rightMargin: 10
                 anchors.top: parent.top
                 anchors.topMargin: footerBar.footerPrimaryRowTopMargin
-                width: root.denseLayout ? 260 : 320
-                height: parent.height - footerBar.footerPrimaryRowTopMargin
-
-                RowLayout {
-                    id: playbackControlRow
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: parent.top
-                    height: footerBar.footerButtonHeight
-                    spacing: footerBar.footerButtonSpacing
+                height: footerBar.footerButtonHeight
+                spacing: footerBar.footerButtonSpacing
 
                     Button {
+                        Layout.preferredWidth: footerBar.footerButtonHeight
                         implicitHeight: footerBar.footerButtonHeight
                         text: "⏮"
                         enabled: root.applicationModel.recordingLoaded
@@ -4435,6 +4445,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.restartRecordingPlayback()
                     }
                     Button {
+                        Layout.preferredWidth: footerBar.footerButtonHeight
                         implicitHeight: footerBar.footerButtonHeight
                         text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
                         enabled: root.applicationModel.recordingLoaded
@@ -4444,6 +4455,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.toggleRecordingPlayback()
                     }
                     Button {
+                        Layout.preferredWidth: footerBar.footerButtonHeight
                         implicitHeight: footerBar.footerButtonHeight
                         text: "■"
                         enabled: root.applicationModel.recordingLoaded
@@ -4453,6 +4465,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.stopRecordingPlayback()
                     }
                     Button {
+                        Layout.preferredWidth: footerBar.footerButtonHeight
                         implicitHeight: footerBar.footerButtonHeight
                         text: "⏏"
                         enabled: !root.applicationModel.receiverRunning &&
@@ -4468,30 +4481,38 @@ ApplicationWindow {
                             else
                                 recordedIqFileDialog.open()
                         }
-                    }
                 }
 
                 Label {
-                    id: recordingTransportSummary
-                    objectName: "recordingTransportSummary"
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.top: playbackControlRow.bottom
-                    text: root.applicationModel.recordingTransportText
-                          + ((root.applicationModel.recordedIqSource || root.applicationModel.recordedAudioSource)
-                             && root.applicationModel.statusText !== ""
-                             ? qsTr(" · ") + root.applicationModel.statusText : "")
+                    id: recordingFileName
+                    objectName: "recordingFileName"
+                    Layout.minimumWidth: 48
+                    Layout.maximumWidth: root.denseLayout ? 100 : 180
+                    Layout.preferredWidth: root.denseLayout ? 76 : 140
+                    Layout.fillWidth: false
+                    text: root.applicationModel.recordingDisplayName === ""
+                          ? qsTr("No recording") : root.applicationModel.recordingDisplayName
                     color: root.applicationModel.recordingPlaying ? "#68d391" : root.secondaryTextColor
                     font.pixelSize: 9
                     elide: Text.ElideRight
                     maximumLineCount: 1
+                    ToolTip.visible: recordingFileNameHover.containsMouse
+                    ToolTip.text: root.applicationModel.recordingDisplayName
+                    MouseArea {
+                        id: recordingFileNameHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.NoButton
+                    }
                 }
             }
 
             RowLayout {
                 id: footerStatusRow
-                anchors.left: recordingTransportPanel.right
-                anchors.leftMargin: 8
+                // Receiver/recording controls share the transport's top row.
+                // The separate seek row below never competes for this width.
+                anchors.left: parent.left
+                anchors.leftMargin: root.denseLayout ? 218 : 282
                 anchors.right: parent.right
                 anchors.rightMargin: 10
                 anchors.top: parent.top
@@ -4594,14 +4615,6 @@ ApplicationWindow {
             }
 
             Label {
-                Layout.fillWidth: true
-                text: root.applicationModel.statusText
-                color: "#d7e0ee"
-                elide: Text.ElideRight
-                font.pixelSize: root.denseLayout ? 10 : 12
-            }
-
-            Label {
                 id: runtimeServiceStatus
                 objectName: "runtimeServiceStatus"
                 readonly property string audioState: root.applicationModel.audioReady
@@ -4629,6 +4642,66 @@ ApplicationWindow {
                 color: root.secondaryTextColor
                 font.pixelSize: 9
             }
+            }
+
+            RowLayout {
+                id: recordingSeekRow
+                objectName: "recordingSeekRow"
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 3
+                height: root.denseLayout ? 23 : 27
+                spacing: 6
+
+                Label {
+                    objectName: "recordingElapsedTime"
+                    text: root.applicationModel.recordingPositionText
+                    color: recordingSeekSlider.enabled ? root.secondaryTextColor : "#5a6473"
+                    font.pixelSize: 10
+                }
+
+                Slider {
+                    id: recordingSeekSlider
+                    objectName: "recordingSeekSlider"
+                    Layout.fillWidth: true
+                    from: 0
+                    to: Math.max(1, root.applicationModel.recordingDurationFrames)
+                    enabled: root.applicationModel.recordingLoaded &&
+                             root.applicationModel.recordingCanSeek &&
+                             root.applicationModel.recordingDurationFrames > 0
+                    property double previewFrame: root.applicationModel.recordingPositionFrames
+                    value: pressed ? previewFrame : root.applicationModel.recordingPositionFrames
+                    Accessible.name: qsTr("Recording playback position")
+                    Accessible.description: qsTr("Seek recorded playback")
+                    ToolTip.visible: pressed || hovered
+                    ToolTip.text: root.applicationModel.recordingCanSeek
+                                  ? formatRecordingFrames(pressed ? previewFrame : value)
+                                  : qsTr("This recording cannot be seeked")
+                    onMoved: {
+                        previewFrame = value
+                        // Pointer drags only preview. Keyboard slider moves
+                        // are discrete commands and commit immediately.
+                        if (!pressed)
+                            root.applicationModel.seekRecordingPlayback(Math.round(previewFrame))
+                    }
+                    onPressedChanged: {
+                        if (pressed) {
+                            previewFrame = root.applicationModel.recordingPositionFrames
+                        } else if (enabled) {
+                            root.applicationModel.seekRecordingPlayback(Math.round(previewFrame))
+                        }
+                    }
+                }
+
+                Label {
+                    objectName: "recordingDurationTime"
+                    text: root.applicationModel.recordingDurationText
+                    color: recordingSeekSlider.enabled ? root.secondaryTextColor : "#5a6473"
+                    font.pixelSize: 10
+                }
             }
         }
 

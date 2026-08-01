@@ -211,15 +211,34 @@ RecordedAudioSourceOperationResult RecordedAudioSource::start()
             m_running = false;
             return {false, false, "Recorded audio file cannot be opened for playback"};
         }
-        m_file.seekg(static_cast<std::streamoff>(m_dataOffset));
+        m_file.seekg(static_cast<std::streamoff>(m_dataOffset +
+            m_positionFrames.load() * m_metadata.bytesPerFrame));
     }
-    m_positionFrames = 0;
     m_ended = false;
     m_paused = false;
     m_resumeNeedsDeadline = false;
     m_nextDeadline = std::chrono::steady_clock::now();
     m_waitCondition.notify_all();
     return {true, true, "Recorded audio playback started"};
+}
+
+RecordedAudioSourceOperationResult RecordedAudioSource::seekFrames(std::uint64_t frame)
+{
+    const auto target = std::min(frame, m_metadata.frameCount);
+    {
+        std::scoped_lock lock(m_fileMutex);
+        if (m_file.is_open()) {
+            m_file.clear();
+            m_file.seekg(static_cast<std::streamoff>(m_dataOffset +
+                target * m_metadata.bytesPerFrame));
+            if (!m_file) return {false, false, "Recorded audio seek could not reposition the WAV file"};
+        }
+    }
+    m_positionFrames = target;
+    m_ended = target == m_metadata.frameCount;
+    m_resumeNeedsDeadline = true;
+    m_waitCondition.notify_all();
+    return {true, true, "Recorded audio playback position updated"};
 }
 
 RecordedAudioSourceOperationResult RecordedAudioSource::stop()

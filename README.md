@@ -169,12 +169,15 @@ IQ playback uses the normal RF receiver pipeline and is paced at the recorded
 rate. Capture center and sample rate are fixed, while listening-frequency
 tuning remains available inside the recorded passband.
 
-The compact transport stays visible in the footer. Load a recording, then use
-restart, play/pause, stop/rewind, and eject; elapsed time is derived from
-consumed frames. RF tuning, gain, PPM, demodulation, squelch, scanning, IQ
-recording, and RF bookmarks are unavailable for WAV playback; Start reception
-switches back to the selected SDR. Seeking, loop, playlists, compressed codecs,
-and scanner playback are not available yet.
+The footer transport stays visible in a stable top row. For WAV recordings its
+full-width lower-row seek bar reports source-frame-derived elapsed and total
+time; drag to preview and release to commit an exact decoded-frame seek. The
+bar remains visible but disabled for unloaded and non-seekable sources. Restart
+seeks to zero and plays; Stop rewinds to zero without ejecting the file. RF
+tuning, gain, PPM, demodulation, squelch, scanning, IQ recording, and RF
+bookmarks are unavailable for WAV playback; Start reception switches back to
+the selected SDR. Loop, playlists, compressed codecs, and scanner playback are
+not available.
 
 ## Development and testing
 

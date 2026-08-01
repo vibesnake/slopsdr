@@ -57,6 +57,15 @@ sample rate (with a 1,024-bin minimum). Overlapping windows use the requested
 display cadence and retain fractional sample hops, so audio spectrum and
 waterfall rows remain steady without changing the live SDR/IQ scheduler.
 
+WAV transport positions are decoded source-frame positions, never elapsed wall
+time. The source can seek to any clamped frame from zero through EOF while
+playing, paused, stopped, or after EOF. A committed seek serializes with
+source decoding, clears queued output audio, resets output pacing, the
+resampler, FFT overlap accumulation, and queued display frames, and makes the
+runtime reset its waterfall delivery. Playback resumes only when it was
+already playing; paused and stopped states remain so. Recorded IQ retains the
+same source-neutral transport state but does not currently advertise seeking.
+
 ## Recording path
 
 The receiver runtime sends analog or decoded 48 kHz stereo samples to the WAV

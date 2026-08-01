@@ -73,6 +73,7 @@ private slots:
     void handlesFloatAndExtensibleFormat();
     void rejectsMalformedAndUnsupportedWaves();
     void pausesResumesAndReportsEndDeterministically();
+    void seeksByDecodedFrameAndClampsTargets();
 };
 
 void RecordedAudioSourceTest::detectsAndDecodesPcmIndependentOfExtension()
@@ -180,6 +181,45 @@ void RecordedAudioSourceTest::pausesResumesAndReportsEndDeterministically()
     QVERIFY(source.ended());
     QCOMPARE(source.stop().succeeded, true);
     QCOMPARE(source.positionFrames(), 0U);
+}
+
+void RecordedAudioSourceTest::seeksByDecodedFrameAndClampsTargets()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    // Four 16-bit frames: -1, -0.5, 0, +0.5.  Seeking is validated against
+    // decoded frame boundaries rather than a wall-clock approximation.
+    const std::array<unsigned char, 8> data{
+        0x00, 0x80, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x40};
+    sdr::radio::RecordedAudioSource source(writeWave(
+        directory, "seek.wav", pcmFormat(1, 1, 8'000, 16), data));
+    QCOMPARE(source.metadata().frameCount, 4U);
+    QVERIFY(source.start().succeeded);
+    QVERIFY(source.seekFrames(2).succeeded);
+    QCOMPARE(source.positionFrames(), 2U);
+    std::array<float, 1> decoded{};
+    QCOMPARE(source.read(decoded, std::chrono::milliseconds(1)).frameCount,
+             std::size_t{1});
+    QCOMPARE(decoded[0], 0.0F);
+
+    QVERIFY(source.seekFrames(3).succeeded);
+    QCOMPARE(source.read(decoded, std::chrono::milliseconds(1)).frameCount,
+             std::size_t{1});
+    QVERIFY(decoded[0] > 0.49F && decoded[0] < 0.51F);
+    QVERIFY(source.seekFrames(99).succeeded);
+    QCOMPARE(source.positionFrames(), 4U);
+    QCOMPARE(source.read(decoded, std::chrono::milliseconds(1)).status,
+             sdr::radio::RecordedAudioReadStatus::EndOfFile);
+    QVERIFY(source.ended());
+
+    // A stopped source retains an explicitly selected frame for its next
+    // start; Stop itself remains the documented rewind operation.
+    QVERIFY(source.stop().succeeded);
+    QVERIFY(source.seekFrames(1).succeeded);
+    QVERIFY(source.start().succeeded);
+    QCOMPARE(source.read(decoded, std::chrono::milliseconds(1)).frameCount,
+             std::size_t{1});
+    QVERIFY(decoded[0] < -0.49F && decoded[0] > -0.51F);
 }
 
 }  // namespace

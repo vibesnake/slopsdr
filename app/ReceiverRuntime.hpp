@@ -186,6 +186,7 @@ public slots:
     void toggleRecordingPlayback();
     void stopRecordingPlayback();
     void restartRecordingPlayback();
+    void seekRecordingPlayback(quint64 frame);
     void ejectRecording();
     void selectAudioDevice(const QString& identifier);
     void setAudioVolume(int volumePercent);
@@ -269,6 +270,7 @@ signals:
     void toggleRecordingPlaybackRequested();
     void stopRecordingPlaybackRequested();
     void restartRecordingPlaybackRequested();
+    void seekRecordingPlaybackRequested(quint64 frame);
     void ejectRecordingRequested();
     void selectAudioDeviceRequested(const QString& identifier);
     void setAudioVolumeRequested(int volumePercent);

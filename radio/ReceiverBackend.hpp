@@ -185,6 +185,8 @@ public:
     { return {ReceiverError::BackendFailure, false, false, "Recording playback is unavailable"}; }
     [[nodiscard]] virtual OperationResult restartPlayback()
     { return {ReceiverError::BackendFailure, false, false, "Recording playback is unavailable"}; }
+    [[nodiscard]] virtual OperationResult seekPlayback(std::uint64_t)
+    { return {ReceiverError::BackendFailure, false, false, "Recording seeking is unavailable"}; }
     [[nodiscard]] virtual const ReceiverState& state() const noexcept = 0;
     // The radio state records the requested rate. Hardware backends override
     // this when the driver confirms a distinct rate for DSP and display timing.

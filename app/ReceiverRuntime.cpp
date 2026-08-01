@@ -770,6 +770,20 @@ public slots:
         publishSnapshot(result.succeeded());
     }
 
+    void seekRecordingPlayback(quint64 frame)
+    {
+        if (!m_backend || !m_recordedSourceSelected) return;
+        const auto result = m_backend->seekPlayback(frame);
+        if (result.succeeded()) {
+            m_backend->clearAudioSamples();
+            if (m_audioOutput) m_audioOutput->flush();
+            resetWaterfallDelivery();
+            ++m_recordedPlaybackDisplayResetGeneration;
+        }
+        m_statusText = QString::fromStdString(result.message);
+        publishSnapshot(result.succeeded());
+    }
+
     void ejectRecording()
     {
         if (!m_recordedSourceSelected) return;
@@ -3849,6 +3863,7 @@ ReceiverRuntime::ReceiverRuntime(
     connect(this, &ReceiverRuntime::toggleRecordingPlaybackRequested, m_worker, &Worker::toggleRecordingPlayback, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::stopRecordingPlaybackRequested, m_worker, &Worker::stopRecordingPlayback, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::restartRecordingPlaybackRequested, m_worker, &Worker::restartRecordingPlayback, Qt::QueuedConnection);
+    connect(this, &ReceiverRuntime::seekRecordingPlaybackRequested, m_worker, &Worker::seekRecordingPlayback, Qt::QueuedConnection);
     connect(this, &ReceiverRuntime::ejectRecordingRequested, m_worker, &Worker::ejectRecording, Qt::QueuedConnection);
     connect(
         this,
@@ -4210,6 +4225,7 @@ void ReceiverRuntime::loadRecording(const QString& path)
 void ReceiverRuntime::toggleRecordingPlayback() { emit toggleRecordingPlaybackRequested(); }
 void ReceiverRuntime::stopRecordingPlayback() { emit stopRecordingPlaybackRequested(); }
 void ReceiverRuntime::restartRecordingPlayback() { emit restartRecordingPlaybackRequested(); }
+void ReceiverRuntime::seekRecordingPlayback(quint64 frame) { emit seekRecordingPlaybackRequested(frame); }
 void ReceiverRuntime::ejectRecording() { emit ejectRecordingRequested(); }
 
 void ReceiverRuntime::selectAudioDevice(const QString& identifier)

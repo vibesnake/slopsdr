@@ -161,6 +161,13 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool recordingPaused READ recordingPaused NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(bool recordedIqMetadataRequired READ recordedIqMetadataRequired NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(QString recordingTransportText READ recordingTransportText NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(bool recordingCanSeek READ recordingCanSeek NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(quint64 recordingPositionFrames READ recordingPositionFrames NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(quint64 recordingDurationFrames READ recordingDurationFrames NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(quint64 recordingSampleRate READ recordingSampleRate NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(QString recordingPositionText READ recordingPositionText NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(QString recordingDurationText READ recordingDurationText NOTIFY recordingPlaybackChanged)
+    Q_PROPERTY(QString recordingDisplayName READ recordingDisplayName NOTIFY recordingPlaybackChanged)
     Q_PROPERTY(bool gainSupported READ gainSupported NOTIFY deviceCapabilitiesChanged)
     Q_PROPERTY(double minimumGain READ minimumGain NOTIFY deviceCapabilitiesChanged)
     Q_PROPERTY(double maximumGain READ maximumGain NOTIFY deviceCapabilitiesChanged)
@@ -328,6 +335,13 @@ public:
     [[nodiscard]] bool recordingPaused() const noexcept;
     [[nodiscard]] bool recordedIqMetadataRequired() const noexcept;
     [[nodiscard]] QString recordingTransportText() const;
+    [[nodiscard]] bool recordingCanSeek() const noexcept;
+    [[nodiscard]] quint64 recordingPositionFrames() const noexcept;
+    [[nodiscard]] quint64 recordingDurationFrames() const noexcept;
+    [[nodiscard]] quint64 recordingSampleRate() const noexcept;
+    [[nodiscard]] QString recordingPositionText() const;
+    [[nodiscard]] QString recordingDurationText() const;
+    [[nodiscard]] QString recordingDisplayName() const;
     [[nodiscard]] bool verboseDiagnosticsEnabled() const noexcept;
     [[nodiscard]] bool gainSupported() const noexcept;
     [[nodiscard]] double minimumGain() const noexcept;
@@ -379,6 +393,7 @@ public slots:
     void stopRecordingPlayback();
     void restartRecordingPlayback();
     void ejectRecording();
+    Q_INVOKABLE void seekRecordingPlayback(quint64 frame);
     void selectAudioDeviceIndex(int index);
     void setAudioVolume(int volumePercent);
     void setAudioMuted(bool muted);

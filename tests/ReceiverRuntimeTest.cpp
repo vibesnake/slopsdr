@@ -3120,6 +3120,18 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
         return !snapshots.empty() &&
                latestSnapshot(snapshots).recordingTransport.positionSamples > 0;
     }));
+    QVERIFY(model.recordingCanSeek());
+    QCOMPARE(model.recordingDurationFrames(), quint64{96'000});
+    const qsizetype waterfallResetsBeforeSeek = waterfallResets.count();
+    const std::uint64_t audioBytesBeforeSeek = trace->audioSinkWrittenBytes;
+    model.seekRecordingPlayback(48'000);
+    QVERIFY(waitUntil([&model, &trace, audioBytesBeforeSeek] {
+        return model.receiverRunning() && model.recordingPositionFrames() >= 48'000 &&
+               trace->audioSinkWrittenBytes > audioBytesBeforeSeek;
+    }));
+    QVERIFY(waitUntil([&waterfallResets, waterfallResetsBeforeSeek] {
+        return waterfallResets.count() > waterfallResetsBeforeSeek;
+    }));
 
     const int firstPlaybackStarts = trace->audioPlaybackStarts;
     model.stopRecordingPlayback();
