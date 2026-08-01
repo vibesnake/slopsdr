@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QSignalSpy>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -108,6 +109,29 @@ bool waitUntil(const std::function<bool()>& predicate)
         QTest::qWait(5);
     }
     return predicate();
+}
+
+QString recordingTransitionDiagnostic(const ApplicationModel& model,
+    const QSignalSpy& snapshots, qsizetype snapshotCount)
+{
+    return QStringLiteral(
+               "snapshots=%1 (expected > %2), status=%3, loaded=%4, "
+               "source=%5, recording=%6, metadataRequired=%7")
+        .arg(snapshots.count())
+        .arg(snapshotCount)
+        .arg(model.statusText())
+        .arg(model.recordingLoaded())
+        .arg(model.sourceDescription())
+        .arg(model.recordingDisplayName())
+        .arg(model.recordedIqMetadataRequired());
+}
+
+bool waitForRecordingTransition(const QSignalSpy& snapshots,
+    qsizetype snapshotCount, const std::function<bool()>& predicate)
+{
+    return waitUntil([&snapshots, snapshotCount, &predicate] {
+        return snapshots.count() > snapshotCount && predicate();
+    });
 }
 #endif
 
@@ -533,7 +557,12 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
     sdr::app::ReceiverRuntime runtime(
         sdr::app::ReceiverRuntime::StartupMode::Mock, std::move(factories));
     ApplicationModel model(runtime);
+    QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
     runtime.start();
+    QVERIFY2(waitUntil([&model, &snapshots] {
+        return snapshots.count() > 0 && model.mockMode() &&
+               model.statusText().contains(QStringLiteral("Mock backend ready"));
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, 0)));
 
     int forwardedCount = 0;
     QStringList forwardedPaths;
@@ -552,42 +581,61 @@ void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDial
     };
 
     QVERIFY(QDir().mkpath(recordings.filePath(QStringLiteral("nested"))));
+    qsizetype snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(
         recordings.filePath(QStringLiteral("nested/../sidecar capture.raw"))));
-    QVERIFY(waitUntil([&model] { return model.recordingLoaded(); }));
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
+        return model.recordingLoaded() && model.recordedIqSource() &&
+               model.recordingDisplayName() == QStringLiteral("sidecar capture.raw");
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
     QCOMPARE(forwardedCount, 1);
     QCOMPARE(forwardedPaths.constFirst(), cleanPath(rawPath));
     QCOMPARE(model.recordingDisplayName(), QStringLiteral("sidecar capture.raw"));
 
+    snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(manualPath));
-    QVERIFY(waitUntil([&model] { return model.recordedIqMetadataRequired(); }));
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
+        return model.recordedIqMetadataRequired();
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
     QVERIFY(model.recordingLoaded());
     QCOMPARE(model.recordingDisplayName(), QStringLiteral("sidecar capture.raw"));
+    snapshotCount = snapshots.count();
     model.selectRecordedIqSource(
         QUrl::fromLocalFile(manualPath), 102'000'000, 250'000);
-    QVERIFY(waitUntil([&model] {
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
         return model.recordingLoaded() && !model.recordedIqMetadataRequired() &&
                model.recordingDisplayName() == QStringLiteral("manual.raw");
-    }));
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
 
+    snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(invalidSidecarPath));
-    QVERIFY(waitUntil([&model] { return model.recordedIqMetadataRequired(); }));
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
+        return model.recordedIqMetadataRequired();
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
     QVERIFY(model.recordingLoaded());
     QCOMPARE(model.recordingDisplayName(), QStringLiteral("manual.raw"));
 
+    snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(malformedPath));
-    QVERIFY(waitUntil([&model] {
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
         return model.statusText().contains(QStringLiteral("selection failed"));
-    }));
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
     QVERIFY(model.recordingLoaded());
     QCOMPARE(model.recordingDisplayName(), QStringLiteral("manual.raw"));
     QVERIFY(model.statusText().contains(QStringLiteral("truncated")));
 
+    snapshotCount = snapshots.count();
+    model.ejectRecording();
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
+        return !model.recordingLoaded();
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
+
+    snapshotCount = snapshots.count();
     QVERIFY(acceptRecording(wavPath));
-    QVERIFY(waitUntil([&model, &wavPath] {
+    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model, &wavPath] {
         return model.recordingLoaded() &&
                model.recordingDisplayName() == QFileInfo(wavPath).fileName();
-    }));
+    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
     QVERIFY(model.recordedAudioSource());
     QCOMPARE(forwardedCount, 5);
 
