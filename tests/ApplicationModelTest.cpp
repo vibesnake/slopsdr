@@ -1370,9 +1370,6 @@ void ApplicationModelTest::persistsAndValidatesDsdFmeBinaryPath()
         QCOMPARE(model.dsdFmeBinaryStatus(), QStringLiteral("Valid executable"));
         QVERIFY(model.dsdFmeBinaryValid());
 
-        model.setDsdFmeBinaryUrl(QUrl::fromLocalFile(executablePath));
-        QCOMPARE(model.dsdFmeBinaryPath(), executablePath);
-        QCOMPARE(model.dsdFmeBinaryStatus(), QStringLiteral("Valid executable"));
     }
 
     {

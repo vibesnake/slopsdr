@@ -3388,9 +3388,9 @@ void ApplicationModel::setDsdFmeBinaryPath(const QString& path)
     revalidateDsdFmeBinaryPath();
 }
 
-void ApplicationModel::setDsdFmeBinaryUrl(const QUrl& url)
+void ApplicationModel::reportFileDialogError(const QString& message)
 {
-    setDsdFmeBinaryPath(url.isLocalFile() ? url.toLocalFile() : url.toString());
+    setStatusText(message);
 }
 
 void ApplicationModel::revalidateDsdFmeBinaryPath()
@@ -3422,11 +3422,6 @@ void ApplicationModel::setRecordingsFolder(const QString& path)
     syncScannerActivityRecording();
     emit recordingsFolderChanged();
     emit recordingStateChanged();
-}
-
-void ApplicationModel::setRecordingsFolderUrl(const QUrl& url)
-{
-    setRecordingsFolder(url.isLocalFile() ? url.toLocalFile() : url.toString());
 }
 
 void ApplicationModel::setSkipQuietRecordingParts(bool enabled)

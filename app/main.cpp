@@ -2,7 +2,7 @@
 // Copyright (C) 2026 vibesnake
 
 #include "ApplicationModel.hpp"
-#include "RecordingFileDialogController.hpp"
+#include "ApplicationFileDialogs.hpp"
 #include "ReceiverRuntime.hpp"
 #include "SpectrumFramePacing.hpp"
 #include "project_config.hpp"
@@ -220,11 +220,21 @@ int main(int argc, char* argv[])
         commandLine.isSet(verboseOption));
     ApplicationModel applicationModel(
         runtime, nullptr, commandLine.isSet(verboseOption));
-    sdr::gui::RecordingFileDialogController recordingFileDialogController(
+    sdr::gui::ApplicationFileDialogs applicationFileDialogs(
         [&applicationModel](const QUrl& fileUrl) {
             applicationModel.loadRecording(fileUrl);
         },
-        [&applicationModel] { return applicationModel.recordingsFolder(); });
+        [&applicationModel](const QUrl& directoryUrl) {
+            applicationModel.setRecordingsFolder(directoryUrl.toLocalFile());
+        },
+        [&applicationModel](const QUrl& fileUrl) {
+            applicationModel.setDsdFmeBinaryPath(fileUrl.toLocalFile());
+        },
+        [&applicationModel] { return applicationModel.recordingsFolder(); },
+        [&applicationModel] { return applicationModel.dsdFmeBinaryPath(); });
+    QObject::connect(
+        &applicationFileDialogs, &sdr::gui::ApplicationFileDialogs::selectionError,
+        &applicationModel, &ApplicationModel::reportFileDialogError);
     QQmlApplicationEngine engine;
 
     engine.setInitialProperties({
@@ -234,8 +244,8 @@ int main(int argc, char* argv[])
          QString::fromLatin1(sdr_receiver::application_version)},
         {QStringLiteral("applicationReleaseDate"),
          QString::fromLatin1(sdr_receiver::application_release_date)},
-        {QStringLiteral("recordingFileDialogController"),
-         QVariant::fromValue<QObject*>(&recordingFileDialogController)},
+        {QStringLiteral("applicationFileDialogs"),
+         QVariant::fromValue<QObject*>(&applicationFileDialogs)},
     });
     engine.load(QUrl(QStringLiteral("qrc:/qt/qml/SDRReceiver/Main.qml")));
 
@@ -247,7 +257,7 @@ int main(int argc, char* argv[])
     if (!mainWindow) {
         return EXIT_FAILURE;
     }
-    recordingFileDialogController.setTransientParent(mainWindow);
+    applicationFileDialogs.setTransientParent(mainWindow);
     MainWindowCloseFilter mainWindowCloseFilter;
     mainWindow->installEventFilter(&mainWindowCloseFilter);
 

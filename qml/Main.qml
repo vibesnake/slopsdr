@@ -3,7 +3,6 @@
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtQuick.Window
 
@@ -11,7 +10,7 @@ ApplicationWindow {
     id: root
 
     required property var applicationModel
-    required property var recordingFileDialogController
+    required property var applicationFileDialogs
     property string applicationVersion
     property string applicationReleaseDate
 
@@ -128,7 +127,7 @@ ApplicationWindow {
     }
 
     function openRecordingFileDialog() {
-        root.recordingFileDialogController.open()
+        root.applicationFileDialogs.openRecordingFileDialog()
     }
 
     function clearCenterFrequencyDigitFocus() {
@@ -158,7 +157,7 @@ ApplicationWindow {
     }
 
     Connections {
-        target: root.recordingFileDialogController
+        target: root.applicationFileDialogs
         function onRecordingFileSelected(fileUrl) {
             root.selectedRecordingUrl = fileUrl
         }
@@ -1100,24 +1099,6 @@ ApplicationWindow {
             onAccepted: completeFrequencyDialog.accept()
         }
     }
-
-    FileDialog {
-        id: dsdFmeFileDialog
-        title: qsTr("Select DSD-FME executable")
-        fileMode: FileDialog.OpenFile
-        nameFilters: [
-            qsTr("Executable files (*)"),
-            qsTr("All files (*)"),
-        ]
-        onAccepted: root.applicationModel.setDsdFmeBinaryUrl(selectedFile)
-    }
-
-    FolderDialog {
-        id: recordingsFolderDialog
-        title: qsTr("Select recordings folder")
-        onAccepted: root.applicationModel.setRecordingsFolderUrl(selectedFolder)
-    }
-
     Dialog {
         id: bookmarkGroupDialog
         property int editingRow: -1
@@ -3252,7 +3233,7 @@ ApplicationWindow {
                             Button {
                                 objectName: "browseRecordingsFolderButton"
                                 text: qsTr("Browse")
-                                onClicked: recordingsFolderDialog.open()
+                                onClicked: root.applicationFileDialogs.selectRecordingDirectory()
                             }
 
                             Button {
@@ -3413,7 +3394,7 @@ ApplicationWindow {
                             Button {
                                 text: qsTr("Browse")
                                 Accessible.name: qsTr("Browse for DSD-FME executable")
-                                onClicked: dsdFmeFileDialog.open()
+                                onClicked: root.applicationFileDialogs.selectDsdFmeExecutable()
                             }
 
                             Button {

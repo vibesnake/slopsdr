@@ -116,10 +116,14 @@ void GainSliderBindingTest::recordingLoaderUsesWidgetDialogBridge()
     QFile qmlInput(qmlPath);
     QVERIFY(qmlInput.open(QIODevice::ReadOnly));
     const QByteArray source = qmlInput.readAll();
-    QVERIFY(source.contains("import QtQuick.Dialogs"));
+    QVERIFY(!source.contains("import QtQuick.Dialogs"));
     QVERIFY(!source.contains("id: recordingFileDialog"));
     QVERIFY(!source.contains("recordedIqFileDialog"));
-    QVERIFY(source.contains("root.recordingFileDialogController.open()"));
+    QVERIFY(source.contains("root.applicationFileDialogs.openRecordingFileDialog()"));
+    QVERIFY(source.contains("selectRecordingDirectory()"));
+    QVERIFY(source.contains("selectDsdFmeExecutable()"));
+    QVERIFY(!source.contains("FileDialog {"));
+    QVERIFY(!source.contains("FolderDialog {"));
     QVERIFY(source.contains("onRecordingFileSelected(fileUrl)"));
 
     const QString mainPath = QFINDTESTDATA("../app/main.cpp");
@@ -127,7 +131,7 @@ void GainSliderBindingTest::recordingLoaderUsesWidgetDialogBridge()
     QFile mainInput(mainPath);
     QVERIFY(mainInput.open(QIODevice::ReadOnly));
     const QByteArray main = mainInput.readAll();
-    QVERIFY(main.contains("RecordingFileDialogController"));
+    QVERIFY(main.contains("ApplicationFileDialogs"));
     QVERIFY(main.contains("applicationModel.loadRecording(fileUrl)"));
     QVERIFY(main.contains("QApplication application"));
 

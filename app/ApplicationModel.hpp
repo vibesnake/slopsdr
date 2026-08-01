@@ -462,10 +462,9 @@ public slots:
     void setConsolePanelWidth(double width);
     void commitConsolePanelWidth();
     void setDsdFmeBinaryPath(const QString& path);
-    void setDsdFmeBinaryUrl(const QUrl& url);
+    void reportFileDialogError(const QString& message);
     void revalidateDsdFmeBinaryPath();
     void setRecordingsFolder(const QString& path);
-    void setRecordingsFolderUrl(const QUrl& url);
     void setSkipQuietRecordingParts(bool enabled);
     void setRecordingPreRollSeconds(int seconds);
     void setRecordingTailSeconds(int seconds);

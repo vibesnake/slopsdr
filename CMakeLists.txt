@@ -44,7 +44,6 @@ find_package(
         Qml
         Quick
         QuickControls2
-        QuickDialogs2
         Widgets
 )
 
@@ -284,8 +283,8 @@ sdr_enable_warnings(sdr_application_model)
 
 add_library(
     sdr_presentation STATIC
-    gui/RecordingFileDialogController.cpp
-    gui/RecordingFileDialogController.hpp
+    gui/ApplicationFileDialogs.cpp
+    gui/ApplicationFileDialogs.hpp
 )
 target_include_directories(sdr_presentation PUBLIC gui)
 target_link_libraries(
@@ -316,7 +315,6 @@ target_link_libraries(
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
-        Qt6::QuickDialogs2
         Qt6::Widgets
 )
 if(ENABLE_GNURADIO AND ENABLE_SOAPYSDR)
@@ -348,7 +346,7 @@ qt_add_qml_module(
     VERSION 1.0
     RESOURCE_PREFIX /qt/qml
     NO_IMPORT_SCAN
-    DEPENDENCIES QtQuick QtQuick.Dialogs
+    DEPENDENCIES QtQuick
     QML_FILES
         qml/Main.qml
         qml/ThemedCheckBox.qml

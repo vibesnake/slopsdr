@@ -87,22 +87,22 @@ set_tests_properties(
 )
 
 add_executable(
-    recording_file_dialog_controller_tests
-    RecordingFileDialogControllerTest.cpp
+    application_file_dialogs_tests
+    ApplicationFileDialogsTest.cpp
 )
 target_link_libraries(
-    recording_file_dialog_controller_tests
+    application_file_dialogs_tests
     PRIVATE
         sdr_presentation
         Qt6::Test
 )
-sdr_enable_warnings(recording_file_dialog_controller_tests)
+sdr_enable_warnings(application_file_dialogs_tests)
 add_test(
-    NAME recording_file_dialog_controller_tests
-    COMMAND recording_file_dialog_controller_tests
+    NAME application_file_dialogs_tests
+    COMMAND application_file_dialogs_tests
 )
 set_tests_properties(
-    recording_file_dialog_controller_tests
+    application_file_dialogs_tests
     PROPERTIES
         TIMEOUT 20
 )

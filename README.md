@@ -97,7 +97,7 @@ download, build, vendor, install, or update them.
 
 The desktop hardware build requires CMake 3.22 or later, a C++20 compiler,
 Ninja, Qt 6.2 or later (Core, Gui, Multimedia, QML, Quick, Quick Controls 2,
-Quick Dialogs 2, and Test), GNU Radio (analog, blocks, FFT, filter, and runtime
+Widgets, and Test), GNU Radio (analog, blocks, FFT, filter, and runtime
 components), and SoapySDR. On Debian-family systems with the package names used
 by Debian and Ubuntu, install:
 
@@ -106,7 +106,7 @@ sudo apt update
 sudo apt install build-essential cmake ninja-build \
     qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
     qml6-module-qtqml-workerscript qml6-module-qtquick \
-    qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
+    qml6-module-qtquick-controls \
     qml6-module-qtquick-layouts qml6-module-qtquick-window \
     gnuradio-dev libsoapysdr-dev soapysdr-tools
 ```
@@ -154,7 +154,9 @@ hardware-test, diagnostic, and install commands.
 ### Recorded playback
 
 Use the footer **Load recording** action while reception is stopped to select a
-recording with Qt's non-native widget file dialog. Its detailed view and filters
+recording with Qt's shared non-native widget file dialog. The same detailed
+chooser is used for the Settings recordings-folder and DSD-FME executable Browse
+actions. Its detailed view and filters
 cover WAV audio, raw IQ, all supported recordings, and all files, so a
 supported recording may still be chosen when its extension is missing or
 unusual. On accepted selection, it restores the last folder, filter, and dialog
