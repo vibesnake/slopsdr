@@ -151,6 +151,17 @@ normally. Configure DSD-FME only when using DMR/P25. Use `--mock` for deliberate
 hardware-free runs. [Building](docs/BUILDING.md) documents debug, mock,
 hardware-test, diagnostic, and install commands.
 
+### Recorded IQ playback
+
+Use **Open IQ…** while reception is stopped to select one recorded `.raw`
+capture. slopSDR accepts interleaved little-endian `cf32_le` samples. A matching
+adjacent `.json` sidecar produced by slopSDR supplies the capture center and
+sample rate automatically; otherwise enter those values explicitly. Playback
+uses the normal receiver pipeline and is paced at the recorded rate. Capture
+center and sample rate are fixed, while listening-frequency tuning remains
+available inside the recorded passband. Pause, seek, loop, multi-file sessions,
+scanner playback, and playback IQ re-recording are not available yet.
+
 ## Development and testing
 
 Use the separate release-oriented maintainer build when compiling and running

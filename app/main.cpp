@@ -200,6 +200,11 @@ int main(int argc, char* argv[])
             spectrumConfiguration,
             verboseDspMetrics);
     };
+    factories.createRecordedBackend = [spectrumConfiguration, verboseDspMetrics](
+                                         sdr::radio::RecordedIqSourceConfiguration source) {
+        return std::make_unique<sdr::dsp::GnuRadioReceiverBackend>(
+            std::move(source), spectrumConfiguration, verboseDspMetrics);
+    };
 #endif
     sdr::app::ReceiverRuntime runtime(
         startupMode,

@@ -161,6 +161,7 @@ void HardwareReceiverSmokeTest::completesAutomaticPpmCalibrationThroughRuntime()
                 return std::make_unique<sdr::dsp::GnuRadioReceiverBackend>(
                     std::move(device));
             },
+        .createRecordedBackend = {},
         .createAudioOutputService = {},
         .createDsdFmeProcessService = {},
         .monotonicClock = {},

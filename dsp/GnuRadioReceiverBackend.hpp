@@ -28,6 +28,10 @@ public:
         std::unique_ptr<devices::DeviceController> explicitlySelectedDevice,
         SpectrumDisplayConfiguration spectrumConfiguration = {},
         bool verboseDspMetrics = false);
+    explicit GnuRadioReceiverBackend(
+        radio::RecordedIqSourceConfiguration recordedSource,
+        SpectrumDisplayConfiguration spectrumConfiguration = {},
+        bool verboseDspMetrics = false);
     ~GnuRadioReceiverBackend() override;
 
     GnuRadioReceiverBackend(const GnuRadioReceiverBackend&) = delete;

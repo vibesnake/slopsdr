@@ -1467,7 +1467,7 @@ QString ApplicationModel::scanValidationError() const
 
 bool ApplicationModel::scanCanStart() const noexcept
 {
-    return !m_bookmarkScanSession && !scannerOwnsTuning() && receiverRunning() &&
+    return !recordedIqSource() && !m_bookmarkScanSession && !scannerOwnsTuning() && receiverRunning() &&
            m_scanValidationError.isEmpty();
 }
 
@@ -1496,7 +1496,7 @@ bool ApplicationModel::scanCanStop() const noexcept
 
 bool ApplicationModel::bookmarkScanCanStart() const
 {
-    return !scannerOwnsTuning() && receiverRunning() &&
+    return !recordedIqSource() && !scannerOwnsTuning() && receiverRunning() &&
            bookmarkScanValidationError(m_bookmarkModel.scannerBookmarks()).isEmpty();
 }
 
@@ -1842,6 +1842,18 @@ bool ApplicationModel::mockMode() const noexcept
     return m_mockMode;
 }
 
+bool ApplicationModel::recordedIqSource() const noexcept
+{
+    return m_receiverSourceCapabilities.kind == sdr::radio::ReceiverSourceKind::RecordedIq;
+}
+
+QString ApplicationModel::sourceDescription() const
+{
+    return recordedIqSource() ? QStringLiteral("RECORDED IQ")
+                              : (m_mockMode ? QStringLiteral("MOCK")
+                                            : QStringLiteral("HARDWARE"));
+}
+
 bool ApplicationModel::verboseDiagnosticsEnabled() const noexcept
 {
     return m_verboseDiagnostics;
@@ -1976,7 +1988,8 @@ bool ApplicationModel::iqRecordingActive() const noexcept
 
 bool ApplicationModel::iqRecordingCanStart() const noexcept
 {
-    return receiverRunning() && m_recordingsFolderValid && !m_iqRecordingActive;
+    return receiverRunning() && m_recordingsFolderValid && !m_iqRecordingActive &&
+           !recordedIqSource();
 }
 
 QString ApplicationModel::iqRecordingElapsedText() const
@@ -2097,6 +2110,16 @@ void ApplicationModel::clearDeviceSelection()
         return;
     }
     m_runtime->clearDeviceSelection();
+}
+
+void ApplicationModel::selectRecordedIqSource(const QUrl& fileUrl,
+    quint64 centerFrequency, quint64 sampleRate)
+{
+    if (!m_runtime || !fileUrl.isLocalFile()) {
+        setStatusText(QStringLiteral("Select a local .raw IQ file"));
+        return;
+    }
+    m_runtime->selectRecordedIqSource(fileUrl.toLocalFile(), centerFrequency, sampleRate);
 }
 
 void ApplicationModel::selectAudioDeviceIndex(int index)
@@ -4015,6 +4038,7 @@ void ApplicationModel::applyRuntimeSnapshot(
     m_runtimeSquelchOpen = snapshot.squelchOpen;
     m_runtimeLimits = snapshot.receiverLimits;
     m_runtimeCapabilities = snapshot.receiverCapabilities;
+    m_receiverSourceCapabilities = snapshot.receiverSourceCapabilities;
     m_runtimeEffectiveSampleRate = snapshot.effectiveSampleRate == 0
                                       ? snapshot.receiverState.sampleRate
                                       : snapshot.effectiveSampleRate;

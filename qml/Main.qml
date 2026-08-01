@@ -29,10 +29,38 @@ ApplicationWindow {
     property real scanPresetDragListY: -1
     property int hoveredCenterFrequencyDigitIndex: -1
     property int focusedCenterFrequencyDigitIndex: -1
+    property url selectedRecordedIqUrl: ""
     readonly property string sidebarModeNone: "none"
     readonly property string sidebarModeBookmarks: "bookmarks"
     readonly property string sidebarModeScan: "scan"
     readonly property string sidebarModeSettings: "settings"
+
+    FileDialog {
+        id: recordedIqFileDialog
+        title: qsTr("Select recorded IQ capture")
+        nameFilters: [qsTr("Raw IQ captures (*.raw)")]
+        fileMode: FileDialog.OpenFile
+        onAccepted: {
+            root.selectedRecordedIqUrl = selectedFile
+            recordedIqMetadataDialog.open()
+        }
+    }
+
+    Dialog {
+        id: recordedIqMetadataDialog
+        title: qsTr("Recorded IQ metadata")
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        contentItem: ColumnLayout {
+            spacing: 8
+            Label { text: qsTr("A valid adjacent JSON sidecar is loaded automatically. Enter these only when it is missing or invalid."); wrapMode: Text.WordWrap }
+            TextField { id: recordedCenterField; placeholderText: qsTr("Center frequency (Hz)"); inputMethodHints: Qt.ImhDigitsOnly }
+            TextField { id: recordedRateField; placeholderText: qsTr("Sample rate (samples/s)"); inputMethodHints: Qt.ImhDigitsOnly }
+            Label { text: qsTr("Format: cf32_le · little-endian") }
+        }
+        onAccepted: root.applicationModel.selectRecordedIqSource(
+                        root.selectedRecordedIqUrl, Number(recordedCenterField.text), Number(recordedRateField.text))
+    }
     readonly property string sidebarModeConsole: "console"
 
     width: 1180
@@ -3749,11 +3777,12 @@ ApplicationWindow {
                     }
 
                     Label {
-                        text: root.applicationModel.mockMode
-                              ? qsTr("MOCK")
-                              : (root.applicationModel.backendReady
-                                 ? qsTr("HARDWARE READY")
-                                 : qsTr("NO DEVICE"))
+                        text: root.applicationModel.recordedIqSource
+                              ? qsTr("RECORDED IQ")
+                              : (root.applicationModel.mockMode
+                                 ? qsTr("MOCK")
+                                 : (root.applicationModel.backendReady
+                                    ? qsTr("HARDWARE READY") : qsTr("NO DEVICE")))
                         color: root.applicationModel.backendReady ? "#68d391" : "#f6ad55"
                         font.bold: true
                         font.pixelSize: 9
@@ -3813,6 +3842,14 @@ ApplicationWindow {
                         enabled: root.applicationModel.receiverRunning &&
                                  !root.applicationModel.runtimeBusy
                         onClicked: root.applicationModel.stopReception()
+                    }
+                    Button {
+                        Layout.minimumWidth: 0
+                        implicitHeight: root.controlHeight
+                        text: qsTr("Open IQ…")
+                        enabled: !root.applicationModel.receiverRunning &&
+                                 !root.applicationModel.runtimeBusy
+                        onClicked: recordedIqFileDialog.open()
                     }
                 }
 

@@ -127,6 +127,8 @@ public:
     using HardwareBackendFactory = std::function<
         std::unique_ptr<radio::ReceiverBackend>(
             std::unique_ptr<devices::DeviceController>)>;
+    using RecordedBackendFactory = std::function<
+        std::unique_ptr<radio::ReceiverBackend>(radio::RecordedIqSourceConfiguration)>;
     using AudioOutputServiceFactory =
         std::function<std::unique_ptr<platform::AudioOutputService>()>;
     using DsdFmeProcessServiceFactory =
@@ -138,6 +140,7 @@ public:
     struct Factories {
         DeviceProviderFactory createDeviceProvider;
         HardwareBackendFactory createHardwareBackend;
+        RecordedBackendFactory createRecordedBackend;
         AudioOutputServiceFactory createAudioOutputService;
         DsdFmeProcessServiceFactory createDsdFmeProcessService;
         MonotonicClock monotonicClock;
@@ -171,6 +174,8 @@ public slots:
     void refreshDevices();
     void selectDevice(const QString& identifier);
     void clearDeviceSelection();
+    void selectRecordedIqSource(const QString& path, quint64 centerFrequency,
+        quint64 sampleRate);
     void selectAudioDevice(const QString& identifier);
     void setAudioVolume(int volumePercent);
     void setAudioMuted(bool muted);
@@ -247,6 +252,8 @@ signals:
     void refreshDevicesRequested();
     void selectDeviceRequested(const QString& identifier);
     void clearDeviceSelectionRequested();
+    void selectRecordedIqSourceRequested(const QString& path, quint64 centerFrequency,
+        quint64 sampleRate);
     void selectAudioDeviceRequested(const QString& identifier);
     void setAudioVolumeRequested(int volumePercent);
     void setAudioMutedRequested(bool muted);

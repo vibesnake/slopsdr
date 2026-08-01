@@ -7,10 +7,14 @@
 #include "WidebandIqSources.hpp"
 
 #include <QElapsedTimer>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <filesystem>
+#include <fstream>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -412,6 +416,7 @@ private slots:
     void cleansUpAfterSimulatedSchedulerStartFailure();
     void destroysSafelyAfterPartialInitialization();
     void exposesSourceCapabilitiesAndAdapters();
+    void readsRecordedIqSidecarAndManualMetadata();
     void tracksCenterListeningOffset();
     void rebuildsRunningFlowgraphForSampleRateChange();
     void repeatsCaptureBandwidthChangesWithoutStaleFrames();
@@ -589,6 +594,54 @@ void GnuRadioReceiverBackendTest::exposesSourceCapabilitiesAndAdapters()
     QVERIFY(hardwareBackend.sourceCapabilities().kind ==
             sdr::radio::ReceiverSourceKind::Hardware);
     QVERIFY(hardwareBackend.sourceCapabilities().hardwareTuningSupported);
+}
+
+void GnuRadioReceiverBackendTest::readsRecordedIqSidecarAndManualMetadata()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        const std::array<float, 4> values{1.0F, -0.5F, 0.25F, 0.75F};
+        for (const float value : values) {
+            const auto bits = std::bit_cast<std::uint32_t>(value);
+            for (unsigned shift = 0; shift < 32; shift += 8) {
+                raw.put(static_cast<char>((bits >> shift) & 0xffU));
+            }
+        }
+    }
+    {
+        auto sidecarPath = rawPath;
+        sidecarPath.replace_extension(".json");
+        std::ofstream sidecar(sidecarPath);
+        sidecar << "{\"hardware_center_frequency_hz\": 101000000,"
+                   "\"sample_rate_hz\": 200000,\"sample_format\":\"cf32_le\","
+                   "\"byte_order\":\"little-endian\",\"written_sample_count\":2}";
+    }
+    sdr::dsp::RecordedIqSource source({.path = (std::filesystem::path(directory.path().toStdString()) / "capture.raw").string()});
+    QCOMPARE(source.captureMetadata().centerFrequency, std::uint64_t{101'000'000});
+    QCOMPARE(source.captureMetadata().effectiveSampleRate, std::uint64_t{200'000});
+    QCOMPARE(source.sampleCount(), std::uint64_t{2});
+    QVERIFY(source.start().succeeded);
+    std::array<std::complex<float>, 8> samples{};
+    const auto first = source.read(samples, std::chrono::milliseconds(1));
+    QCOMPARE(first.sampleCount, std::size_t{2});
+    QCOMPARE(samples[0], std::complex<float>(1.0F, -0.5F));
+    QCOMPARE(samples[1], std::complex<float>(0.25F, 0.75F));
+    QVERIFY(source.read(samples, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::EndOfFile);
+    QVERIFY(source.stop().succeeded);
+
+    std::filesystem::remove(std::filesystem::path(directory.path().toStdString()) / "capture.json");
+    sdr::dsp::RecordedIqSource manual({
+        .path = (std::filesystem::path(directory.path().toStdString()) / "capture.raw").string(),
+        .centerFrequency = 102'000'000,
+        .sampleRate = 250'000});
+    QCOMPARE(manual.captureMetadata().centerFrequency, std::uint64_t{102'000'000});
+    QVERIFY_EXCEPTION_THROWN(
+        sdr::dsp::RecordedIqSource({.path = rawPath.string(), .format = "ci16_le"}),
+        std::invalid_argument);
 }
 
 void GnuRadioReceiverBackendTest::tracksCenterListeningOffset()

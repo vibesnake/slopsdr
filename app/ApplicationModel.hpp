@@ -152,6 +152,8 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool deviceDiscoveryAvailable READ deviceDiscoveryAvailable NOTIFY deviceStateChanged)
     Q_PROPERTY(bool runtimeBusy READ runtimeBusy NOTIFY runtimeBusyChanged)
     Q_PROPERTY(bool mockMode READ mockMode NOTIFY deviceStateChanged)
+    Q_PROPERTY(bool recordedIqSource READ recordedIqSource NOTIFY deviceStateChanged)
+    Q_PROPERTY(QString sourceDescription READ sourceDescription NOTIFY deviceStateChanged)
     Q_PROPERTY(bool gainSupported READ gainSupported NOTIFY deviceCapabilitiesChanged)
     Q_PROPERTY(double minimumGain READ minimumGain NOTIFY deviceCapabilitiesChanged)
     Q_PROPERTY(double maximumGain READ maximumGain NOTIFY deviceCapabilitiesChanged)
@@ -310,6 +312,8 @@ public:
     [[nodiscard]] bool deviceDiscoveryAvailable() const noexcept;
     [[nodiscard]] bool runtimeBusy() const noexcept;
     [[nodiscard]] bool mockMode() const noexcept;
+    [[nodiscard]] bool recordedIqSource() const noexcept;
+    [[nodiscard]] QString sourceDescription() const;
     [[nodiscard]] bool verboseDiagnosticsEnabled() const noexcept;
     [[nodiscard]] bool gainSupported() const noexcept;
     [[nodiscard]] double minimumGain() const noexcept;
@@ -354,6 +358,8 @@ public slots:
     void refreshDevices();
     void selectDeviceIndex(int index);
     void clearDeviceSelection();
+    void selectRecordedIqSource(const QUrl& fileUrl, quint64 centerFrequency,
+        quint64 sampleRate);
     void selectAudioDeviceIndex(int index);
     void setAudioVolume(int volumePercent);
     void setAudioMuted(bool muted);
@@ -856,6 +862,7 @@ private:
     bool m_deviceDiscoveryAvailable = false;
     bool m_runtimeBusy = false;
     bool m_mockMode = true;
+    sdr::radio::ReceiverSourceCapabilities m_receiverSourceCapabilities;
     bool m_automaticPpmCalibrationSupported = false;
     bool m_ppmCalibrationRunning = false;
     QString m_ppmCalibrationStatus = QStringLiteral("idle");

@@ -6,6 +6,7 @@
 #include "WidebandIqSource.hpp"
 
 #include <chrono>
+#include <fstream>
 #include <memory>
 
 namespace sdr::devices {
@@ -51,6 +52,37 @@ private:
     radio::WidebandIqCaptureMetadata m_metadata;
     std::chrono::steady_clock::time_point m_nextDeadline;
     double m_phase = 0.0;
+    bool m_running = false;
+};
+
+// A single recorded raw capture.  The configuration is deliberately a
+// standard-C++ value so the runtime can select it without treating a file as a
+// hardware device.
+class RecordedIqSource final : public radio::WidebandIqSource
+{
+public:
+    explicit RecordedIqSource(radio::RecordedIqSourceConfiguration configuration);
+
+    [[nodiscard]] static radio::RecordedIqSourceConfiguration resolveConfiguration(
+        radio::RecordedIqSourceConfiguration configuration);
+
+    [[nodiscard]] radio::ReceiverSourceCapabilities capabilities() const noexcept override;
+    [[nodiscard]] radio::WidebandIqCaptureMetadata captureMetadata() const noexcept override;
+    [[nodiscard]] radio::WidebandIqSourceOperationResult start() override;
+    [[nodiscard]] radio::WidebandIqSourceOperationResult stop() override;
+    [[nodiscard]] radio::WidebandIqReadResult read(
+        std::span<std::complex<float>> samples,
+        std::chrono::milliseconds timeout) override;
+
+    [[nodiscard]] std::uint64_t sampleCount() const noexcept;
+
+private:
+    radio::RecordedIqSourceConfiguration m_configuration;
+    radio::WidebandIqCaptureMetadata m_metadata;
+    std::uint64_t m_sampleCount = 0;
+    std::uint64_t m_samplesRead = 0;
+    std::ifstream m_file;
+    std::chrono::steady_clock::time_point m_nextDeadline;
     bool m_running = false;
 };
 

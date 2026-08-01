@@ -519,6 +519,10 @@ public:
             case radio::WidebandIqReadStatus::Timeout:
                 boost::this_thread::interruption_point();
                 continue;
+            case radio::WidebandIqReadStatus::EndOfFile:
+                m_failure->set(result.message.empty()
+                    ? "Recorded IQ playback reached end of file" : result.message);
+                return WORK_DONE;
             case radio::WidebandIqReadStatus::Stopped:
             case radio::WidebandIqReadStatus::Disconnected:
             case radio::WidebandIqReadStatus::Failed:
@@ -1104,6 +1108,15 @@ public:
                 capabilities.driverManagedHfBelow27Mhz;
         }
         return limits;
+    }
+
+    [[nodiscard]] static radio::ReceiverLimits receiverLimitsForRecordedSource(
+        const radio::RecordedIqSourceConfiguration& source)
+    {
+        const std::uint64_t halfRate = source.sampleRate / 2;
+        return {.frequency = {source.centerFrequency - halfRate,
+                              source.centerFrequency + halfRate},
+                .sampleRate = {source.sampleRate, source.sampleRate}};
     }
 
     class Flowgraph final
@@ -1739,10 +1752,12 @@ public:
 
     explicit Impl(
         std::shared_ptr<devices::DeviceController> device = {},
+        std::optional<radio::RecordedIqSourceConfiguration> recorded = std::nullopt,
         SpectrumDisplayConfiguration spectrumConfiguration = {},
         bool verboseDspMetrics = false)
         : m_initialSpectrum(spectrumConfiguration)
-        , model(receiverLimitsForDevice(device))
+        , model(recorded ? receiverLimitsForRecordedSource(*recorded)
+                         : receiverLimitsForDevice(device))
         , spectrumFrames(std::make_shared<radio::SpectrumFrameQueue>(64))
         , spectrumCounters(std::make_shared<SpectrumProcessingCounters>())
         , spectrumProcessor(makeSpectrumProcessor(
@@ -1759,12 +1774,19 @@ public:
               2'400'000))
         , runtimeFailure(std::make_shared<RuntimeFailureState>())
         , selectedDevice(std::move(device))
+        , recordedSource(std::move(recorded))
         , m_requestedSpectrumFftSize(m_initialSpectrum.requested.fftSize)
         , m_spectrumConfiguration(m_initialSpectrum.effective)
         , m_verboseDspMetrics(verboseDspMetrics)
         , flowgraph(makeFlowgraph(
               model.state(), std::move(m_initialSpectrum.resources)))
     {
+        if (recordedSource) {
+            static_cast<void>(model.setSampleRate(recordedSource->sampleRate));
+            static_cast<void>(model.setCenterFrequency(recordedSource->centerFrequency));
+            sourceCapabilities = {.kind = radio::ReceiverSourceKind::RecordedIq,
+                                  .sampleRateChangeSupported = false};
+        }
         if (this->selectedDevice) {
             const auto& deviceCapabilities =
                 this->selectedDevice->selectedDevice()->capabilities;
@@ -1796,7 +1818,9 @@ public:
             .effectiveSampleRate = effectiveSampleRate,
         };
         std::shared_ptr<radio::WidebandIqSource> source;
-        if (selectedDevice) {
+        if (recordedSource) {
+            source = std::make_shared<RecordedIqSource>(*recordedSource);
+        } else if (selectedDevice) {
             source = std::make_shared<DeviceControllerIqSource>(
                 selectedDevice, metadata);
         } else {
@@ -1957,6 +1981,7 @@ public:
     std::shared_ptr<radio::ComplexSampleBuffer> iqSamples;
     std::shared_ptr<RuntimeFailureState> runtimeFailure;
     std::shared_ptr<devices::DeviceController> selectedDevice;
+    std::optional<radio::RecordedIqSourceConfiguration> recordedSource;
     std::size_t m_requestedSpectrumFftSize = defaultSpectrumFftSize;
     SpectrumDisplayConfiguration m_spectrumConfiguration;
     bool m_verboseDspMetrics = false;
@@ -1976,7 +2001,7 @@ GnuRadioReceiverBackend::GnuRadioReceiverBackend(
     SpectrumDisplayConfiguration spectrumConfiguration,
     bool verboseDspMetrics)
     : m_impl(std::make_unique<Impl>(
-          nullptr, spectrumConfiguration, verboseDspMetrics))
+          nullptr, std::nullopt, spectrumConfiguration, verboseDspMetrics))
 {
 }
 
@@ -1993,8 +2018,19 @@ GnuRadioReceiverBackend::GnuRadioReceiverBackend(
     m_impl = std::make_unique<Impl>(
         std::shared_ptr<devices::DeviceController>(
             std::move(explicitlySelectedDevice)),
+        std::nullopt,
         spectrumConfiguration,
         verboseDspMetrics);
+}
+
+GnuRadioReceiverBackend::GnuRadioReceiverBackend(
+    radio::RecordedIqSourceConfiguration recordedSource,
+    SpectrumDisplayConfiguration spectrumConfiguration,
+    bool verboseDspMetrics)
+{
+    const auto resolved = RecordedIqSource::resolveConfiguration(std::move(recordedSource));
+    m_impl = std::make_unique<Impl>(
+        nullptr, resolved, spectrumConfiguration, verboseDspMetrics);
 }
 
 GnuRadioReceiverBackend::~GnuRadioReceiverBackend()
@@ -2371,6 +2407,10 @@ radio::OperationResult GnuRadioReceiverBackend::stopReception()
 radio::OperationResult GnuRadioReceiverBackend::setCenterFrequency(
     std::uint64_t frequency)
 {
+    if (m_impl->recordedSource) {
+        return {radio::ReceiverError::CenterFrequencyOutOfRange, false, false,
+                "Recorded IQ capture center is fixed; tune the listening frequency instead"};
+    }
     radio::ReceiverStateModel candidate = m_impl->model;
     auto result = candidate.setCenterFrequency(frequency);
     if (!result.succeeded() || !result.stateChanged) {
@@ -2426,6 +2466,10 @@ radio::OperationResult GnuRadioReceiverBackend::tuneListeningFrequency(
 radio::OperationResult GnuRadioReceiverBackend::shiftCenterFrequency(
     std::int64_t requestedStep)
 {
+    if (m_impl->recordedSource) {
+        return {radio::ReceiverError::CenterFrequencyOutOfRange, false, false,
+                "Recorded IQ capture center is fixed; tune the listening frequency instead"};
+    }
     radio::ReceiverStateModel candidate = m_impl->model;
     auto result = candidate.shiftCenterFrequency(requestedStep);
     if (!result.succeeded() || !result.stateChanged) {
@@ -2457,6 +2501,10 @@ radio::OperationResult GnuRadioReceiverBackend::shiftCenterFrequency(
 radio::OperationResult GnuRadioReceiverBackend::setSampleRate(
     std::uint64_t sampleRate)
 {
+    if (m_impl->recordedSource) {
+        return {radio::ReceiverError::SampleRateOutOfRange, false, false,
+                "Recorded IQ sample rate is fixed by the capture metadata"};
+    }
     radio::ReceiverStateModel candidate = m_impl->model;
     radio::OperationResult result = candidate.setSampleRate(sampleRate);
     if (!result.succeeded() || !result.stateChanged) {

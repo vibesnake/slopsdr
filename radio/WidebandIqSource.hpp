@@ -16,6 +16,7 @@ enum class ReceiverSourceKind {
     Mock,
     Synthetic,
     Hardware,
+    RecordedIq,
 };
 
 struct ReceiverSourceCapabilities {
@@ -24,6 +25,14 @@ struct ReceiverSourceCapabilities {
     bool gainControlSupported = false;
     bool ppmCorrectionSupported = false;
     bool automaticPpmCalibrationSupported = false;
+    bool sampleRateChangeSupported = true;
+};
+
+struct RecordedIqSourceConfiguration {
+    std::string path;
+    std::uint64_t centerFrequency = 0;
+    std::uint64_t sampleRate = 0;
+    std::string format = "cf32_le";
 };
 
 struct WidebandIqCaptureMetadata {
@@ -36,6 +45,7 @@ enum class WidebandIqReadStatus {
     Timeout,
     Stopped,
     Disconnected,
+    EndOfFile,
     Failed,
 };
 

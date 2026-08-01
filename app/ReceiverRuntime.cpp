@@ -610,6 +610,10 @@ public slots:
             [&requestedIdentifier](const devices::DeviceDescriptor& device) {
                 return device.identifier == requestedIdentifier;
         });
+        if (m_recordedSourceSelected) {
+            m_backend.reset();
+            m_recordedSourceSelected = false;
+        }
         setSelectedDevice(*selected);
         if (!m_statusText.startsWith(
                 QStringLiteral("Saved capture bandwidth is unsupported"))) {
@@ -634,6 +638,41 @@ public slots:
         publishSnapshot(true);
     }
 
+    void selectRecordedIqSource(const QString& path, quint64 centerFrequency,
+        quint64 sampleRate)
+    {
+        if (m_backend && m_backend->state().running) {
+            m_statusText = QStringLiteral("Stop reception before selecting a recorded IQ file");
+            publishSnapshot(false);
+            return;
+        }
+        if (!m_factories.createRecordedBackend) {
+            m_statusText = QStringLiteral("Recorded IQ playback is unavailable in this build");
+            publishSnapshot(false);
+            return;
+        }
+        try {
+            auto backend = m_factories.createRecordedBackend({
+                .path = path.toStdString(), .centerFrequency = centerFrequency,
+                .sampleRate = sampleRate});
+            if (!backend) throw std::runtime_error("backend factory returned no backend");
+            static_cast<void>(backend->setSpectrumFftSize(m_spectrumFftSize));
+            static_cast<void>(backend->setSpectrumFramesPerSecond(m_targetSpectrumFramesPerSecond));
+            m_backend = std::move(backend);
+            m_recordedSourceSelected = true;
+            m_selectedCapabilities.reset();
+            m_selectedDeviceIdentifier.clear();
+            m_deviceState = QStringLiteral("Recorded IQ file selected");
+            m_backendDescription = QStringLiteral("GNU Radio recorded IQ playback");
+            m_statusText = QStringLiteral("Recorded IQ selected; press Start to play");
+            publishSnapshot(true);
+        } catch (const std::exception& error) {
+            m_statusText = QStringLiteral("Recorded IQ selection failed: %1")
+                               .arg(QString::fromUtf8(error.what()));
+            publishSnapshot(false);
+        }
+    }
+
     void startReception()
     {
         if (!m_backend && m_selectedDeviceIdentifier.isEmpty()) {
@@ -644,7 +683,7 @@ public slots:
         }
         try {
             QString captureBandwidthNotice;
-            if (m_startupMode == StartupMode::Hardware) {
+            if (m_startupMode == StartupMode::Hardware && !m_recordedSourceSelected) {
                 const QString requestedIdentifier = m_selectedDeviceIdentifier;
                 auto controller = std::make_unique<devices::DeviceController>(
                     m_factories.createDeviceProvider());
@@ -3380,6 +3419,14 @@ private:
             };
             snapshot.customCaptureBandwidthSupported = true;
         }
+        if (snapshot.receiverSourceCapabilities.kind == radio::ReceiverSourceKind::RecordedIq) {
+            snapshot.deviceCapabilitySummary = QStringLiteral(
+                "Recorded IQ · fixed capture center and sample rate");
+            snapshot.gainSupported = false;
+            snapshot.customCaptureBandwidthSupported = false;
+            snapshot.captureBandwidthOptions = {formatCaptureBandwidth(
+                snapshot.receiverState.sampleRate)};
+        }
         emit snapshotChanged(snapshot);
     }
 
@@ -3431,6 +3478,7 @@ private:
     int m_audioDeviceRefreshIntervalMilliseconds = 5'000;
     ApplicationLogHandler m_applicationLogHandler;
     std::unique_ptr<radio::ReceiverBackend> m_backend;
+    bool m_recordedSourceSelected = false;
     std::optional<bool> m_lastPublishedSquelchOpen;
     std::optional<bool> m_lastPublishedSquelchMeasurement;
     bool m_autoSquelchRunning = false;
@@ -3577,6 +3625,12 @@ ReceiverRuntime::ReceiverRuntime(
         &ReceiverRuntime::clearDeviceSelectionRequested,
         m_worker,
         &Worker::clearDeviceSelection,
+        Qt::QueuedConnection);
+    connect(
+        this,
+        &ReceiverRuntime::selectRecordedIqSourceRequested,
+        m_worker,
+        &Worker::selectRecordedIqSource,
         Qt::QueuedConnection);
     connect(
         this,
@@ -3922,6 +3976,13 @@ void ReceiverRuntime::clearDeviceSelection()
 {
     markPending(QStringLiteral("Clearing the SDR device selection…"));
     emit clearDeviceSelectionRequested();
+}
+
+void ReceiverRuntime::selectRecordedIqSource(const QString& path,
+    quint64 centerFrequency, quint64 sampleRate)
+{
+    markPending(QStringLiteral("Validating recorded IQ file…"));
+    emit selectRecordedIqSourceRequested(path, centerFrequency, sampleRate);
 }
 
 void ReceiverRuntime::selectAudioDevice(const QString& identifier)
