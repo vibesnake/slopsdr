@@ -183,7 +183,9 @@ seeks to zero and plays; Stop rewinds to zero without ejecting the file. RF
 tuning, gain, PPM, demodulation, squelch, scanning, IQ recording, and RF
 bookmarks are unavailable for WAV playback; Start reception switches back to
 the selected SDR. Loop, playlists, compressed codecs, and scanner playback are
-not available.
+not available. Pause and resume retain the displayed waterfall history; seek,
+restart, stop, replay after EOF, ejection, and switching back to SDR clear it
+before frames from the new source position are presented.
 
 ## Development and testing
 

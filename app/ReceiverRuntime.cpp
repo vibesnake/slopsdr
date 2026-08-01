@@ -612,6 +612,7 @@ public slots:
                 return device.identifier == requestedIdentifier;
         });
         if (m_recordedSourceSelected) {
+            resetRecordedPlaybackVisualization();
             m_backend.reset();
             m_recordedSourceSelected = false;
         }
@@ -666,6 +667,7 @@ public slots:
             if (!backend) throw std::runtime_error("backend factory returned no backend");
             static_cast<void>(backend->setSpectrumFftSize(m_spectrumFftSize));
             static_cast<void>(backend->setSpectrumFramesPerSecond(m_targetSpectrumFramesPerSecond));
+            resetRecordedPlaybackVisualization();
             m_backend = std::move(backend);
             m_recordedSourceSelected = true;
             m_recordedIqMetadataRequired = false;
@@ -705,6 +707,7 @@ public slots:
                 if (!backend) throw std::runtime_error("backend factory returned no backend");
                 static_cast<void>(backend->setSpectrumFftSize(m_spectrumFftSize));
                 static_cast<void>(backend->setSpectrumFramesPerSecond(m_targetSpectrumFramesPerSecond));
+                resetRecordedPlaybackVisualization();
                 m_backend = std::move(backend);
                 m_recordedSourceSelected = true;
                 m_recordedIqMetadataRequired = false;
@@ -738,6 +741,7 @@ public slots:
                 updateAudioDeviceRefreshTimer();
             }
         } else {
+            resetRecordedPlaybackVisualization();
             result = m_backend->restartPlayback();
             if (result.succeeded() && m_backend->state().running) {
                 activateBackendServices();
@@ -751,6 +755,7 @@ public slots:
     void stopRecordingPlayback()
     {
         if (!m_backend || !m_recordedSourceSelected) return;
+        resetRecordedPlaybackVisualization();
         if (m_backend->state().running) static_cast<void>(m_backend->stopReception());
         deactivateBackendServices();
         m_statusText = QStringLiteral("Recorded playback stopped and rewound");
@@ -760,10 +765,10 @@ public slots:
     void restartRecordingPlayback()
     {
         if (!m_backend || !m_recordedSourceSelected) return;
+        resetRecordedPlaybackVisualization();
         const auto result = m_backend->restartPlayback();
         if (result.succeeded() && m_backend->state().running) {
             activateBackendServices();
-            ++m_recordedPlaybackDisplayResetGeneration;
         }
         m_statusText = QString::fromStdString(result.message);
         appendAudioStartFailure();
@@ -775,10 +780,7 @@ public slots:
         if (!m_backend || !m_recordedSourceSelected) return;
         const auto result = m_backend->seekPlayback(frame);
         if (result.succeeded()) {
-            m_backend->clearAudioSamples();
-            if (m_audioOutput) m_audioOutput->flush();
-            resetWaterfallDelivery();
-            ++m_recordedPlaybackDisplayResetGeneration;
+            resetRecordedPlaybackVisualization();
         }
         m_statusText = QString::fromStdString(result.message);
         publishSnapshot(result.succeeded());
@@ -787,6 +789,7 @@ public slots:
     void ejectRecording()
     {
         if (!m_recordedSourceSelected) return;
+        resetRecordedPlaybackVisualization();
         if (m_backend && m_backend->state().running) static_cast<void>(m_backend->stopReception());
         deactivateBackendServices();
         m_backend.reset();
@@ -803,6 +806,7 @@ public slots:
     void startReception()
     {
         if (m_recordedSourceSelected && !m_selectedDeviceIdentifier.isEmpty()) {
+            resetRecordedPlaybackVisualization();
             if (m_backend && m_backend->state().running) {
                 static_cast<void>(m_backend->stopReception());
             }
@@ -2018,6 +2022,7 @@ public slots:
 
 signals:
     void snapshotChanged(const sdr::app::ReceiverRuntimeSnapshot& snapshot);
+    void displayFramesInvalidated();
     void centerFrequencyRequestCompleted(quint64 frequency, bool succeeded);
     void scannerListeningFrequencyRequestCompleted(
         quint64 requestedFrequency,
@@ -2846,6 +2851,27 @@ private:
             m_backend->effectiveSampleRate(),
             m_backend->spectrumProcessingMetrics().fftSize);
         m_spectrumMetricsTimer.invalidate();
+    }
+
+    // A recorded source can jump backwards or be replaced. Clear every
+    // worker-side presentation queue before that jump is visible to QML, and
+    // invalidate the GUI-thread coalescing queue through the paired signal.
+    void resetRecordedPlaybackVisualization()
+    {
+        if (m_backend) {
+            m_backend->clearAudioSamples();
+            // Both recorded backends bound their FFT output queue to 64 rows.
+            // Drain it while the worker is serially applying the transport
+            // change, so pre-seek/pre-rewind rows never enter a fresh
+            // waterfall delivery epoch.
+            static_cast<void>(m_backend->takePendingSpectrumFrames(64));
+        }
+        if (m_audioOutput) {
+            m_audioOutput->flush();
+        }
+        resetWaterfallDelivery();
+        ++m_recordedPlaybackDisplayResetGeneration;
+        emit displayFramesInvalidated();
     }
 
     void ensurePlaybackAudioOutput()
@@ -3976,6 +4002,12 @@ ReceiverRuntime::ReceiverRuntime(
     connect(m_worker, &Worker::snapshotChanged, this, &ReceiverRuntime::snapshotChanged);
     connect(
         m_worker,
+        &Worker::displayFramesInvalidated,
+        this,
+        [this] { invalidatePendingDisplayFrames(); },
+        Qt::DirectConnection);
+    connect(
+        m_worker,
         &Worker::centerFrequencyRequestCompleted,
         this,
         &ReceiverRuntime::centerFrequencyRequestCompleted);
@@ -4070,6 +4102,7 @@ void ReceiverRuntime::enqueueDisplayFrame(
             .sequence = sequence,
             .timestampNanoseconds = timestampNanoseconds,
             .tuningGeneration = tuningGeneration,
+            .displayGeneration = m_displayFrameGeneration,
         };
         if (!scheduled) {
             scheduled = true;
@@ -4096,7 +4129,13 @@ void ReceiverRuntime::publishPendingDisplayFrame(bool waterfall)
         frame = std::move(pending);
         pending.reset();
     }
+    bool currentGeneration = false;
     if (frame.has_value()) {
+        std::lock_guard lock(m_displayFrameMutex);
+        currentGeneration =
+            frame->displayGeneration == m_displayFrameGeneration;
+    }
+    if (currentGeneration) {
         if (waterfall) {
             emit waterfallFrameReady(
                 frame->normalizedMagnitudes,
@@ -4140,6 +4179,14 @@ void ReceiverRuntime::publishPendingDisplayFrame(bool waterfall)
             },
             Qt::QueuedConnection);
     }
+}
+
+void ReceiverRuntime::invalidatePendingDisplayFrames()
+{
+    std::lock_guard lock(m_displayFrameMutex);
+    ++m_displayFrameGeneration;
+    m_pendingSpectrumFrame.reset();
+    m_pendingWaterfallFrame.reset();
 }
 
 ReceiverRuntime::StartupMode ReceiverRuntime::startupMode() const noexcept

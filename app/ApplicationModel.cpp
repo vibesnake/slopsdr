@@ -4596,7 +4596,9 @@ void ApplicationModel::notifyStateChanges(
         emit squelchStateChanged();
     }
     if (state.running != previousState.running) {
-        if (!state.running) {
+        if (!state.running &&
+            m_recordingTransport.state !=
+                sdr::radio::RecordingPlaybackState::Ended) {
             resetSpectrumFrame();
             emit waterfallReset();
         }

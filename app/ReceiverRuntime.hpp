@@ -321,6 +321,7 @@ private:
         quint64 sequence = 0;
         quint64 timestampNanoseconds = 0;
         quint64 tuningGeneration = 0;
+        quint64 displayGeneration = 0;
     };
 
     void markPending(const QString& description);
@@ -334,6 +335,7 @@ private:
         quint64 timestampNanoseconds,
         quint64 tuningGeneration);
     void publishPendingDisplayFrame(bool waterfall);
+    void invalidatePendingDisplayFrames();
     void finishScannerListeningFrequencyRequest(
         quint64 requestedFrequency,
         quint64 appliedFrequency,
@@ -351,6 +353,7 @@ private:
     std::optional<PendingDisplayFrame> m_pendingWaterfallFrame;
     bool m_spectrumDispatchScheduled = false;
     bool m_waterfallDispatchScheduled = false;
+    quint64 m_displayFrameGeneration = 0;
 };
 
 }  // namespace sdr::app

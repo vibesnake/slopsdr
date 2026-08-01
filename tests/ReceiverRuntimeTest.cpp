@@ -3202,6 +3202,17 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
     }));
     QVERIFY(model.recordingCanSeek());
     QCOMPARE(model.recordingDurationFrames(), quint64{96'000});
+
+    // Pause is continuous playback: it must not invalidate the current
+    // waterfall history merely because the transport is temporarily idle.
+    const qsizetype waterfallResetsBeforePause = waterfallResets.count();
+    model.toggleRecordingPlayback();
+    QVERIFY(waitUntil([&model] { return model.recordingPaused(); }));
+    QCOMPARE(waterfallResets.count(), waterfallResetsBeforePause);
+    model.toggleRecordingPlayback();
+    QVERIFY(waitUntil([&model] { return model.recordingPlaying(); }));
+    QCOMPARE(waterfallResets.count(), waterfallResetsBeforePause);
+
     const qsizetype waterfallResetsBeforeSeek = waterfallResets.count();
     const std::uint64_t audioBytesBeforeSeek = trace->audioSinkWrittenBytes;
     model.seekRecordingPlayback(48'000);
@@ -3214,9 +3225,13 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
     }));
 
     const int firstPlaybackStarts = trace->audioPlaybackStarts;
+    const qsizetype waterfallResetsBeforeStop = waterfallResets.count();
     model.stopRecordingPlayback();
     QVERIFY(waitUntil([&model] {
         return !model.receiverRunning() && !model.audioRunning();
+    }));
+    QVERIFY(waitUntil([&waterfallResets, waterfallResetsBeforeStop] {
+        return waterfallResets.count() > waterfallResetsBeforeStop;
     }));
     const auto resetsAfterStop = waterfallResets.count();
     model.restartRecordingPlayback();
@@ -3227,10 +3242,14 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
     QVERIFY(waitUntil([&waterfallResets, resetsAfterStop] {
         return waterfallResets.count() > resetsAfterStop;
     }));
+    const qsizetype waterfallResetsBeforeEject = waterfallResets.count();
     model.ejectRecording();
     QVERIFY(waitUntil([&model] {
         return !model.recordingLoaded() && !model.receiverRunning() &&
                !model.audioRunning() && model.selectedDeviceIndex() == 0;
+    }));
+    QVERIFY(waitUntil([&waterfallResets, waterfallResetsBeforeEject] {
+        return waterfallResets.count() > waterfallResetsBeforeEject;
     }));
     model.startReception();
     QVERIFY(waitUntil([&model] {
