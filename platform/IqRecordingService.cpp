@@ -71,10 +71,14 @@ bool IqRecordingService::start(const IqRecordingRequest& request)
 
 void IqRecordingService::stop() noexcept
 {
+    const bool stoppingWriter = m_writer.joinable();
     {
         std::lock_guard lock(m_mutex);
         m_accepting.store(false, std::memory_order_release);
         m_stopRequested = true;
+    }
+    if (stoppingWriter && m_writerHooks.afterStopRequested) {
+        m_writerHooks.afterStopRequested();
     }
     m_condition.notify_one();
     if (m_writer.joinable()) m_writer.join();
@@ -107,6 +111,7 @@ void IqRecordingService::enqueue(
     m_queue.emplace_back(samples.begin(), samples.end());
     m_state.queuedSamples += samples.size();
     lock.unlock();
+    if (m_writerHooks.afterEnqueue) m_writerHooks.afterEnqueue();
     finishProducer();
     m_condition.notify_one();
 }
@@ -203,6 +208,7 @@ std::string IqRecordingService::jsonEscape(const std::string& value)
 
 void IqRecordingService::writerLoop() noexcept
 {
+    if (m_writerHooks.beforeWriterLoop) m_writerHooks.beforeWriterLoop();
     std::vector<std::complex<float>> samples;
     std::vector<char> serialized;
     for (;;) {

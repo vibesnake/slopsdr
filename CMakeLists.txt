@@ -304,7 +304,6 @@ if(ENABLE_GNURADIO AND ENABLE_SOAPYSDR)
             sdr_soapy_device_provider
     )
 endif()
-sdr_enable_warnings(slopsdr)
 
 set_source_files_properties(qml/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
 set_source_files_properties(
@@ -342,6 +341,7 @@ qt_add_qml_module(
         gui/SpectrumWaterfallItem.cpp
         gui/SpectrumWaterfallItem.hpp
 )
+sdr_enable_warnings(slopsdr)
 
 set_target_properties(slopsdr PROPERTIES OUTPUT_NAME slopsdr)
 add_custom_target(app DEPENDS slopsdr)

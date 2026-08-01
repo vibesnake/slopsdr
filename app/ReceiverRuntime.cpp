@@ -1001,20 +1001,7 @@ public slots:
 
     void stopIqRecording()
     {
-        if (!m_iqRecording) return;
-        if (m_backend) {
-            m_backend->setFullBandwidthIqCaptureEnabled(false);
-            serviceIqRecording();
-            m_backend->clearFullBandwidthIqSamples();
-        }
-        const bool wasActive = m_iqRecording->state().active;
-        m_iqRecording->stop();
-        if (wasActive) {
-            m_statusText = QString::fromStdString(m_iqRecording->state().statusText);
-            log(m_iqRecording->state().failed ? 3 : 1,
-                QStringLiteral("IQ recording"), m_statusText);
-        }
-        publishIqRecordingTelemetry(true, true);
+        stopIqRecordingImpl(true);
     }
 
     void serviceIqRecording()
@@ -1083,7 +1070,7 @@ public slots:
             m_backend->effectiveSampleRate() == m_iqSegmentSampleRate) return;
         const QString directory = QString::fromStdString(
             m_iqRecording->state().filePath.parent_path().string());
-        stopIqRecording();
+        stopIqRecordingImpl(false);
         startIqRecording(directory);
     }
 
@@ -1897,6 +1884,24 @@ signals:
         quint64 tuningGeneration);
 
 private:
+    void stopIqRecordingImpl(bool publishTelemetry)
+    {
+        if (!m_iqRecording) return;
+        if (m_backend) {
+            m_backend->setFullBandwidthIqCaptureEnabled(false);
+            serviceIqRecording();
+            m_backend->clearFullBandwidthIqSamples();
+        }
+        const bool wasActive = m_iqRecording->state().active;
+        m_iqRecording->stop();
+        if (wasActive) {
+            m_statusText = QString::fromStdString(m_iqRecording->state().statusText);
+            log(m_iqRecording->state().failed ? 3 : 1,
+                QStringLiteral("IQ recording"), m_statusText);
+        }
+        if (publishTelemetry) publishIqRecordingTelemetry(true, true);
+    }
+
     struct BookmarkApplication {
         bool receiverSettingsChanged = false;
         bool tuningChanged = false;

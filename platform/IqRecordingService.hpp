@@ -42,8 +42,11 @@ struct IqRecordingState {
 // Optional deterministic writer controls used by service tests. Production
 // callers use the default empty hooks.
 struct IqRecordingWriterHooks {
+    std::function<void()> beforeWriterLoop;
+    std::function<void()> afterStopRequested;
     std::function<void()> afterDequeueLocked;
     std::function<void()> beforeWrite;
+    std::function<void()> afterEnqueue;
     std::function<void()> beforeProducerExit;
     bool failWrites = false;
 };

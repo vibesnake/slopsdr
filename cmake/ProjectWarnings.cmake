@@ -16,19 +16,36 @@ option(
 function(sdr_enable_warnings target)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
        CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        target_compile_options(
-            "${target}"
-            PRIVATE
-                -Wall
-                -Wextra
-                -Wpedantic
-                -Wconversion
-                -Wsign-conversion
-                -Wshadow
+        set(
+            warning_options
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wsign-conversion
+            -Wshadow
         )
         if(SDR_RECEIVER_WARNINGS_AS_ERRORS)
-            target_compile_options("${target}" PRIVATE -Werror)
+            list(APPEND warning_options -Werror)
         endif()
+
+        get_target_property(target_sources "${target}" SOURCES)
+        foreach(source IN LISTS target_sources)
+            get_source_file_property(
+                source_is_generated
+                "${source}"
+                TARGET_DIRECTORY "${target}"
+                GENERATED
+            )
+            if(NOT source_is_generated)
+                set_property(
+                    SOURCE "${source}"
+                    TARGET_DIRECTORY "${target}"
+                    APPEND PROPERTY COMPILE_OPTIONS ${warning_options}
+                )
+            endif()
+        endforeach()
+
         if(SDR_RECEIVER_ENABLE_SANITIZERS)
             target_compile_options(
                 "${target}"

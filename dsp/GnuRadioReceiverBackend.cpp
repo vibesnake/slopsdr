@@ -2122,8 +2122,7 @@ GnuRadioReceiverBackend::spectrumProcessingMetrics() const
             std::memory_order_relaxed),
         .vectorsReceived = m_impl->spectrumCounters->vectorsReceived.load(
             std::memory_order_relaxed),
-        .fftsExecuted = m_impl->spectrumCounters->fftsExecuted.load(
-            std::memory_order_relaxed),
+        .fftsExecuted = fftCount,
         .framesPublished = m_impl->spectrumCounters->framesPublished.load(
             std::memory_order_relaxed),
         .framesDropped = m_impl->spectrumFrames->droppedFrameCount(),

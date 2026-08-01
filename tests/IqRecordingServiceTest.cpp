@@ -343,9 +343,13 @@ void IqRecordingServiceTest::racesShutdownWithActiveProducer()
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
     for (unsigned iteration = 0; iteration < 32; ++iteration) {
+        WriteGate writerGate;
         WriteGate producerGate;
+        WriteGate stopGate;
         sdr::platform::IqRecordingWriterHooks hooks;
-        hooks.beforeProducerExit = [&producerGate] { producerGate.block(); };
+        hooks.beforeWriterLoop = [&writerGate] { writerGate.block(); };
+        hooks.afterStopRequested = [&stopGate] { stopGate.block(); };
+        hooks.afterEnqueue = [&producerGate] { producerGate.block(); };
         sdr::platform::IqRecordingService recorder(8, std::move(hooks));
         QVERIFY(recorder.start({
             .directory = std::filesystem::path(directory.path().toStdString()),
@@ -353,6 +357,11 @@ void IqRecordingServiceTest::racesShutdownWithActiveProducer()
             .sampleRate = 2'400'000,
             .deviceIdentifier = {},
         }));
+        if (!writerGate.waitUntilEntered()) {
+            writerGate.release();
+            recorder.stop();
+            QFAIL("writer did not reach the startup gate");
+        }
 
         std::thread producer([&recorder] {
             recorder.enqueue(std::array<std::complex<float>, 1>{
@@ -361,6 +370,7 @@ void IqRecordingServiceTest::racesShutdownWithActiveProducer()
         if (!producerGate.waitUntilEntered()) {
             producerGate.release();
             producer.join();
+            writerGate.release();
             recorder.stop();
             QFAIL("producer did not reach the shutdown gate");
         }
@@ -369,7 +379,18 @@ void IqRecordingServiceTest::racesShutdownWithActiveProducer()
             recorder.stop();
             stopReturned.store(true, std::memory_order_release);
         });
+        if (!stopGate.waitUntilEntered()) {
+            writerGate.release();
+            producerGate.release();
+            stopGate.release();
+            producer.join();
+            stopper.join();
+            QFAIL("stop did not reach the shutdown gate");
+        }
+        QVERIFY(!stopReturned.load(std::memory_order_acquire));
+        writerGate.release();
         producerGate.release();
+        stopGate.release();
         producer.join();
         stopper.join();
         QVERIFY(stopReturned.load(std::memory_order_acquire));

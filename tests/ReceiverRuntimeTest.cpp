@@ -2944,12 +2944,14 @@ void ReceiverRuntimeTest::recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges()
         return QDir(recordings.path()).entryList(
             {QStringLiteral("*.raw")}, QDir::Files).size() >= 2;
     }));
+    QVERIFY(model.iqRecordingActive());
     model.setSampleRate(2'400'000);
     QVERIFY(waitUntil([&model] { return model.sampleRate() == 2'400'000; }));
     QVERIFY(waitUntil([&recordings] {
         return QDir(recordings.path()).entryList(
             {QStringLiteral("*.raw")}, QDir::Files).size() >= 3;
     }));
+    QVERIFY(model.iqRecordingActive());
     trace->iqDrainOnlyAfterCaptureStops.store(true);
     {
         std::lock_guard lock(trace->recordingIqMutex);
