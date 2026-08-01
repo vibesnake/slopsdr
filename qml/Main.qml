@@ -23,13 +23,15 @@ ApplicationWindow {
     readonly property color secondaryTextColor: "#9caac0"
     readonly property color centerColor: "#61dafb"
     readonly property color listeningColor: "#f6ad55"
+    palette.windowText: primaryTextColor
+    palette.disabled.windowText: secondaryTextColor
     property bool bookmarkDragActive: false
     property real bookmarkDragListY: -1
     property bool scanPresetDragActive: false
     property real scanPresetDragListY: -1
     property int hoveredCenterFrequencyDigitIndex: -1
     property int focusedCenterFrequencyDigitIndex: -1
-    property url selectedRecordedIqUrl: ""
+    property url selectedRecordingUrl: ""
     readonly property string sidebarModeNone: "none"
     readonly property string sidebarModeBookmarks: "bookmarks"
     readonly property string sidebarModeScan: "scan"
@@ -72,12 +74,18 @@ ApplicationWindow {
     }
 
     FileDialog {
-        id: recordedIqFileDialog
+        id: recordingFileDialog
+        objectName: "recordingFileDialog"
         title: qsTr("Load recording")
-        nameFilters: [qsTr("Recordings (*.raw *.wav)"), qsTr("All files (*)")]
+        nameFilters: [
+            qsTr("All supported recordings (*.wav *.WAV *.raw *.RAW)"),
+            qsTr("WAV audio recordings (*.wav *.WAV)"),
+            qsTr("Raw IQ recordings (*.raw *.RAW)"),
+            qsTr("All files (*)")
+        ]
         fileMode: FileDialog.OpenFile
         onAccepted: {
-            root.selectedRecordedIqUrl = selectedFile
+            root.selectedRecordingUrl = selectedFile
             root.applicationModel.loadRecording(selectedFile)
         }
     }
@@ -95,7 +103,7 @@ ApplicationWindow {
             Label { text: qsTr("Format: cf32_le · little-endian") }
         }
         onAccepted: root.applicationModel.selectRecordedIqSource(
-                        root.selectedRecordedIqUrl, Number(recordedCenterField.text), Number(recordedRateField.text))
+                        root.selectedRecordingUrl, Number(recordedCenterField.text), Number(recordedRateField.text))
     }
     readonly property string sidebarModeConsole: "console"
 
@@ -133,6 +141,12 @@ ApplicationWindow {
                    String(minutes % 60).padStart(2, "0") + ":" + secondsPart
         }
         return minutes + ":" + secondsPart
+    }
+
+    function openRecordingFileDialog() {
+        recordingFileDialog.currentFolder =
+            root.applicationModel.recordingLoadFolder
+        recordingFileDialog.open()
     }
 
     function clearCenterFrequencyDigitFocus() {
@@ -3186,47 +3200,33 @@ ApplicationWindow {
                             font.pixelSize: 12
                         }
 
-                        CheckBox {
+                        ThemedCheckBox {
                             objectName: "skipQuietRecordingPartsCheckBox"
                             Layout.fillWidth: true
                             implicitHeight: root.controlHeight
-                            spacing: 8
                             text: qsTr("Skip quiet parts")
                             checked: root.applicationModel.skipQuietRecordingParts
                             onToggled: root.applicationModel.skipQuietRecordingParts = checked
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.enabled
-                                       ? root.primaryTextColor
-                                       : root.secondaryTextColor
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
 
-                        CheckBox {
+                        ThemedCheckBox {
                             objectName: "recordScannerActivityCheckBox"
                             Layout.fillWidth: true
                             implicitHeight: root.controlHeight
-                            spacing: 8
                             text: qsTr("Record scanner activity")
                             checked: root.applicationModel.recordScannerActivity
                             onToggled: root.applicationModel.recordScannerActivity = checked
-
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.enabled
-                                       ? root.primaryTextColor
-                                       : root.secondaryTextColor
-                                verticalAlignment: Text.AlignVCenter
-                            }
                         }
 
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
 
-                            Label { text: qsTr("Pre-roll (s)") }
+                            Label {
+                                objectName: "recordingPreRollLabel"
+                                text: qsTr("Pre-roll (s)")
+                                color: root.primaryTextColor
+                            }
                             SpinBox {
                                 objectName: "recordingPreRollSpinBox"
                                 from: 0
@@ -3234,7 +3234,11 @@ ApplicationWindow {
                                 value: root.applicationModel.recordingPreRollSeconds
                                 onValueModified: root.applicationModel.recordingPreRollSeconds = value
                             }
-                            Label { text: qsTr("Tail (s)") }
+                            Label {
+                                objectName: "recordingTailLabel"
+                                text: qsTr("Tail (s)")
+                                color: root.primaryTextColor
+                            }
                             SpinBox {
                                 objectName: "recordingTailSpinBox"
                                 from: 0
@@ -3532,7 +3536,7 @@ ApplicationWindow {
                         Accessible.name: qsTr("Console severity filter")
                     }
 
-                    CheckBox {
+                    ThemedCheckBox {
                         id: consoleAutoScroll
                         objectName: "consoleAutoScroll"
                         text: qsTr("Auto-scroll")
@@ -4219,7 +4223,7 @@ ApplicationWindow {
                         color: root.secondaryTextColor
                         font.pixelSize: 10
                     }
-                    CheckBox {
+                    ThemedCheckBox {
                         implicitHeight: root.controlHeight
                         text: qsTr("Mute")
                         checked: root.applicationModel.audioMuted
@@ -4428,7 +4432,8 @@ ApplicationWindow {
                                  !root.applicationModel.runtimeBusy
                         onClicked: root.applicationModel.autoSquelch()
                     }
-                    CheckBox {
+                    ThemedCheckBox {
+                        objectName: "disableSquelchCheckBox"
                         Layout.fillWidth: true
                         implicitHeight: root.controlHeight
                         text: qsTr("Disable squelch")
@@ -4547,7 +4552,7 @@ ApplicationWindow {
                                 if (root.applicationModel.recordingLoaded)
                                     root.applicationModel.ejectRecording()
                                 else
-                                    recordedIqFileDialog.open()
+                                    root.openRecordingFileDialog()
                             }
                         }
                     }

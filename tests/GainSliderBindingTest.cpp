@@ -28,7 +28,124 @@ private slots:
     void bookmarkDragStartsOnlyFromVisibleHandleAndEscapeCancels();
     void centerDigitHoverKeysAvoidTextEditorsAndScannerOwnership();
     void recordingFooterUsesGroupedTwoRowDarkLayout();
+    void themedCheckBoxKeepsTextClearOfItsIndicator();
+    void affectedDarkControlsUseSharedTheming();
+    void recordingLoaderUsesQtFileDialogSafely();
 };
+
+void GainSliderBindingTest::themedCheckBoxKeepsTextClearOfItsIndicator()
+{
+    const QString path = QFINDTESTDATA("../qml/ThemedCheckBox.qml");
+    QVERIFY2(!path.isEmpty(), "ThemedCheckBox.qml test data was not found");
+    QQmlEngine engine;
+    QQmlComponent component(&engine, QUrl::fromLocalFile(path));
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+
+    const std::unique_ptr<QObject> checkBox(component.create());
+    QVERIFY2(checkBox, qPrintable(component.errorString()));
+    QObject* indicator = checkBox->property("indicator").value<QObject*>();
+    QObject* label = checkBox->findChild<QObject*>("themedCheckBoxLabel");
+    QVERIFY(indicator);
+    QVERIFY(label);
+
+    checkBox->setProperty("text", QStringLiteral("Disable squelch"));
+    checkBox->setProperty("enabledTextColor", QColor(QStringLiteral("#f1f5fb")));
+    checkBox->setProperty("disabledTextColor", QColor(QStringLiteral("#9caac0")));
+    QCoreApplication::processEvents();
+
+    const auto expectedPadding = [checkBox = checkBox.get(), indicator] {
+        return indicator->property("width").toDouble()
+               + checkBox->property("spacing").toDouble();
+    };
+    QCOMPARE(label->property("leftPadding").toDouble(), expectedPadding());
+    QCOMPARE(label->property("color").value<QColor>(),
+             QColor(QStringLiteral("#f1f5fb")));
+
+    checkBox->setProperty("checked", true);
+    QCoreApplication::processEvents();
+    QCOMPARE(label->property("color").value<QColor>(),
+             QColor(QStringLiteral("#f1f5fb")));
+
+    indicator->setProperty("width", 36.0);
+    QCoreApplication::processEvents();
+    QCOMPARE(label->property("leftPadding").toDouble(), expectedPadding());
+
+    checkBox->setProperty("enabled", false);
+    QCoreApplication::processEvents();
+    const QColor disabledColor = label->property("color").value<QColor>();
+    QCOMPARE(label->property("color").value<QColor>(),
+             checkBox->property("disabledTextColor").value<QColor>());
+    QVERIFY(disabledColor != QColor(Qt::black));
+    QVERIFY(disabledColor.lightness() > QColor(Qt::black).lightness());
+}
+
+void GainSliderBindingTest::affectedDarkControlsUseSharedTheming()
+{
+    const QString path = QFINDTESTDATA("../qml/Main.qml");
+    QVERIFY2(!path.isEmpty(), "Main.qml test data was not found");
+    QFile input(path);
+    QVERIFY(input.open(QIODevice::ReadOnly));
+    const QByteArray source = input.readAll();
+
+    QVERIFY(source.contains("palette.windowText: primaryTextColor"));
+    QVERIFY(source.contains("palette.disabled.windowText: secondaryTextColor"));
+    for (const char* objectName : {
+             "skipQuietRecordingPartsCheckBox",
+             "recordScannerActivityCheckBox",
+             "disableSquelchCheckBox",
+         }) {
+        const qsizetype position = source.indexOf(objectName);
+        QVERIFY2(position >= 0, objectName);
+        const qsizetype component = source.lastIndexOf("ThemedCheckBox {", position);
+        QVERIFY2(component >= 0 && position - component < 160, objectName);
+    }
+    for (const char* objectName : {
+             "recordingPreRollLabel",
+             "recordingTailLabel",
+         }) {
+        const qsizetype position = source.indexOf(objectName);
+        QVERIFY2(position >= 0, objectName);
+        QVERIFY(source.mid(position, 180).contains("color: root.primaryTextColor"));
+    }
+}
+
+void GainSliderBindingTest::recordingLoaderUsesQtFileDialogSafely()
+{
+    const QString qmlPath = QFINDTESTDATA("../qml/Main.qml");
+    QVERIFY2(!qmlPath.isEmpty(), "Main.qml test data was not found");
+    QFile qmlInput(qmlPath);
+    QVERIFY(qmlInput.open(QIODevice::ReadOnly));
+    const QByteArray source = qmlInput.readAll();
+    const qsizetype dialogStart = source.indexOf("id: recordingFileDialog");
+    const qsizetype dialogEnd = source.indexOf("\n    Dialog {", dialogStart);
+    QVERIFY(dialogStart >= 0);
+    QVERIFY(dialogEnd > dialogStart);
+    const QByteArray dialog = source.mid(dialogStart, dialogEnd - dialogStart);
+
+    QVERIFY(source.contains("import QtQuick.Dialogs"));
+    QVERIFY(dialog.contains("fileMode: FileDialog.OpenFile"));
+    QVERIFY(dialog.contains("All supported recordings (*.wav *.WAV *.raw *.RAW)"));
+    QVERIFY(dialog.contains("WAV audio recordings (*.wav *.WAV)"));
+    QVERIFY(dialog.contains("Raw IQ recordings (*.raw *.RAW)"));
+    QVERIFY(dialog.contains("All files (*)"));
+    QVERIFY(dialog.contains("root.applicationModel.loadRecording(selectedFile)"));
+    QVERIFY(!dialog.contains("onRejected"));
+    QVERIFY(!source.contains("recordedIqFileDialog"));
+    QVERIFY(source.contains("recordingFileDialog.currentFolder ="));
+    QVERIFY(source.contains("root.applicationModel.recordingLoadFolder"));
+    QVERIFY(source.contains("root.openRecordingFileDialog()"));
+
+    const QString modelPath = QFINDTESTDATA("../app/ApplicationModel.cpp");
+    QVERIFY2(!modelPath.isEmpty(), "ApplicationModel.cpp test data was not found");
+    QFile modelInput(modelPath);
+    QVERIFY(modelInput.open(QIODevice::ReadOnly));
+    const QByteArray model = modelInput.readAll();
+    const qsizetype loadStart = model.indexOf("void ApplicationModel::loadRecording");
+    QVERIFY(loadStart >= 0);
+    const QByteArray load = model.mid(loadStart, 900);
+    QVERIFY(load.contains("fileUrl.isLocalFile()"));
+    QVERIFY(load.contains("fileUrl.toLocalFile()"));
+}
 
 void GainSliderBindingTest::recordingFooterUsesGroupedTwoRowDarkLayout()
 {

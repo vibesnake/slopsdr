@@ -33,6 +33,7 @@
 #include <memory>
 #include <mutex>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -921,6 +922,7 @@ private slots:
     void armsQuietSkippingRecordingAcrossScannerAndRetunes();
     void recordsScannerActivityWithSidecarAlongsideManualRecording();
     void recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges();
+    void convertsRecordingFileUrlAndPreservesLoadedSourceOnFailure();
 #if SDR_RECEIVER_TEST_GNURADIO
     void deliversRecordedWavThroughRuntimeServicesAndAudioGeometry();
 #endif
@@ -930,6 +932,88 @@ private:
     QByteArray m_originalXdgConfigHome;
     bool m_hadXdgConfigHome = false;
 };
+
+void ReceiverRuntimeTest::convertsRecordingFileUrlAndPreservesLoadedSourceOnFailure()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    const QString rawPath = recordings.filePath(QStringLiteral("capture with space.bin"));
+    QFile raw(rawPath);
+    QVERIFY(raw.open(QIODevice::WriteOnly));
+    QCOMPARE(raw.write("raw-data", 8), qint64{8});
+    raw.close();
+    const QString malformedPath = recordings.filePath(QStringLiteral("malformed.raw"));
+    QFile malformed(malformedPath);
+    QVERIFY(malformed.open(QIODevice::WriteOnly));
+    QCOMPARE(malformed.write("bad", 3), qint64{3});
+    malformed.close();
+
+    auto trace = std::make_shared<RuntimeTrace>();
+    auto factories = factoriesFor(trace);
+    std::mutex requestMutex;
+    std::vector<radio::RecordedIqSourceConfiguration> requests;
+    factories.createRecordedBackend =
+        [trace, &requestMutex, &requests, malformedPath](
+            radio::RecordedIqSourceConfiguration configuration) {
+            {
+                const std::scoped_lock lock(requestMutex);
+                requests.push_back(configuration);
+            }
+            if (QString::fromStdString(configuration.path) == malformedPath) {
+                throw std::runtime_error("malformed recorded IQ data");
+            }
+            if (configuration.centerFrequency == 0 || configuration.sampleRate == 0) {
+                throw std::runtime_error("metadata is missing");
+            }
+            return std::make_unique<TrackingBackend>(trace);
+        };
+
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        std::move(factories));
+    ApplicationModel model(runtime);
+    runtime.start();
+
+    model.loadRecording(QUrl::fromLocalFile(rawPath));
+    QVERIFY(waitUntil([&model] { return model.recordedIqMetadataRequired(); }));
+    QCOMPARE(model.recordingLoadFolder(),
+             QUrl::fromLocalFile(recordings.path()));
+    QCOMPARE(QSettings().value(QStringLiteral("recording/lastLoadFolder")).toString(),
+             recordings.path());
+    {
+        const std::scoped_lock lock(requestMutex);
+        QCOMPARE(requests.size(), std::size_t{1});
+        QCOMPARE(QString::fromStdString(requests.back().path), rawPath);
+    }
+
+    model.selectRecordedIqSource(
+        QUrl::fromLocalFile(rawPath), 100'000'000, 2'000'000);
+    QVERIFY(waitUntil([&model] {
+        return !model.recordedIqMetadataRequired()
+               && model.statusText().contains(QStringLiteral("press Start"));
+    }));
+
+    model.loadRecording(QUrl::fromLocalFile(malformedPath));
+    QVERIFY(waitUntil([&model] {
+        return model.statusText().contains(QStringLiteral("selection failed"));
+    }));
+    model.startReception();
+    QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));
+
+    std::size_t requestCount = 0;
+    {
+        const std::scoped_lock lock(requestMutex);
+        requestCount = requests.size();
+    }
+    model.loadRecording(QUrl(QStringLiteral("https://example.invalid/capture.raw")));
+    QCOMPARE(model.statusText(), QStringLiteral("Select a local recording file"));
+    {
+        const std::scoped_lock lock(requestMutex);
+        QCOMPARE(requests.size(), requestCount);
+    }
+    QVERIFY(model.receiverRunning());
+    runtime.shutdown();
+}
 
 void ReceiverRuntimeTest::initTestCase()
 {

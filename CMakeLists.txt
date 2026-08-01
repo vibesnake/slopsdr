@@ -331,7 +331,9 @@ qt_add_qml_module(
     RESOURCE_PREFIX /qt/qml
     NO_IMPORT_SCAN
     DEPENDENCIES QtQuick QtQuick.Dialogs
-    QML_FILES qml/Main.qml
+    QML_FILES
+        qml/Main.qml
+        qml/ThemedCheckBox.qml
     SOURCES
         gui/SpectrumAmplitudeScale.cpp
         gui/SpectrumAmplitudeScale.hpp
