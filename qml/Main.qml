@@ -4388,36 +4388,38 @@ ApplicationWindow {
     }
 
     footer: ToolBar {
+        id: footerBar
         property int footerButtonHeight: 30
         property int footerButtonSpacing: 2
+        property int footerPrimaryRowTopMargin: 2
         implicitHeight: root.denseLayout ? 58 : 64
         background: Rectangle {
             color: "#111a2b"
             border.color: root.panelBorderColor
         }
 
-        RowLayout {
+        Item {
             anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            spacing: 8
 
-            ColumnLayout {
+            Item {
                 id: recordingTransportPanel
-                Layout.preferredWidth: root.denseLayout ? 260 : 320
-                Layout.minimumWidth: root.denseLayout ? 220 : 280
-                Layout.maximumWidth: 360
-                Layout.fillHeight: true
-                spacing: 0
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                anchors.top: parent.top
+                anchors.topMargin: footerBar.footerPrimaryRowTopMargin
+                width: root.denseLayout ? 260 : 320
+                height: parent.height - footerBar.footerPrimaryRowTopMargin
 
                 RowLayout {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: footerButtonHeight
-                    Layout.alignment: Qt.AlignVCenter
-                    spacing: footerButtonSpacing
+                    id: playbackControlRow
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: footerBar.footerButtonHeight
+                    spacing: footerBar.footerButtonSpacing
 
                     Button {
-                        implicitHeight: footerButtonHeight
+                        implicitHeight: footerBar.footerButtonHeight
                         text: "⏮"
                         enabled: root.applicationModel.recordingLoaded
                         Accessible.name: qsTr("Restart recording playback")
@@ -4426,7 +4428,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.restartRecordingPlayback()
                     }
                     Button {
-                        implicitHeight: footerButtonHeight
+                        implicitHeight: footerBar.footerButtonHeight
                         text: root.applicationModel.recordingPlaying ? "⏸" : "▶"
                         enabled: root.applicationModel.recordingLoaded
                         Accessible.name: root.applicationModel.recordingPlaying ? qsTr("Pause recording playback") : qsTr("Play recording playback")
@@ -4435,7 +4437,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.toggleRecordingPlayback()
                     }
                     Button {
-                        implicitHeight: footerButtonHeight
+                        implicitHeight: footerBar.footerButtonHeight
                         text: "■"
                         enabled: root.applicationModel.recordingLoaded
                         Accessible.name: qsTr("Stop and rewind recording playback")
@@ -4444,7 +4446,7 @@ ApplicationWindow {
                         onClicked: root.applicationModel.stopRecordingPlayback()
                     }
                     Button {
-                        implicitHeight: footerButtonHeight
+                        implicitHeight: footerBar.footerButtonHeight
                         text: "⏏"
                         enabled: !root.applicationModel.receiverRunning &&
                                  !root.applicationModel.runtimeBusy
@@ -4465,7 +4467,9 @@ ApplicationWindow {
                 Label {
                     id: recordingTransportSummary
                     objectName: "recordingTransportSummary"
-                    Layout.fillWidth: true
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: playbackControlRow.bottom
                     text: root.applicationModel.recordingTransportText
                           + (root.applicationModel.recordedIqSource
                              && root.applicationModel.statusText !== ""
@@ -4477,7 +4481,17 @@ ApplicationWindow {
                 }
             }
 
-            Item { Layout.fillWidth: true }
+            RowLayout {
+                id: footerStatusRow
+                anchors.left: recordingTransportPanel.right
+                anchors.leftMargin: 8
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.top: parent.top
+                anchors.topMargin: footerBar.footerPrimaryRowTopMargin
+                height: footerBar.footerButtonHeight
+                spacing: 8
+                clip: true
 
             Rectangle {
                 implicitWidth: 8
@@ -4489,7 +4503,7 @@ ApplicationWindow {
             Button {
                 id: audioRecordingButton
                 objectName: "audioRecordingButton"
-                implicitHeight: footerButtonHeight
+                implicitHeight: footerBar.footerButtonHeight
                 text: root.applicationModel.recordingActive
                       ? qsTr("Stop") : qsTr("Record audio")
                 enabled: root.applicationModel.recordingActive
@@ -4534,7 +4548,7 @@ ApplicationWindow {
             Button {
                 id: iqRecordingButton
                 objectName: "iqRecordingButton"
-                implicitHeight: footerButtonHeight
+                implicitHeight: footerBar.footerButtonHeight
                 text: root.applicationModel.iqRecordingActive
                       ? qsTr("Stop IQ") : qsTr("Record IQ")
                 enabled: root.applicationModel.iqRecordingActive
@@ -4607,6 +4621,7 @@ ApplicationWindow {
                 text: root.applicationModel.backendDescription
                 color: root.secondaryTextColor
                 font.pixelSize: 9
+            }
             }
         }
 
