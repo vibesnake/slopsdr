@@ -729,10 +729,22 @@ public slots:
         if (!m_backend || !m_recordedSourceSelected) return;
         const auto state = m_backend->recordingTransport();
         radio::OperationResult result;
-        if (state.state == radio::RecordingPlaybackState::Playing) result = m_backend->setPlaybackPaused(true);
-        else if (state.state == radio::RecordingPlaybackState::Paused) result = m_backend->setPlaybackPaused(false);
-        else result = m_backend->restartPlayback();
+        if (state.state == radio::RecordingPlaybackState::Playing) {
+            result = m_backend->setPlaybackPaused(true);
+        } else if (state.state == radio::RecordingPlaybackState::Paused) {
+            result = m_backend->setPlaybackPaused(false);
+            if (result.succeeded() && m_backend->state().running) {
+                ensurePlaybackAudioOutput();
+                updateAudioDeviceRefreshTimer();
+            }
+        } else {
+            result = m_backend->restartPlayback();
+            if (result.succeeded() && m_backend->state().running) {
+                activateBackendServices();
+            }
+        }
         m_statusText = QString::fromStdString(result.message);
+        appendAudioStartFailure();
         publishSnapshot(result.succeeded());
     }
 
@@ -740,6 +752,7 @@ public slots:
     {
         if (!m_backend || !m_recordedSourceSelected) return;
         if (m_backend->state().running) static_cast<void>(m_backend->stopReception());
+        deactivateBackendServices();
         m_statusText = QStringLiteral("Recorded playback stopped and rewound");
         publishSnapshot(true);
     }
@@ -748,7 +761,11 @@ public slots:
     {
         if (!m_backend || !m_recordedSourceSelected) return;
         const auto result = m_backend->restartPlayback();
+        if (result.succeeded() && m_backend->state().running) {
+            activateBackendServices();
+        }
         m_statusText = QString::fromStdString(result.message);
+        appendAudioStartFailure();
         publishSnapshot(result.succeeded());
     }
 
@@ -756,6 +773,7 @@ public slots:
     {
         if (!m_recordedSourceSelected) return;
         if (m_backend && m_backend->state().running) static_cast<void>(m_backend->stopReception());
+        deactivateBackendServices();
         m_backend.reset();
         m_recordedSourceSelected = false;
         m_recordedIqMetadataRequired = false;
@@ -773,6 +791,7 @@ public slots:
             if (m_backend && m_backend->state().running) {
                 static_cast<void>(m_backend->stopReception());
             }
+            deactivateBackendServices();
             m_backend.reset();
             m_recordedSourceSelected = false;
             m_recordedIqMetadataRequired = false;
@@ -919,21 +938,10 @@ public slots:
                 m_lastBackendAudioDroppedSamples = 0;
                 m_backendDescription = QStringLiteral("GNU Radio hardware backend active");
             }
-            m_lastBackendAudioDroppedSamples = m_backend->audioDroppedSamples();
             const auto result = m_backend->startReception();
             m_statusText = QString::fromStdString(result.message);
             if (!captureBandwidthNotice.isEmpty()) {
                 m_statusText = captureBandwidthNotice + QStringLiteral("; ") + m_statusText;
-            }
-            if (result.succeeded() && m_backend->state().running && m_audioOutput) {
-                m_audioTransferredSamples = 0;
-                m_audioServicePasses = 0;
-                m_lastMetricsProducedSamples = m_backend->audioProducedSamples();
-                m_lastMetricsTransferredSamples = 0;
-                m_lastMetricsServicePasses = 0;
-                m_lastMetricsWrittenSamples = 0;
-                m_audioMetricsTimer.invalidate();
-                static_cast<void>(m_audioOutput->start());
             }
             if (result.succeeded() && m_backend->state().running &&
                 m_dsdFme &&
@@ -945,13 +953,13 @@ public slots:
                 m_dsdFme->start();
             }
             if (result.succeeded() && m_backend->state().running) {
-                resetWaterfallDelivery();
+                activateBackendServices();
                 // Platform device enumeration can synchronously touch a
                 // sound server or driver, so it must not periodically block
                 // the worker while it is delivering live FFT rows.
-                updateAudioDeviceRefreshTimer();
                 log(1, QStringLiteral("SDR"), m_statusText);
             }
+            appendAudioStartFailure();
             publishSnapshot(result.succeeded());
         } catch (const std::exception& error) {
             m_backend.reset();
@@ -2673,28 +2681,27 @@ private:
             publishSnapshot(true);
         }
         if (m_backend && !m_ppmCalibrationRunning) {
+            bool sourceStopped = false;
             serviceIqRecording();
             if (auto playbackEnd = m_backend->takePlaybackEnd()) {
-                if (m_audioOutput) m_audioOutput->stop();
-                if (m_recording) m_recording->stop();
+                deactivateBackendServices();
                 m_statusText = QString::fromStdString(*playbackEnd);
-                updateAudioDeviceRefreshTimer();
                 publishSnapshot(true);
+                sourceStopped = true;
             }
             if (auto runtimeError = m_backend->takeRuntimeError()) {
-                if (m_audioOutput) {
-                    m_audioOutput->stop();
-                }
                 if (m_dsdFme) {
                     m_dsdFme->stop();
                 }
-                if (m_recording) {
-                    m_recording->stop();
-                }
                 m_statusText = QString::fromStdString(runtimeError->message);
-                m_waterfallDelivery.stop();
-                updateAudioDeviceRefreshTimer();
+                deactivateBackendServices();
                 publishSnapshot(false);
+                sourceStopped = true;
+            }
+            if (sourceStopped || !m_backend->state().running) {
+                reportSpectrumMetrics();
+                publishAudioTelemetryIfChanged();
+                return;
             }
             auto frames = m_backend->takePendingSpectrumFrames(
                 m_waterfallDelivery.capacity());
@@ -2824,6 +2831,66 @@ private:
             m_backend->effectiveSampleRate(),
             m_backend->spectrumProcessingMetrics().fftSize);
         m_spectrumMetricsTimer.invalidate();
+    }
+
+    void ensurePlaybackAudioOutput()
+    {
+        m_audioStartFailed = false;
+        if (m_audioOutput && !m_audioOutput->state().running) {
+            m_audioStartFailed = !m_audioOutput->start();
+        }
+    }
+
+    void activateBackendServices()
+    {
+        if (!m_backend || !m_backend->state().running) {
+            return;
+        }
+        m_audioTransferredSamples = 0;
+        m_audioServicePasses = 0;
+        m_lastBackendAudioDroppedSamples = m_backend->audioDroppedSamples();
+        m_lastMetricsProducedSamples = m_backend->audioProducedSamples();
+        m_lastMetricsTransferredSamples = 0;
+        m_lastMetricsServicePasses = 0;
+        m_lastMetricsWrittenSamples = 0;
+        m_audioMetricsTimer.invalidate();
+        ensurePlaybackAudioOutput();
+        resetWaterfallDelivery();
+        updateAudioDeviceRefreshTimer();
+    }
+
+    void appendAudioStartFailure()
+    {
+        if (!std::exchange(m_audioStartFailed, false) || !m_audioOutput) {
+            return;
+        }
+        m_statusText += QStringLiteral("; audio output unavailable: %1")
+                            .arg(QString::fromStdString(
+                                m_audioOutput->state().statusText));
+    }
+
+    void deactivateBackendServices()
+    {
+        m_audioStartFailed = false;
+        m_waterfallDelivery.stop();
+        m_spectrumMetricsTimer.invalidate();
+        if (m_dsdFme) {
+            m_dsdFme->stop();
+        }
+        if (m_audioOutput) {
+            m_audioOutput->stop();
+        }
+        if (m_backend) {
+            m_backend->clearAudioSamples();
+            m_lastBackendAudioDroppedSamples =
+                m_backend->audioDroppedSamples();
+        } else {
+            m_lastBackendAudioDroppedSamples = 0;
+        }
+        if (m_recording) {
+            m_recording->stop();
+        }
+        updateAudioDeviceRefreshTimer();
     }
 
     void serviceAudio()
@@ -3625,6 +3692,7 @@ private:
     QElapsedTimer m_autoSquelchElapsed;
     std::vector<double> m_autoSquelchSamples;
     std::unique_ptr<platform::AudioOutputService> m_audioOutput;
+    bool m_audioStartFailed = false;
     std::unique_ptr<platform::WavRecordingService> m_recording =
         std::make_unique<platform::WavRecordingService>();
     std::unique_ptr<platform::WavRecordingService> m_scannerRecording =

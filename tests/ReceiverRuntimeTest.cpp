@@ -5,6 +5,10 @@
 #include "MockReceiverBackend.hpp"
 #include "ReceiverRuntime.hpp"
 
+#if SDR_RECEIVER_TEST_GNURADIO
+#include "RecordedAudioBackend.hpp"
+#endif
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -15,6 +19,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QtTest>
 
 #include <chrono>
@@ -22,6 +27,8 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -47,6 +54,7 @@ struct RuntimeTrace {
     int backendStops = 0;
     int backendDestructions = 0;
     int audioFlushes = 0;
+    int audioPlaybackStarts = 0;
     int audioDeviceEnumerations = 0;
     int audioDeviceEnumerationDelayMilliseconds = 0;
     int dsdProcessStarts = 0;
@@ -97,6 +105,9 @@ struct RuntimeTrace {
     quintptr audioServiceThreadToken = 0;
     quintptr audioOpenThreadToken = 0;
     quintptr audioCloseThreadToken = 0;
+    std::size_t audioSinkWritableFrames = 4'096;
+    std::uint64_t audioSinkWrittenBytes = 0;
+    std::uint64_t audioSinkNonzeroBytes = 0;
     QString dsdProgram;
     QStringList dsdArguments;
     std::mutex recordingAudioMutex;
@@ -191,6 +202,7 @@ public:
 
     [[nodiscard]] platform::AudioSinkOpenResult startPlayback() override
     {
+        ++m_trace->audioPlaybackStarts;
         return {};
     }
 
@@ -202,7 +214,7 @@ public:
 
     [[nodiscard]] std::size_t writableFrames() const noexcept override
     {
-        return 0;
+        return m_trace->audioSinkWritableFrames;
     }
 
     [[nodiscard]] std::size_t bufferedFrames() const noexcept override
@@ -213,6 +225,12 @@ public:
     [[nodiscard]] std::size_t write(
         std::span<const std::byte> bytes) override
     {
+        m_trace->audioSinkWrittenBytes += bytes.size();
+        for (const auto byte : bytes) {
+            if (byte != std::byte{0}) {
+                ++m_trace->audioSinkNonzeroBytes;
+            }
+        }
         return bytes.size();
     }
 
@@ -783,6 +801,54 @@ sdr::app::ReceiverRuntimeSnapshot latestSnapshot(const QSignalSpy& spy)
         spy.last().at(0));
 }
 
+#if SDR_RECEIVER_TEST_GNURADIO
+void appendLittleEndian16(QByteArray& bytes, std::uint16_t value)
+{
+    bytes.append(static_cast<char>(value & 0xffU));
+    bytes.append(static_cast<char>((value >> 8U) & 0xffU));
+}
+
+void appendLittleEndian32(QByteArray& bytes, std::uint32_t value)
+{
+    for (unsigned shift = 0; shift < 32U; shift += 8U) {
+        bytes.append(static_cast<char>((value >> shift) & 0xffU));
+    }
+}
+
+QString writeRecordedToneWav(const QTemporaryDir& directory)
+{
+    constexpr std::uint32_t sampleRate = 48'000;
+    constexpr std::size_t frameCount = sampleRate * 2U;
+    QByteArray samples;
+    samples.reserve(static_cast<qsizetype>(frameCount * 2U));
+    for (std::size_t frame = 0; frame < frameCount; ++frame) {
+        const float phase = static_cast<float>(frame % 96U) / 96.0F;
+        const auto sample = static_cast<std::int16_t>(
+            std::lround(std::sin(phase * 6.283185307179586F) * 12'000.0F));
+        appendLittleEndian16(samples, static_cast<std::uint16_t>(sample));
+    }
+    QByteArray wav{"RIFF", 4};
+    appendLittleEndian32(wav, static_cast<std::uint32_t>(36U + samples.size()));
+    wav.append("WAVEfmt ", 8);
+    appendLittleEndian32(wav, 16);
+    appendLittleEndian16(wav, 1);
+    appendLittleEndian16(wav, 1);
+    appendLittleEndian32(wav, sampleRate);
+    appendLittleEndian32(wav, sampleRate * 2U);
+    appendLittleEndian16(wav, 2);
+    appendLittleEndian16(wav, 16);
+    wav.append("data", 4);
+    appendLittleEndian32(wav, static_cast<std::uint32_t>(samples.size()));
+    wav.append(samples);
+    const QString path = directory.filePath(QStringLiteral("runtime-tone.capture"));
+    QFile output(path);
+    if (!output.open(QIODevice::WriteOnly) || output.write(wav) != wav.size()) {
+        return {};
+    }
+    return path;
+}
+#endif
+
 template <typename Predicate>
 bool waitUntil(Predicate predicate, int timeoutMilliseconds = 2'000)
 {
@@ -855,6 +921,9 @@ private slots:
     void armsQuietSkippingRecordingAcrossScannerAndRetunes();
     void recordsScannerActivityWithSidecarAlongsideManualRecording();
     void recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges();
+#if SDR_RECEIVER_TEST_GNURADIO
+    void deliversRecordedWavThroughRuntimeServicesAndAudioGeometry();
+#endif
 
 private:
     QTemporaryDir m_settingsDirectory;
@@ -2996,6 +3065,70 @@ void ReceiverRuntimeTest::recordsIqAcrossScannerAndSegmentsOnlyCaptureChanges()
     QCOMPARE(writtenSamples, std::uint64_t{2});
     runtime.shutdown();
 }
+
+#if SDR_RECEIVER_TEST_GNURADIO
+void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeometry()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    const QString wavPath = writeRecordedToneWav(recordings);
+    QVERIFY(!wavPath.isEmpty());
+
+    auto trace = std::make_shared<RuntimeTrace>();
+    auto factories = factoriesFor(trace);
+    factories.createRecordedAudioBackend = [] (const std::string& path) {
+        return std::make_unique<sdr::dsp::RecordedAudioBackend>(
+            std::filesystem::path(path));
+    };
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        std::move(factories));
+    ApplicationModel model(runtime);
+    QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
+    QSignalSpy spectrumFrames(&model, &ApplicationModel::spectrumFrameReady);
+    QSignalSpy waterfallFrames(&model, &ApplicationModel::waterfallFrameReady);
+
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    // The selected receiver has an FM-band-only range, deliberately excluding
+    // the audio source's 0..24 kHz display geometry.
+    QVERIFY(model.visibleLowerFrequency() >= 88'000'000U);
+    model.loadRecording(QUrl::fromLocalFile(wavPath));
+    QVERIFY(waitUntil([&model] { return model.recordedAudioSource(); }));
+    QCOMPARE(model.visibleLowerFrequency(), 0U);
+    QCOMPARE(model.visibleUpperFrequency(), 24'000U);
+
+    model.toggleRecordingPlayback();
+    QVERIFY(waitUntil([&model, &trace, &spectrumFrames, &waterfallFrames] {
+        return model.receiverRunning() && model.audioRunning() &&
+               trace->audioPlaybackStarts > 0 &&
+               trace->audioSinkWrittenBytes > 0 &&
+               trace->audioSinkNonzeroBytes > 0 &&
+               spectrumFrames.count() > 0 && waterfallFrames.count() > 0;
+    }));
+    QVERIFY(waitUntil([&snapshots] {
+        return !snapshots.empty() &&
+               latestSnapshot(snapshots).recordingTransport.positionSamples > 0;
+    }));
+
+    const int firstPlaybackStarts = trace->audioPlaybackStarts;
+    model.stopRecordingPlayback();
+    QVERIFY(waitUntil([&model] {
+        return !model.receiverRunning() && !model.audioRunning();
+    }));
+    model.restartRecordingPlayback();
+    QVERIFY(waitUntil([&model, &trace, firstPlaybackStarts] {
+        return model.receiverRunning() && model.audioRunning() &&
+               trace->audioPlaybackStarts > firstPlaybackStarts;
+    }));
+    model.ejectRecording();
+    QVERIFY(waitUntil([&model] {
+        return !model.recordingLoaded() && !model.receiverRunning() &&
+               !model.audioRunning() && model.selectedDeviceIndex() == 0;
+    }));
+    runtime.shutdown();
+}
+#endif
 
 void ReceiverRuntimeTest::stopsBackendAndJoinsWorkerDuringShutdown()
 {

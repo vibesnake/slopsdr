@@ -151,9 +151,17 @@ target_link_libraries(
         Qt6::Test
 )
 sdr_enable_warnings(receiver_runtime_tests)
+target_compile_definitions(
+    receiver_runtime_tests
+    PRIVATE SDR_RECEIVER_TEST_GNURADIO=$<BOOL:${ENABLE_GNURADIO}>
+)
 
 add_test(NAME receiver_runtime_tests COMMAND receiver_runtime_tests)
 set_tests_properties(receiver_runtime_tests PROPERTIES TIMEOUT 20)
+
+if(ENABLE_GNURADIO)
+    target_link_libraries(receiver_runtime_tests PRIVATE sdr_gnuradio_backend)
+endif()
 
 add_executable(
     frequency_digit_controller_tests

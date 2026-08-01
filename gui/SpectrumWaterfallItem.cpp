@@ -1655,7 +1655,8 @@ QSGNode* SpectrumWaterfallItem::updateSpectrumNode(QSGNode* oldNode)
 void SpectrumWaterfallItem::updateFilterIndicatorNode(QSGNode* node)
 {
     auto* filterIndicator = static_cast<FilterIndicatorNode*>(node);
-    if (!m_applicationModel || !window()) {
+    if (!m_applicationModel || !window() ||
+        !m_applicationModel->rfControlsSupported()) {
         filterIndicator->hide();
         return;
     }

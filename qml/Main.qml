@@ -574,6 +574,7 @@ ApplicationWindow {
                                              pane.applicationModel.filterUpperFrequency)
             readonly property real midpoint: (lowerX + upperX) / 2
             visible: filterWidthHintTimer.running
+                     && pane.applicationModel.rfControlsSupported
             enabled: false
             z: 5
             text: (Number(pane.applicationModel.filterWidth) / 1000).toFixed(

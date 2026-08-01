@@ -4022,6 +4022,15 @@ void ApplicationModel::applyRuntimeSnapshot(
     const QString previousCapabilitySummary = m_deviceCapabilitySummary;
     const auto previousCapabilities = m_runtimeCapabilities;
     const auto previousSourceCapabilities = m_receiverSourceCapabilities;
+    const auto isRecordedSource = [](sdr::radio::ReceiverSourceKind kind) {
+        return kind == sdr::radio::ReceiverSourceKind::RecordedIq ||
+               kind == sdr::radio::ReceiverSourceKind::RecordedAudio;
+    };
+    const bool sourceGeometryChanged =
+        previousSourceCapabilities.kind !=
+            snapshot.receiverSourceCapabilities.kind &&
+        (isRecordedSource(previousSourceCapabilities.kind) ||
+         isRecordedSource(snapshot.receiverSourceCapabilities.kind));
     const auto previousFrequencyRanges = m_deviceFrequencyRanges;
     const auto previousSampleRateRanges = m_deviceSampleRateRanges;
     const QStringList previousCaptureBandwidthOptions = m_captureBandwidthOptions;
@@ -4236,12 +4245,19 @@ void ApplicationModel::applyRuntimeSnapshot(
     if (listeningWheelRecentered) {
         emitFrequencyViewportChanges();
     }
-    if (previousEffectiveSampleRate != m_runtimeEffectiveSampleRate) {
+    if (sourceGeometryChanged ||
+        previousEffectiveSampleRate != m_runtimeEffectiveSampleRate) {
         resetSpectrumFrame();
+        if (sourceGeometryChanged) {
+            emit waterfallReset();
+        }
+    }
+    if (previousEffectiveSampleRate != m_runtimeEffectiveSampleRate) {
         emit effectiveSampleRateChanged();
     }
     if (previousState.centerFrequency == m_runtimeState.centerFrequency &&
-        (previousEffectiveSampleRate != m_runtimeEffectiveSampleRate ||
+        (sourceGeometryChanged ||
+         previousEffectiveSampleRate != m_runtimeEffectiveSampleRate ||
          previousFrequencyRanges != m_deviceFrequencyRanges) &&
         m_frequencyViewport.configureCapture(
             centerFrequency(),
@@ -4249,6 +4265,8 @@ void ApplicationModel::applyRuntimeSnapshot(
             listeningFrequency(),
             advertisedRfRangeForCenter(centerFrequency()),
             true)) {
+        emitFrequencyViewportChanges();
+    } else if (sourceGeometryChanged) {
         emitFrequencyViewportChanges();
     }
     if (previousEffectiveSampleRate != m_runtimeEffectiveSampleRate ||
@@ -4667,6 +4685,11 @@ sdr::radio::ReceiverState ApplicationModel::displayState() const noexcept
 sdr::radio::FrequencyRange ApplicationModel::advertisedRfRangeForCenter(
     std::uint64_t centerFrequency) const noexcept
 {
+    const auto sourceKind = m_receiverSourceCapabilities.kind;
+    if (sourceKind == sdr::radio::ReceiverSourceKind::RecordedIq ||
+        sourceKind == sdr::radio::ReceiverSourceKind::RecordedAudio) {
+        return receiverLimits().frequency;
+    }
     if (m_deviceFrequencyRanges.has_value()) {
         const auto matching = std::find_if(
             m_deviceFrequencyRanges->begin(),
@@ -4686,6 +4709,11 @@ ApplicationModel::effectiveCenterFrequencyRanges() const
 {
     const auto receiverRange = sdr::radio::validCenterFrequencyRange(
         receiverLimits(), receiverState().sampleRate);
+    const auto sourceKind = m_receiverSourceCapabilities.kind;
+    if (sourceKind == sdr::radio::ReceiverSourceKind::RecordedIq ||
+        sourceKind == sdr::radio::ReceiverSourceKind::RecordedAudio) {
+        return {receiverRange};
+    }
     if (!m_deviceFrequencyRanges.has_value()) {
         return {receiverRange};
     }
