@@ -194,7 +194,13 @@ void WavRecordingServiceTest::skipsQuietAudioWithPreRollAndTail()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    sdr::platform::WavRecordingService recorder(48'000 * 8);
+    WriteGate writerStartGate;
+    WriteGate writeGate;
+    sdr::platform::WavRecordingWriterHooks hooks;
+    hooks.beforeWriterLoop = [&writerStartGate] { writerStartGate.block(); };
+    hooks.beforeWrite = [&writeGate] { writeGate.block(); };
+    sdr::platform::WavRecordingService recorder(
+        48'000 * 8, 0xffff'ffdbU, std::move(hooks));
     QVERIFY(recorder.start({
         .directory = std::filesystem::path(directory.path().toStdString()),
         .frequencyHz = 1,
@@ -205,29 +211,56 @@ void WavRecordingServiceTest::skipsQuietAudioWithPreRollAndTail()
     }));
     QVERIFY(recorder.state().active);
     QVERIFY(!recorder.state().writing);
-    const std::vector<float> quiet(48'000, 0.1F);
-    recorder.enqueueMono(quiet, false);
+    if (!writerStartGate.waitUntilEntered()) {
+        writerStartGate.release();
+        writeGate.release();
+        QFAIL("writer did not reach the startup gate");
+    }
+    // Start the writer with a quiet-valued opening frame. The write gate is
+    // outside the recorder mutex, so every following transition is accepted
+    // without relying on scheduler timing.
+    recorder.enqueueMono(std::array<float, 1>{0.1F}, true);
+    writerStartGate.release();
+    if (!writeGate.waitUntilEntered()) {
+        writeGate.release();
+        QFAIL("writer did not reach the controlled quiet write");
+    }
+    recorder.enqueueMono(std::vector<float>(48'000, 0.1F), false);
+    QVERIFY(!recorder.state().writing);
+    recorder.enqueueMono(std::vector<float>(48'000, 0.2F), false);
+    QVERIFY(!recorder.state().writing);
     recorder.enqueueMono(std::array<float, 1>{0.5F}, true);
     QVERIFY(recorder.state().writing);
     recorder.enqueueMono(std::vector<float>(48'000, 0.2F), false);
     QVERIFY(!recorder.state().writing);
     recorder.enqueueMono(std::vector<float>(48'000, 0.3F), false);
+    writeGate.release();
     recorder.stop();
 
     const QByteArray contents = fileContents(recorder.state().filePath);
-    QCOMPARE(littleEndian32(contents, 40), std::uint32_t{(48'000 + 1 + 48'000) * 4});
+    QCOMPARE(littleEndian32(contents, 40),
+             std::uint32_t{(1 + 48'000 + 48'000 + 1 + 48'000) * 4});
     QCOMPARE(sampleAt(contents, 44), std::int16_t{3277});
-    QCOMPARE(sampleAt(contents, 44 + 48'000 * 4), std::int16_t{16384});
+    QCOMPARE(sampleAt(contents, 44 + (1 + 48'000) * 4), std::int16_t{6553});
+    QCOMPARE(sampleAt(contents, 44 + (1 + 48'000 + 48'000) * 4),
+             std::int16_t{16384});
     QCOMPARE(sampleAt(contents, static_cast<int>(contents.size() - 4)),
              std::int16_t{6553});
-    QCOMPARE(recorder.state().elapsedSeconds, std::uint64_t{2});
+    QCOMPARE(recorder.state().droppedFrames, std::uint64_t{0});
+    QCOMPARE(recorder.state().elapsedSeconds, std::uint64_t{3});
 }
 
 void WavRecordingServiceTest::reopensDuringTailWithoutAQuietGap()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
-    sdr::platform::WavRecordingService recorder(48'000 * 8);
+    WriteGate writerStartGate;
+    WriteGate writeGate;
+    sdr::platform::WavRecordingWriterHooks hooks;
+    hooks.beforeWriterLoop = [&writerStartGate] { writerStartGate.block(); };
+    hooks.beforeWrite = [&writeGate] { writeGate.block(); };
+    sdr::platform::WavRecordingService recorder(
+        48'000 * 8, 0xffff'ffdbU, std::move(hooks));
     QVERIFY(recorder.start({
         .directory = std::filesystem::path(directory.path().toStdString()),
         .frequencyHz = 1,
@@ -236,15 +269,27 @@ void WavRecordingServiceTest::reopensDuringTailWithoutAQuietGap()
         .preRollSeconds = 0,
         .tailSeconds = 1,
     }));
+    if (!writerStartGate.waitUntilEntered()) {
+        writerStartGate.release();
+        writeGate.release();
+        QFAIL("writer did not reach the startup gate");
+    }
     recorder.enqueueMono(std::array<float, 1>{0.5F}, true);
+    writerStartGate.release();
+    if (!writeGate.waitUntilEntered()) {
+        writeGate.release();
+        QFAIL("writer did not reach the controlled voice write");
+    }
     recorder.enqueueMono(std::array<float, 1>{0.2F}, false);
     recorder.enqueueMono(std::array<float, 1>{0.7F}, true);
+    writeGate.release();
     recorder.stop();
     const QByteArray contents = fileContents(recorder.state().filePath);
     QCOMPARE(littleEndian32(contents, 40), std::uint32_t{12});
     QCOMPARE(sampleAt(contents, 44), std::int16_t{16384});
     QCOMPARE(sampleAt(contents, 48), std::int16_t{6553});
     QCOMPARE(sampleAt(contents, 52), std::int16_t{22937});
+    QCOMPARE(recorder.state().droppedFrames, std::uint64_t{0});
 }
 
 void WavRecordingServiceTest::usesUniqueSanitizedNames()

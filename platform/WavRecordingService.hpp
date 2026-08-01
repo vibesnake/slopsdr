@@ -45,6 +45,7 @@ struct WavRecordingState {
 // Optional deterministic writer controls used by service tests. Production
 // callers use the default empty hooks.
 struct WavRecordingWriterHooks {
+    std::function<void()> beforeWriterLoop;
     std::function<void()> afterDequeueLocked;
     std::function<void()> beforeWrite;
     std::function<void()> beforeProducerExit;

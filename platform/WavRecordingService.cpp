@@ -327,6 +327,7 @@ void WavRecordingService::finishProducer() noexcept
 
 void WavRecordingService::writerLoop() noexcept
 {
+    if (m_writerHooks.beforeWriterLoop) m_writerHooks.beforeWriterLoop();
     std::vector<float> samples;
     std::vector<std::int16_t> pcm;
     for (;;) {
