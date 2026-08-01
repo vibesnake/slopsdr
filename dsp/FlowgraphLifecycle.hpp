@@ -11,8 +11,8 @@ struct FlowgraphLifecycleActions {
     std::function<void()> startScheduler;
     std::function<void()> stopScheduler;
     std::function<void()> waitScheduler;
-    std::function<void()> startDevice;
-    std::function<void()> stopDevice;
+    std::function<void()> startSource;
+    std::function<void()> stopSource;
 };
 
 class FlowgraphLifecycle final
@@ -32,7 +32,7 @@ public:
 private:
     FlowgraphLifecycleActions m_actions;
     bool m_schedulerStartAttempted = false;
-    bool m_deviceStarted = false;
+    bool m_sourceStarted = false;
     bool m_running = false;
 };
 

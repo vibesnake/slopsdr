@@ -43,6 +43,7 @@ struct ReceiverRuntimeSnapshot {
     radio::ReceiverState receiverState;
     radio::ReceiverLimits receiverLimits;
     radio::ReceiverCapabilities receiverCapabilities;
+    radio::ReceiverSourceCapabilities receiverSourceCapabilities;
     bool squelchOpen = false;
     quint64 effectiveSampleRate = 0;
     quint64 tuningGeneration = 0;

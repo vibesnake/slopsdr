@@ -27,6 +27,7 @@ public:
 
     [[nodiscard]] const ReceiverLimits& limits() const noexcept override;
     [[nodiscard]] const ReceiverCapabilities& capabilities() const noexcept override;
+    [[nodiscard]] ReceiverSourceCapabilities sourceCapabilities() const noexcept override;
     [[nodiscard]] const ReceiverState& state() const noexcept override;
     [[nodiscard]] std::uint64_t tuningGeneration() const noexcept override;
     [[nodiscard]] bool squelchOpen() const noexcept override;

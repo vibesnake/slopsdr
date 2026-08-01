@@ -1148,6 +1148,9 @@ void ReceiverRuntimeTest::refreshesAtStartupSelectsFirstWithoutOpeningOrStarting
     QVERIFY(snapshot.audioReady);
     QVERIFY(snapshot.backendReady);
     QVERIFY(!snapshot.receiverState.running);
+    QVERIFY(snapshot.receiverSourceCapabilities.kind ==
+            sdr::radio::ReceiverSourceKind::Hardware);
+    QVERIFY(snapshot.receiverSourceCapabilities.hardwareTuningSupported);
     QCOMPARE(model.selectedDeviceIndex(), 0);
     QVERIFY(model.statusText().contains(QStringLiteral("Found")));
     QCOMPARE(trace->discoveries, 1);
@@ -1196,6 +1199,7 @@ void ReceiverRuntimeTest::startsDeliberatelyInMockMode()
 {
     sdr::app::ReceiverRuntime runtime(
         sdr::app::ReceiverRuntime::StartupMode::Mock);
+    QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
     ApplicationModel model(runtime);
 
     runtime.start();
@@ -1203,6 +1207,10 @@ void ReceiverRuntimeTest::startsDeliberatelyInMockMode()
     QVERIFY(model.mockMode());
     QVERIFY(!model.deviceDiscoveryAvailable());
     QCOMPARE(model.deviceState(), QStringLiteral("Mock device"));
+    const auto snapshot = latestSnapshot(snapshots);
+    QVERIFY(snapshot.receiverSourceCapabilities.kind ==
+            sdr::radio::ReceiverSourceKind::Mock);
+    QVERIFY(!snapshot.receiverSourceCapabilities.hardwareTuningSupported);
 
     model.startReception();
     QVERIFY(waitUntil([&model] { return model.receiverRunning(); }));

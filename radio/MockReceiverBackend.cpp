@@ -30,6 +30,14 @@ const ReceiverCapabilities& MockReceiverBackend::capabilities() const noexcept
     return m_capabilities;
 }
 
+ReceiverSourceCapabilities MockReceiverBackend::sourceCapabilities() const noexcept
+{
+    return {
+        .kind = ReceiverSourceKind::Mock,
+        .ppmCorrectionSupported = m_capabilities.ppmCorrectionSupported,
+    };
+}
+
 const ReceiverState& MockReceiverBackend::state() const noexcept
 {
     return m_model.state();

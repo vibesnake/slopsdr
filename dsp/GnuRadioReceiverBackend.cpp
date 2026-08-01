@@ -11,16 +11,15 @@
 #include "SpectrumFramePacing.hpp"
 #include "SpectrumWindow.hpp"
 #include "DeviceController.hpp"
+#include "WidebandIqSources.hpp"
 
 #include <gnuradio/analog/agc3_cc.h>
 #include <gnuradio/analog/pwr_squelch_cc.h>
 #include <gnuradio/analog/quadrature_demod_cf.h>
-#include <gnuradio/analog/sig_source.h>
 #include <gnuradio/blocks/complex_to_mag.h>
 #include <gnuradio/blocks/complex_to_real.h>
 #include <gnuradio/blocks/null_sink.h>
 #include <gnuradio/blocks/selector.h>
-#include <gnuradio/blocks/throttle.h>
 #include <gnuradio/fft/fft_v.h>
 #include <gnuradio/filter/firdes.h>
 #include <gnuradio/filter/dc_blocker_ff.h>
@@ -61,8 +60,6 @@
 namespace sdr::dsp {
 namespace {
 
-constexpr double syntheticToneOffsetHz = 100'000.0;
-constexpr double syntheticToneAmplitude = 0.5;
 constexpr double disabledSquelchThresholdDb = -160.0;
 constexpr double narrowFmDeemphasisSeconds = 300e-6;
 constexpr double wideFmDeemphasisSeconds = 75e-6;
@@ -446,31 +443,31 @@ std::optional<CaptureMetadataSnapshot> captureMetadataFromTag(
     };
 }
 
-class DeviceSourceBlock final : public gr::sync_block
+class WidebandIqSourceBlock final : public gr::sync_block
 {
 public:
-    using sptr = std::shared_ptr<DeviceSourceBlock>;
+    using sptr = std::shared_ptr<WidebandIqSourceBlock>;
 
     static sptr make(
-        std::shared_ptr<devices::DeviceController> device,
+        std::shared_ptr<radio::WidebandIqSource> source,
         std::shared_ptr<RuntimeFailureState> failure,
         std::shared_ptr<CaptureMetadataState> captureMetadata)
     {
-        return gnuradio::make_block_sptr<DeviceSourceBlock>(
-            std::move(device),
+        return gnuradio::make_block_sptr<WidebandIqSourceBlock>(
+            std::move(source),
             std::move(failure),
             std::move(captureMetadata));
     }
 
-    DeviceSourceBlock(
-        std::shared_ptr<devices::DeviceController> device,
+    WidebandIqSourceBlock(
+        std::shared_ptr<radio::WidebandIqSource> source,
         std::shared_ptr<RuntimeFailureState> failure,
         std::shared_ptr<CaptureMetadataState> captureMetadata)
         : gr::sync_block(
-              "selected_device_source",
+              "wideband_iq_source",
               gr::io_signature::make(0, 0, 0),
               gr::io_signature::make(1, 1, sizeof(gr_complex)))
-        , m_device(std::move(device))
+        , m_source(std::move(source))
         , m_failure(std::move(failure))
         , m_captureMetadata(std::move(captureMetadata))
     {
@@ -495,7 +492,7 @@ public:
     {
         if (itemCount <= 0 || outputItems.empty() || !outputItems.front()) {
             m_failure->set(
-                "GNU Radio supplied an invalid output buffer to the SDR source");
+                "GNU Radio supplied an invalid output buffer to the IQ source");
             return WORK_DONE;
         }
 
@@ -503,15 +500,14 @@ public:
         const std::size_t outputCapacity = static_cast<std::size_t>(itemCount);
         while (m_running.load(std::memory_order_acquire)) {
             const auto captureMetadata = m_captureMetadata->snapshot();
-            const auto result = m_device->readReceiveSamples(
-                std::span<gr_complex>(output, outputCapacity),
+            const auto result = m_source->read(
+                std::span<std::complex<float>>(output, outputCapacity),
                 std::chrono::milliseconds(50));
             switch (result.status) {
-            case devices::DeviceReadStatus::Samples:
+            case radio::WidebandIqReadStatus::Samples:
                 if (result.sampleCount == 0 ||
                     result.sampleCount > outputCapacity) {
-                    m_failure->set(
-                        "Selected SDR device returned an invalid sample count");
+                    m_failure->set("Wideband IQ source returned an invalid sample count");
                     return WORK_DONE;
                 }
                 add_item_tag(
@@ -520,19 +516,19 @@ public:
                     captureMetadataTagKey(),
                     captureMetadataTagValue(captureMetadata));
                 return static_cast<int>(result.sampleCount);
-            case devices::DeviceReadStatus::Timeout:
+            case radio::WidebandIqReadStatus::Timeout:
                 boost::this_thread::interruption_point();
                 continue;
-            case devices::DeviceReadStatus::Stopped:
-            case devices::DeviceReadStatus::Disconnected:
-            case devices::DeviceReadStatus::Failed:
+            case radio::WidebandIqReadStatus::Stopped:
+            case radio::WidebandIqReadStatus::Disconnected:
+            case radio::WidebandIqReadStatus::Failed:
                 m_failure->set(
                     result.message.empty()
-                        ? "Selected SDR device stopped streaming"
+                        ? "Wideband IQ source stopped streaming"
                         : result.message);
                 return WORK_DONE;
             }
-            m_failure->set("Selected SDR device returned an unknown stream state");
+            m_failure->set("Wideband IQ source returned an unknown stream state");
             return WORK_DONE;
         }
 
@@ -540,53 +536,10 @@ public:
     }
 
 private:
-    std::shared_ptr<devices::DeviceController> m_device;
+    std::shared_ptr<radio::WidebandIqSource> m_source;
     std::shared_ptr<RuntimeFailureState> m_failure;
     std::shared_ptr<CaptureMetadataState> m_captureMetadata;
     std::atomic_bool m_running = false;
-};
-
-class CaptureMetadataTagger final : public gr::sync_block
-{
-public:
-    using sptr = std::shared_ptr<CaptureMetadataTagger>;
-
-    static sptr make(std::shared_ptr<CaptureMetadataState> captureMetadata)
-    {
-        return gnuradio::make_block_sptr<CaptureMetadataTagger>(
-            std::move(captureMetadata));
-    }
-
-    explicit CaptureMetadataTagger(
-        std::shared_ptr<CaptureMetadataState> captureMetadata)
-        : gr::sync_block(
-              "capture_metadata_tagger",
-              gr::io_signature::make(1, 1, sizeof(gr_complex)),
-              gr::io_signature::make(1, 1, sizeof(gr_complex)))
-        , m_captureMetadata(std::move(captureMetadata))
-    {
-        set_tag_propagation_policy(gr::block::TPP_DONT);
-    }
-
-    int work(
-        int itemCount,
-        gr_vector_const_void_star& inputItems,
-        gr_vector_void_star& outputItems) override
-    {
-        std::memcpy(
-            outputItems.front(),
-            inputItems.front(),
-            static_cast<std::size_t>(itemCount) * sizeof(gr_complex));
-        add_item_tag(
-            0,
-            nitems_written(0),
-            captureMetadataTagKey(),
-            captureMetadataTagValue(m_captureMetadata->snapshot()));
-        return itemCount;
-    }
-
-private:
-    std::shared_ptr<CaptureMetadataState> m_captureMetadata;
 };
 
 class AudioSampleSink final : public gr::sync_block
@@ -1167,7 +1120,7 @@ public:
             std::shared_ptr<radio::AudioSampleBuffer> sharedAudioSamples,
             std::shared_ptr<radio::AudioSampleBuffer> sharedDecoderInputSamples,
             std::shared_ptr<radio::ComplexSampleBuffer> sharedIqSamples,
-            std::shared_ptr<devices::DeviceController> selectedDevice,
+            std::shared_ptr<radio::WidebandIqSource> inputSource,
             std::shared_ptr<RuntimeFailureState> sharedRuntimeFailure,
             bool verboseDspMetrics)
             : spectrumFftPlans(std::move(spectrumResources.fftPlans))
@@ -1177,10 +1130,11 @@ public:
                   std::move(spectrumResources.windowCoherentGains))
             , m_spectrumFftSize(spectrumConfiguration.fftSize)
             , captureMetadata(std::make_shared<CaptureMetadataState>(
-                  state.centerFrequency, tuningGeneration))
+                  inputSource->captureMetadata().centerFrequency, tuningGeneration))
             , topBlock(gr::make_top_block(
-                  selectedDevice ? "sdr_receiver_selected_device"
-                                 : "sdr_receiver_synthetic"))
+                  inputSource->capabilities().kind == radio::ReceiverSourceKind::Hardware
+                      ? "sdr_receiver_selected_device"
+                      : "sdr_receiver_synthetic"))
             , channelRatePlan(stableChannelRatePlan(
                   effectiveSampleRate, state.demodulationMode))
             , channelFilter(gr::filter::freq_xlating_fir_filter_ccc::make(
@@ -1303,7 +1257,7 @@ public:
                   captureMetadata->snapshot(),
                   effectiveSampleRate,
                   m_spectrumFftSize))
-            , device(std::move(selectedDevice))
+            , m_source(std::move(inputSource))
             , runtimeFailure(std::move(sharedRuntimeFailure))
             , desiredMode(state.demodulationMode)
             , m_effectiveSampleRate(effectiveSampleRate)
@@ -1311,46 +1265,27 @@ public:
                   .startScheduler = [this] { topBlock->start(); },
                   .stopScheduler = [this] { topBlock->stop(); },
                   .waitScheduler = [this] { topBlock->wait(); },
-                  .startDevice = this->device
-                                     ? std::function<void()>([this] {
-                                           const auto result =
-                                               device->startReceiveStream();
-                                           if (!result.succeeded()) {
-                                               throw std::runtime_error(result.message);
-                                           }
-                                       })
-                                     : std::function<void()>(),
-                  .stopDevice = this->device
-                                    ? std::function<void()>([this] {
-                                          const auto result =
-                                              device->stopReceiveStream();
-                                          if (!result.succeeded()) {
-                                              throw std::runtime_error(result.message);
-                                          }
-                                      })
-                                    : std::function<void()>(),
+                  .startSource = [this] {
+                      const auto result = m_source->start();
+                      if (!result.succeeded) {
+                          throw std::runtime_error(result.message);
+                      }
+                  },
+                  .stopSource = [this] {
+                      const auto result = m_source->stop();
+                      if (!result.succeeded) {
+                          throw std::runtime_error(result.message);
+                      }
+                  },
               })
         {
-            if (this->device) {
-                deviceSource = DeviceSourceBlock::make(
-                    this->device,
-                    this->runtimeFailure,
-                    captureMetadata);
-                widebandSource = deviceSource;
-            } else {
-                syntheticSource = gr::analog::sig_source_c::make(
-                    static_cast<double>(effectiveSampleRate),
-                    gr::analog::GR_COS_WAVE,
-                    syntheticToneOffsetHz,
-                    syntheticToneAmplitude);
-                throttle = gr::blocks::throttle::make(
-                    sizeof(gr_complex), static_cast<double>(effectiveSampleRate));
-                captureMetadataTagger = CaptureMetadataTagger::make(
-                    captureMetadata);
-                topBlock->connect(syntheticSource, 0, throttle, 0);
-                topBlock->connect(throttle, 0, captureMetadataTagger, 0);
-                widebandSource = captureMetadataTagger;
+            if (m_source->captureMetadata().effectiveSampleRate !=
+                effectiveSampleRate) {
+                throw std::invalid_argument(
+                    "Wideband IQ source sample rate does not match the receiver flowgraph");
             }
+            widebandSource = WidebandIqSourceBlock::make(
+                this->m_source, this->runtimeFailure, captureMetadata);
 
             topBlock->connect(widebandSource, 0, iqSink, 0);
             topBlock->connect(widebandSource, 0, channelFilter, 0);
@@ -1751,11 +1686,7 @@ public:
         std::shared_ptr<CaptureMetadataState> captureMetadata;
         gr::top_block_sptr topBlock;
         const ChannelRatePlan channelRatePlan;
-        gr::analog::sig_source_c::sptr syntheticSource;
-        DeviceSourceBlock::sptr deviceSource;
         gr::basic_block_sptr widebandSource;
-        gr::blocks::throttle::sptr throttle;
-        CaptureMetadataTagger::sptr captureMetadataTagger;
         gr::filter::freq_xlating_fir_filter_ccc::sptr channelFilter;
         gr::analog::pwr_squelch_cc::sptr squelch;
         std::shared_ptr<SquelchSignalStrengthState> squelchSignalStrength;
@@ -1798,7 +1729,7 @@ public:
         gr::blocks::complex_to_mag::sptr spectrumMagnitude;
         DisplayMagnitudeSink::sptr spectrumSink;
         std::vector<RmsDiagnosticSink::sptr> rmsDiagnosticSinks;
-        std::shared_ptr<devices::DeviceController> device;
+        std::shared_ptr<radio::WidebandIqSource> m_source;
         std::shared_ptr<RuntimeFailureState> runtimeFailure;
         radio::DemodulationMode desiredMode;
         const std::uint64_t m_effectiveSampleRate;
@@ -1842,6 +1773,14 @@ public:
             capabilities.automaticPpmCalibrationSupported =
                 deviceCapabilities.ppmCorrectionSupported &&
                 deviceCapabilities.rtlSdrTestModeSupported;
+            sourceCapabilities = {
+                .kind = radio::ReceiverSourceKind::Hardware,
+                .hardwareTuningSupported = true,
+                .gainControlSupported = deviceCapabilities.gainSupported,
+                .ppmCorrectionSupported = deviceCapabilities.ppmCorrectionSupported,
+                .automaticPpmCalibrationSupported =
+                    capabilities.automaticPpmCalibrationSupported,
+            };
             if (const auto ppm = this->selectedDevice->ppmCorrection()) {
                 static_cast<void>(model.setPpmCorrection(*ppm));
             }
@@ -1852,6 +1791,17 @@ public:
         const radio::ReceiverState& state,
         PreparedSpectrumResources spectrumResources)
     {
+        const radio::WidebandIqCaptureMetadata metadata{
+            .centerFrequency = state.centerFrequency,
+            .effectiveSampleRate = effectiveSampleRate,
+        };
+        std::shared_ptr<radio::WidebandIqSource> source;
+        if (selectedDevice) {
+            source = std::make_shared<DeviceControllerIqSource>(
+                selectedDevice, metadata);
+        } else {
+            source = std::make_shared<SyntheticIqSource>(metadata);
+        }
         return std::make_unique<Flowgraph>(
             state,
             effectiveSampleRate,
@@ -1863,7 +1813,7 @@ public:
             audioSamples,
             decoderInputSamples,
             iqSamples,
-            selectedDevice,
+            std::move(source),
             runtimeFailure,
             m_verboseDspMetrics);
     }
@@ -1996,6 +1946,9 @@ public:
     InitialSpectrumConfiguration m_initialSpectrum;
     radio::ReceiverStateModel model;
     radio::ReceiverCapabilities capabilities;
+    radio::ReceiverSourceCapabilities sourceCapabilities{
+        .kind = radio::ReceiverSourceKind::Synthetic,
+    };
     std::shared_ptr<radio::SpectrumFrameQueue> spectrumFrames;
     std::shared_ptr<SpectrumProcessingCounters> spectrumCounters;
     std::shared_ptr<FftFrameProcessor> spectrumProcessor;
@@ -2060,6 +2013,12 @@ const radio::ReceiverCapabilities& GnuRadioReceiverBackend::capabilities()
     const noexcept
 {
     return m_impl->capabilities;
+}
+
+radio::ReceiverSourceCapabilities GnuRadioReceiverBackend::sourceCapabilities()
+    const noexcept
+{
+    return m_impl->sourceCapabilities;
 }
 
 const radio::ReceiverState& GnuRadioReceiverBackend::state() const noexcept

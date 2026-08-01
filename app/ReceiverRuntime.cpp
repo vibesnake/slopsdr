@@ -3201,6 +3201,7 @@ private:
             snapshot.receiverState = m_backend->state();
             snapshot.receiverLimits = m_backend->limits();
             snapshot.receiverCapabilities = m_backend->capabilities();
+            snapshot.receiverSourceCapabilities = m_backend->sourceCapabilities();
             snapshot.squelchOpen = m_backend->squelchOpen();
             snapshot.squelchMeasurementAvailable =
                 [this] {
@@ -3338,6 +3339,17 @@ private:
             QThread::currentThreadId());
         if (m_selectedCapabilities) {
             const auto& capabilities = m_selectedCapabilities->capabilities;
+            if (!m_backend) {
+                snapshot.receiverSourceCapabilities = {
+                    .kind = radio::ReceiverSourceKind::Hardware,
+                    .hardwareTuningSupported = true,
+                    .gainControlSupported = capabilities.gainSupported,
+                    .ppmCorrectionSupported = capabilities.ppmCorrectionSupported,
+                    .automaticPpmCalibrationSupported =
+                        capabilities.ppmCorrectionSupported &&
+                        capabilities.rtlSdrTestModeSupported,
+                };
+            }
             snapshot.receiverCapabilities.ppmCorrectionSupported =
                 capabilities.ppmCorrectionSupported;
             snapshot.receiverCapabilities.automaticPpmCalibrationSupported =

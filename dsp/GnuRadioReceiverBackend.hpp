@@ -36,6 +36,8 @@ public:
     [[nodiscard]] const radio::ReceiverLimits& limits() const noexcept override;
     [[nodiscard]] const radio::ReceiverCapabilities& capabilities()
         const noexcept override;
+    [[nodiscard]] radio::ReceiverSourceCapabilities sourceCapabilities()
+        const noexcept override;
     [[nodiscard]] const radio::ReceiverState& state() const noexcept override;
     [[nodiscard]] std::uint64_t effectiveSampleRate() const noexcept override;
     [[nodiscard]] std::uint64_t tuningGeneration() const noexcept override;

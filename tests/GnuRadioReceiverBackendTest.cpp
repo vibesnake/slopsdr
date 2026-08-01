@@ -4,6 +4,7 @@
 #include "GnuRadioReceiverBackend.hpp"
 #include "DeviceController.hpp"
 #include "FlowgraphLifecycle.hpp"
+#include "WidebandIqSources.hpp"
 
 #include <QElapsedTimer>
 #include <QtTest>
@@ -410,6 +411,7 @@ private slots:
     void stopsAndWaitsDuringDestruction();
     void cleansUpAfterSimulatedSchedulerStartFailure();
     void destroysSafelyAfterPartialInitialization();
+    void exposesSourceCapabilitiesAndAdapters();
     void tracksCenterListeningOffset();
     void rebuildsRunningFlowgraphForSampleRateChange();
     void repeatsCaptureBandwidthChangesWithoutStaleFrames();
@@ -488,8 +490,8 @@ void GnuRadioReceiverBackendTest::cleansUpAfterSimulatedSchedulerStartFailure()
     int schedulerStarts = 0;
     int schedulerStops = 0;
     int schedulerWaits = 0;
-    int deviceStarts = 0;
-    int deviceStops = 0;
+    int sourceStarts = 0;
+    int sourceStops = 0;
     sdr::dsp::detail::FlowgraphLifecycle lifecycle({
         .startScheduler = [&] {
             ++schedulerStarts;
@@ -497,8 +499,8 @@ void GnuRadioReceiverBackendTest::cleansUpAfterSimulatedSchedulerStartFailure()
         },
         .stopScheduler = [&] { ++schedulerStops; },
         .waitScheduler = [&] { ++schedulerWaits; },
-        .startDevice = [&] { ++deviceStarts; },
-        .stopDevice = [&] { ++deviceStops; },
+        .startSource = [&] { ++sourceStarts; },
+        .stopSource = [&] { ++sourceStops; },
     });
 
     QVERIFY_EXCEPTION_THROWN(lifecycle.start(), std::runtime_error);
@@ -506,27 +508,27 @@ void GnuRadioReceiverBackendTest::cleansUpAfterSimulatedSchedulerStartFailure()
     QCOMPARE(schedulerStarts, 1);
     QCOMPARE(schedulerStops, 1);
     QCOMPARE(schedulerWaits, 1);
-    QCOMPARE(deviceStarts, 1);
-    QCOMPARE(deviceStops, 1);
+    QCOMPARE(sourceStarts, 1);
+    QCOMPARE(sourceStops, 1);
 
     lifecycle.stopAndWait();
     QCOMPARE(schedulerStops, 1);
     QCOMPARE(schedulerWaits, 1);
-    QCOMPARE(deviceStops, 1);
+    QCOMPARE(sourceStops, 1);
 }
 
 void GnuRadioReceiverBackendTest::destroysSafelyAfterPartialInitialization()
 {
     int schedulerStops = 0;
     int schedulerWaits = 0;
-    int deviceStops = 0;
+    int sourceStops = 0;
     {
         sdr::dsp::detail::FlowgraphLifecycle lifecycle({
             .startScheduler = [] {},
             .stopScheduler = [&] { ++schedulerStops; },
             .waitScheduler = [&] { ++schedulerWaits; },
-            .startDevice = [] {},
-            .stopDevice = [&] { ++deviceStops; },
+            .startSource = [] {},
+            .stopSource = [&] { ++sourceStops; },
         });
         QVERIFY_EXCEPTION_THROWN(
             lifecycle.start([] {
@@ -538,7 +540,55 @@ void GnuRadioReceiverBackendTest::destroysSafelyAfterPartialInitialization()
 
     QCOMPARE(schedulerStops, 1);
     QCOMPARE(schedulerWaits, 1);
-    QCOMPARE(deviceStops, 1);
+    QCOMPARE(sourceStops, 1);
+}
+
+void GnuRadioReceiverBackendTest::exposesSourceCapabilitiesAndAdapters()
+{
+    const sdr::radio::WidebandIqCaptureMetadata metadata{
+        .centerFrequency = 100'000'000,
+        .effectiveSampleRate = 2'000'000,
+    };
+    sdr::dsp::SyntheticIqSource synthetic(metadata);
+    QVERIFY(synthetic.capabilities().kind == sdr::radio::ReceiverSourceKind::Synthetic);
+    QCOMPARE(synthetic.captureMetadata().centerFrequency, metadata.centerFrequency);
+    std::array<std::complex<float>, 32> samples{};
+    QVERIFY(synthetic.read(samples, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::Stopped);
+    QVERIFY(synthetic.start().succeeded);
+    const auto syntheticRead = synthetic.read(samples, std::chrono::milliseconds(20));
+    QVERIFY(syntheticRead.status == sdr::radio::WidebandIqReadStatus::Samples);
+    QCOMPARE(syntheticRead.sampleCount, samples.size());
+    QVERIFY(std::abs(samples.front()) > 0.1F);
+    QVERIFY(synthetic.stop().succeeded);
+
+    auto trace = std::make_shared<HardwareTrace>();
+    auto controller = std::shared_ptr<DeviceController>(
+        explicitlySelectedController(trace));
+    QVERIFY(controller != nullptr);
+    sdr::dsp::DeviceControllerIqSource hardware(controller, metadata);
+    const auto hardwareCapabilities = hardware.capabilities();
+    QVERIFY(hardwareCapabilities.kind == sdr::radio::ReceiverSourceKind::Hardware);
+    QVERIFY(hardwareCapabilities.hardwareTuningSupported);
+    QVERIFY(hardwareCapabilities.gainControlSupported);
+    QVERIFY(hardwareCapabilities.ppmCorrectionSupported);
+    QVERIFY(hardware.read(samples, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::Stopped);
+    QVERIFY(hardware.start().succeeded);
+    const auto hardwareRead = hardware.read(samples, std::chrono::milliseconds(1));
+    QVERIFY(hardwareRead.status == sdr::radio::WidebandIqReadStatus::Samples);
+    QCOMPARE(hardwareRead.sampleCount, samples.size());
+    QVERIFY(hardware.stop().succeeded);
+    QCOMPARE(trace->streamStarts, 1);
+    QCOMPARE(trace->streamStops, 1);
+
+    GnuRadioReceiverBackend syntheticBackend;
+    QVERIFY(syntheticBackend.sourceCapabilities().kind ==
+            sdr::radio::ReceiverSourceKind::Synthetic);
+    GnuRadioReceiverBackend hardwareBackend(explicitlySelectedController(trace));
+    QVERIFY(hardwareBackend.sourceCapabilities().kind ==
+            sdr::radio::ReceiverSourceKind::Hardware);
+    QVERIFY(hardwareBackend.sourceCapabilities().hardwareTuningSupported);
 }
 
 void GnuRadioReceiverBackendTest::tracksCenterListeningOffset()

@@ -5,6 +5,7 @@
 
 #include "AudioSampleBuffer.hpp"
 #include "SpectrumFrame.hpp"
+#include "WidebandIqSource.hpp"
 
 #include <cstddef>
 #include <chrono>
@@ -171,6 +172,10 @@ public:
 
     [[nodiscard]] virtual const ReceiverLimits& limits() const noexcept = 0;
     [[nodiscard]] virtual const ReceiverCapabilities& capabilities() const noexcept = 0;
+    [[nodiscard]] virtual ReceiverSourceCapabilities sourceCapabilities() const noexcept
+    {
+        return {};
+    }
     [[nodiscard]] virtual const ReceiverState& state() const noexcept = 0;
     // The radio state records the requested rate. Hardware backends override
     // this when the driver confirms a distinct rate for DSP and display timing.

@@ -115,6 +115,7 @@ add_library(
     radio/MockReceiverBackend.cpp
     radio/MockReceiverBackend.hpp
     radio/ReceiverBackend.hpp
+    radio/WidebandIqSource.hpp
     radio/ReceiverStateModel.cpp
     radio/ReceiverStateModel.hpp
     radio/SpectrumFrame.cpp
@@ -219,6 +220,8 @@ if(ENABLE_GNURADIO)
         dsp/FlowgraphLifecycle.hpp
         dsp/GnuRadioReceiverBackend.cpp
         dsp/GnuRadioReceiverBackend.hpp
+        dsp/WidebandIqSources.cpp
+        dsp/WidebandIqSources.hpp
     )
     target_include_directories(sdr_gnuradio_backend PUBLIC dsp)
     target_link_libraries(

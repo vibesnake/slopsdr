@@ -68,9 +68,9 @@ void FlowgraphLifecycle::start(
         return;
     }
 
-    if (m_actions.startDevice) {
-        m_actions.startDevice();
-        m_deviceStarted = true;
+    if (m_actions.startSource) {
+        m_actions.startSource();
+        m_sourceStarted = true;
     }
 
     try {
@@ -105,9 +105,9 @@ void FlowgraphLifecycle::stopAndWait()
 {
     std::vector<std::string> failures;
     const bool schedulerNeedsCleanup = m_schedulerStartAttempted;
-    const bool deviceNeedsCleanup = m_deviceStarted;
+    const bool sourceNeedsCleanup = m_sourceStarted;
     m_schedulerStartAttempted = false;
-    m_deviceStarted = false;
+    m_sourceStarted = false;
     m_running = false;
 
     if (schedulerNeedsCleanup) {
@@ -122,11 +122,11 @@ void FlowgraphLifecycle::stopAndWait()
             appendFailure(failures, "scheduler wait failed");
         }
     }
-    if (deviceNeedsCleanup && m_actions.stopDevice) {
+    if (sourceNeedsCleanup && m_actions.stopSource) {
         try {
-            m_actions.stopDevice();
+            m_actions.stopSource();
         } catch (...) {
-            appendFailure(failures, "device stream stop failed");
+            appendFailure(failures, "source stop failed");
         }
     }
 
