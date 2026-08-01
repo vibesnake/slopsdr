@@ -74,6 +74,14 @@ if(ENABLE_GNURADIO)
             fft
             filter
     )
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_LIBRARIES gnuradio::gnuradio-runtime)
+    check_cxx_source_compiles(
+        "#include <gnuradio/sys_paths.h>
+         int main() { return gr::paths::userconf().empty(); }"
+        SDR_RECEIVER_GNURADIO_HAS_PATHS_USERCONF
+    )
+    unset(CMAKE_REQUIRED_LIBRARIES)
     cmake_policy(POP)
 endif()
 
@@ -83,6 +91,10 @@ endif()
 
 set(SDR_RECEIVER_ENABLE_GNURADIO "${ENABLE_GNURADIO}")
 set(SDR_RECEIVER_ENABLE_SOAPYSDR "${ENABLE_SOAPYSDR}")
+set(
+    SDR_RECEIVER_GNURADIO_HAS_PATHS_USERCONF
+    "${SDR_RECEIVER_GNURADIO_HAS_PATHS_USERCONF}"
+)
 set(SDR_RECEIVER_BUILD_DESKTOP_APP "${BUILD_DESKTOP_APP}")
 configure_file(
     cmake/project_config.hpp.in

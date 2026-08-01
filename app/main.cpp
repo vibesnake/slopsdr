@@ -88,7 +88,11 @@ std::string rtlSdrModuleVersion()
 
 int printGnuRadioDiagnostics()
 {
+#if SDR_RECEIVER_GNURADIO_HAS_PATHS_USERCONF
     const std::filesystem::path userPreferences = gr::paths::userconf();
+#else
+    const std::filesystem::path userPreferences = gr::userconf_path();
+#endif
     const std::filesystem::path vmcircbufPreference =
         userPreferences / "prefs" / "vmcircbuf_default_factory";
     utsname kernel{};
@@ -232,11 +236,6 @@ int main(int argc, char* argv[])
         &QCoreApplication::aboutToQuit,
         &runtime,
         &sdr::app::ReceiverRuntime::shutdown);
-    QObject::connect(
-        mainWindow,
-        &QQuickWindow::closing,
-        &application,
-        [&application](QQuickCloseEvent*) { application.quit(); });
     QObject::connect(
         &application,
         &QGuiApplication::lastWindowClosed,
