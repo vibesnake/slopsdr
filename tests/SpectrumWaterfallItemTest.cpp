@@ -2177,6 +2177,9 @@ void SpectrumWaterfallItemTest::
         item.setSize(QSizeF(64.0, 24.0));
         item.setWaterfall(true);
         item.setApplicationModel(&model);
+        // Keep this test's frame sequence independent from any model-side
+        // delivery that may be queued while the viewport is being changed.
+        QObject::disconnect(item.m_waterfallFrameConnection);
         item.setWaterfallAggregation(aggregation);
         item.setEffectiveRowsPerSecond(10.0);
         item.setVisibleHistorySeconds(5);
@@ -2200,7 +2203,46 @@ void SpectrumWaterfallItemTest::
             64.0, 24.0, 1.0, 10.0, 5.0);
         QVERIFY(item.rebuildWaterfallImage(
             1'000'000'000ULL, geometry));
-        QVERIFY(item.m_lastHighResolutionRasterRows > 0);
+        QVERIFY(item.m_waterfallViewport.generation > 0);
+        QCOMPARE(item.m_viewportWaterfallHistory.size(), item.m_waterfallHistory.size());
+        QVERIFY(!item.m_viewportWaterfallHistory.rows().empty());
+        QVERIFY2(
+            sdr::gui::viewportWaterfallRowMatches(
+                item.m_viewportWaterfallHistory.rows().back(),
+                item.m_waterfallViewport),
+            "queued viewport row does not match the active viewport metadata");
+        QVERIFY2(
+            item.m_lastHighResolutionRasterRows > 0,
+            qPrintable(QStringLiteral(
+                "expected high-resolution rows: viewport generation=%1 completed=%2 "
+                "aggregation=%3 compact rows=%4 viewport rows=%5 high=%6 compact=%7 "
+                "last-gen=%8 viewport-gen=%9 last-width=%10 viewport-width=%11 "
+                "last-ts=%12 compact-ts=%13 last-tuning=%14 viewport-tuning=%15")
+                           .arg(item.m_waterfallViewport.generation)
+                           .arg(item.m_completedWaterfallViewportGeneration)
+                           .arg(item.waterfallAggregation())
+                           .arg(item.m_waterfallHistory.size())
+                           .arg(item.m_viewportWaterfallHistory.size())
+                           .arg(item.m_lastHighResolutionRasterRows)
+                           .arg(item.m_lastCompactRasterRows)
+                           .arg(item.m_viewportWaterfallHistory.rows().empty()
+                                    ? 0
+                                    : item.m_viewportWaterfallHistory.rows().back().viewportGeneration)
+                           .arg(item.m_waterfallViewport.generation)
+                           .arg(item.m_viewportWaterfallHistory.rows().empty()
+                                    ? 0
+                                    : item.m_viewportWaterfallHistory.rows().back().physicalWidth)
+                           .arg(item.m_waterfallViewport.physicalWidth)
+                           .arg(item.m_viewportWaterfallHistory.rows().empty()
+                                    ? 0
+                                    : item.m_viewportWaterfallHistory.rows().back().timestampNanoseconds)
+                           .arg(item.m_waterfallHistory.rows().empty()
+                                    ? 0
+                                    : item.m_waterfallHistory.rows().back().timestampNanoseconds)
+                           .arg(item.m_viewportWaterfallHistory.rows().empty()
+                                    ? 0
+                                    : item.m_viewportWaterfallHistory.rows().back().tuningGeneration)
+                           .arg(item.m_waterfallViewport.tuningGeneration)));
         QCOMPARE(item.m_lastCompactRasterRows, std::uint64_t{0});
         const qint64 narrowImageKey = item.m_waterfallImage.cacheKey();
         const std::uint64_t narrowGeneration =
