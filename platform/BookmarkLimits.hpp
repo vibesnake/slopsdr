@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include <QtTypes>
+#include <QtCore/qtypes.h>
 
 namespace sdr::platform::bookmarkLimits {
 
