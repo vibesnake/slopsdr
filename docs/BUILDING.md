@@ -121,11 +121,44 @@ explicit build-directory override.
 
 ## CI and sanitizer validation
 
-GitHub Actions runs independent clean release and Debug sanitizer jobs for
-pushes to `master`, pull requests, and manual dispatches. The clean job uses
-the `ci-desktop-tests` preset, which enables warnings as errors only for
-slopSDR targets. The sanitizer job uses `desktop-tests-sanitized`, which enables
-target-scoped AddressSanitizer and UndefinedBehaviorSanitizer instrumentation.
+CTest assigns every automated test to one of four tiers:
+
+* `unit` covers isolated components.
+* `runtime` covers deterministic threaded application and receiver behavior.
+* `gui-smoke` covers lightweight Qt Widgets and Qt Quick integration under
+  Xvfb.
+* `extended` covers timing-sensitive playback, display, and dialog integration.
+
+On pushes to `master` and pull requests, GitHub Actions builds the
+`ci-desktop-tests` preset (with warnings as errors for slopSDR targets), runs
+the deterministic `unit` and `runtime` labels, and runs the `gui-smoke` label
+under Xvfb. A separate `desktop-tests-sanitized` job runs the same deterministic
+tiers with target-scoped AddressSanitizer and UndefinedBehaviorSanitizer
+instrumentation. The `extended` tier runs only from manual dispatch and the
+weekly scheduled workflow; both its clean and sanitized jobs run the complete
+suite.
+
+Changes limited to `README.md` or `docs/` (including documentation images) do
+not build C++. Their visible documentation-check job runs `git diff --check`
+and checks local Markdown targets instead. Workflow, source, build, and test
+changes always take the C++ path. Each CI job remains visible and reports
+whether it ran or was skipped.
+
+Run an individual local tier with the same CTest labels:
+
+```sh
+ctest --test-dir build/desktop-tests --output-on-failure -L 'unit|runtime'
+./tools/test-gui-headless.sh build/desktop-tests -L gui-smoke
+./tools/test-gui-headless.sh build/desktop-tests -L extended
+```
+
+For release validation, retain the complete clean and sanitizer runs rather
+than filtering labels:
+
+```sh
+./tools/test-gui-headless.sh build/desktop-tests
+./tools/test-gui-headless.sh build/desktop-tests-sanitized
+```
 
 Run the sanitizer configuration locally with the same headless test harness:
 

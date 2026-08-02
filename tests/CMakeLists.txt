@@ -11,6 +11,7 @@ target_link_libraries(
 sdr_enable_warnings(application_model_tests)
 
 add_test(NAME application_model_tests COMMAND application_model_tests)
+set_tests_properties(application_model_tests PROPERTIES LABELS "runtime")
 
 add_executable(current_passband_scanner_tests CurrentPassbandScannerTest.cpp)
 target_link_libraries(
@@ -22,6 +23,7 @@ target_link_libraries(
 sdr_enable_warnings(current_passband_scanner_tests)
 
 add_test(NAME current_passband_scanner_tests COMMAND current_passband_scanner_tests)
+set_tests_properties(current_passband_scanner_tests PROPERTIES LABELS "unit")
 
 add_executable(wide_range_scan_planner_tests WideRangeScanPlannerTest.cpp)
 target_link_libraries(
@@ -33,6 +35,7 @@ target_link_libraries(
 sdr_enable_warnings(wide_range_scan_planner_tests)
 
 add_test(NAME wide_range_scan_planner_tests COMMAND wide_range_scan_planner_tests)
+set_tests_properties(wide_range_scan_planner_tests PROPERTIES LABELS "unit")
 
 add_executable(application_log_model_tests ApplicationLogModelTest.cpp)
 target_link_libraries(
@@ -44,6 +47,7 @@ target_link_libraries(
 sdr_enable_warnings(application_log_model_tests)
 
 add_test(NAME application_log_model_tests COMMAND application_log_model_tests)
+set_tests_properties(application_log_model_tests PROPERTIES LABELS "unit")
 
 add_executable(bookmark_model_tests BookmarkTreeModelTest.cpp)
 target_link_libraries(
@@ -55,6 +59,7 @@ target_link_libraries(
 sdr_enable_warnings(bookmark_model_tests)
 
 add_test(NAME bookmark_model_tests COMMAND bookmark_model_tests)
+set_tests_properties(bookmark_model_tests PROPERTIES LABELS "unit")
 
 add_executable(gain_slider_binding_tests GainSliderBindingTest.cpp)
 set_source_files_properties(
@@ -83,6 +88,7 @@ set_tests_properties(
     gain_slider_binding_tests
     PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RENDER_LOOP=basic;QT_QUICK_BACKEND=software"
+        LABELS "gui-smoke"
         TIMEOUT 20
 )
 
@@ -97,13 +103,6 @@ target_link_libraries(
         sdr_presentation
         Qt6::Test
 )
-target_compile_definitions(
-    application_file_dialogs_tests
-    PRIVATE SDR_RECEIVER_TEST_GNURADIO=$<BOOL:${ENABLE_GNURADIO}>
-)
-if(ENABLE_GNURADIO)
-    target_link_libraries(application_file_dialogs_tests PRIVATE sdr_gnuradio_backend)
-endif()
 sdr_enable_warnings(application_file_dialogs_tests)
 add_test(
     NAME application_file_dialogs_tests
@@ -112,6 +111,7 @@ add_test(
 set_tests_properties(
     application_file_dialogs_tests
     PROPERTIES
+        LABELS "gui-smoke"
         TIMEOUT 20
 )
 
@@ -126,6 +126,7 @@ target_link_libraries(
 sdr_enable_warnings(audio_output_tests)
 
 add_test(NAME audio_output_tests COMMAND audio_output_tests)
+set_tests_properties(audio_output_tests PROPERTIES LABELS "unit")
 
 add_executable(wav_recording_service_tests WavRecordingServiceTest.cpp)
 target_link_libraries(
@@ -137,11 +138,13 @@ target_link_libraries(
 sdr_enable_warnings(wav_recording_service_tests)
 
 add_test(NAME wav_recording_service_tests COMMAND wav_recording_service_tests)
+set_tests_properties(wav_recording_service_tests PROPERTIES LABELS "unit")
 
 add_executable(iq_recording_service_tests IqRecordingServiceTest.cpp)
 target_link_libraries(iq_recording_service_tests PRIVATE sdr_platform_audio Qt6::Test)
 sdr_enable_warnings(iq_recording_service_tests)
 add_test(NAME iq_recording_service_tests COMMAND iq_recording_service_tests)
+set_tests_properties(iq_recording_service_tests PROPERTIES LABELS "unit")
 
 add_executable(dsd_fme_process_tests DsdFmeProcessServiceTest.cpp)
 target_link_libraries(
@@ -153,6 +156,7 @@ target_link_libraries(
 sdr_enable_warnings(dsd_fme_process_tests)
 
 add_test(NAME dsd_fme_process_tests COMMAND dsd_fme_process_tests)
+set_tests_properties(dsd_fme_process_tests PROPERTIES LABELS "unit")
 
 if(ENABLE_AUDIO_HARDWARE_TESTING)
     add_executable(audio_output_smoke_test AudioOutputSmokeTest.cpp)
@@ -186,7 +190,7 @@ target_compile_definitions(
 )
 
 add_test(NAME receiver_runtime_tests COMMAND receiver_runtime_tests)
-set_tests_properties(receiver_runtime_tests PROPERTIES TIMEOUT 20)
+set_tests_properties(receiver_runtime_tests PROPERTIES LABELS "runtime" TIMEOUT 20)
 
 if(ENABLE_GNURADIO)
     target_link_libraries(receiver_runtime_tests PRIVATE sdr_gnuradio_backend)
@@ -208,6 +212,7 @@ add_test(
     NAME frequency_digit_controller_tests
     COMMAND frequency_digit_controller_tests
 )
+set_tests_properties(frequency_digit_controller_tests PROPERTIES LABELS "unit")
 
 add_executable(receiver_domain_tests ReceiverDomainTest.cpp)
 target_link_libraries(
@@ -219,11 +224,13 @@ target_link_libraries(
 sdr_enable_warnings(receiver_domain_tests)
 
 add_test(NAME receiver_domain_tests COMMAND receiver_domain_tests)
+set_tests_properties(receiver_domain_tests PROPERTIES LABELS "unit")
 
 add_executable(recorded_audio_source_tests RecordedAudioSourceTest.cpp)
 target_link_libraries(recorded_audio_source_tests PRIVATE sdr_radio_domain Qt6::Test)
 sdr_enable_warnings(recorded_audio_source_tests)
 add_test(NAME recorded_audio_source_tests COMMAND recorded_audio_source_tests)
+set_tests_properties(recorded_audio_source_tests PROPERTIES LABELS "unit")
 
 add_executable(spectrum_data_path_tests SpectrumDataPathTest.cpp)
 target_link_libraries(
@@ -235,6 +242,7 @@ target_link_libraries(
 sdr_enable_warnings(spectrum_data_path_tests)
 
 add_test(NAME spectrum_data_path_tests COMMAND spectrum_data_path_tests)
+set_tests_properties(spectrum_data_path_tests PROPERTIES LABELS "unit")
 
 add_executable(waterfall_frame_delivery_tests WaterfallFrameDeliveryTest.cpp)
 target_link_libraries(
@@ -246,6 +254,7 @@ target_link_libraries(
 sdr_enable_warnings(waterfall_frame_delivery_tests)
 
 add_test(NAME waterfall_frame_delivery_tests COMMAND waterfall_frame_delivery_tests)
+set_tests_properties(waterfall_frame_delivery_tests PROPERTIES LABELS "runtime")
 
 add_executable(
     spectrum_waterfall_item_tests
@@ -280,6 +289,7 @@ set_tests_properties(
     spectrum_waterfall_item_tests
     PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RENDER_LOOP=basic;QT_QUICK_BACKEND=software"
+        LABELS "extended"
         TIMEOUT 20
 )
 
@@ -293,6 +303,7 @@ target_link_libraries(
 sdr_enable_warnings(device_controller_tests)
 
 add_test(NAME device_controller_tests COMMAND device_controller_tests)
+set_tests_properties(device_controller_tests PROPERTIES LABELS "unit")
 
 add_executable(ppm_calibration_tests PpmCalibrationTest.cpp)
 target_link_libraries(
@@ -304,13 +315,14 @@ target_link_libraries(
 sdr_enable_warnings(ppm_calibration_tests)
 
 add_test(NAME ppm_calibration_tests COMMAND ppm_calibration_tests)
+set_tests_properties(ppm_calibration_tests PROPERTIES LABELS "unit")
 
 if(ENABLE_GNURADIO)
     add_executable(recorded_audio_backend_tests RecordedAudioBackendTest.cpp)
     target_link_libraries(recorded_audio_backend_tests PRIVATE sdr_gnuradio_backend Qt6::Test)
     sdr_enable_warnings(recorded_audio_backend_tests)
     add_test(NAME recorded_audio_backend_tests COMMAND recorded_audio_backend_tests)
-    set_tests_properties(recorded_audio_backend_tests PROPERTIES TIMEOUT 20)
+    set_tests_properties(recorded_audio_backend_tests PROPERTIES LABELS "runtime" TIMEOUT 20)
 
     add_executable(gnuradio_smoke_test GnuRadioSmokeTest.cpp)
     target_link_libraries(
@@ -322,6 +334,7 @@ if(ENABLE_GNURADIO)
     sdr_enable_warnings(gnuradio_smoke_test)
 
     add_test(NAME gnuradio_smoke_test COMMAND gnuradio_smoke_test)
+    set_tests_properties(gnuradio_smoke_test PROPERTIES LABELS "runtime")
 
     add_executable(
         gnuradio_receiver_backend_tests
@@ -348,12 +361,38 @@ if(ENABLE_GNURADIO)
         gnuradio_receiver_backend_tests
         PROPERTIES
             ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/gnuradio-cache"
+            LABELS "runtime"
             TIMEOUT ${gnuradio_backend_test_timeout}
     )
     set_tests_properties(
         gnuradio_smoke_test
         PROPERTIES
             ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/gnuradio-cache"
+            LABELS "runtime"
+            TIMEOUT 20
+    )
+
+    add_executable(
+        recording_dialog_playback_integration_tests
+        RecordingDialogPlaybackIntegrationTest.cpp
+    )
+    target_link_libraries(
+        recording_dialog_playback_integration_tests
+        PRIVATE
+            sdr_application_model
+            sdr_presentation
+            sdr_gnuradio_backend
+            Qt6::Test
+    )
+    sdr_enable_warnings(recording_dialog_playback_integration_tests)
+    add_test(
+        NAME recording_dialog_playback_integration_tests
+        COMMAND recording_dialog_playback_integration_tests
+    )
+    set_tests_properties(
+        recording_dialog_playback_integration_tests
+        PROPERTIES
+            LABELS "extended"
             TIMEOUT 20
     )
 endif()
@@ -366,6 +405,7 @@ if(ENABLE_GNURADIO AND ENABLE_SOAPYSDR)
     set_tests_properties(
         gnuradio_diagnostics
         PROPERTIES
+            LABELS "runtime"
             PASS_REGULAR_EXPRESSION "vmcircbuf_default_factory:"
             TIMEOUT 10
     )

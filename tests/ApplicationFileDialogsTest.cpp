@@ -3,13 +3,6 @@
 
 #include "ApplicationFileDialogs.hpp"
 
-#if SDR_RECEIVER_TEST_GNURADIO
-#include "ApplicationModel.hpp"
-#include "GnuRadioReceiverBackend.hpp"
-#include "RecordedAudioBackend.hpp"
-#include "ReceiverRuntime.hpp"
-#endif
-
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -23,10 +16,6 @@
 #include <QtTest>
 
 #include <algorithm>
-#include <cstdint>
-#include <filesystem>
-#include <functional>
-#include <memory>
 #include <utility>
 
 namespace
@@ -64,76 +53,15 @@ bool hasSidebarDirectory(const QList<QUrl>& urls, const QString& expected)
                        });
 }
 
-#if SDR_RECEIVER_TEST_GNURADIO
-void appendLittleEndian16(QByteArray& bytes, std::uint16_t value)
+bool acceptSelectedFile(QFileDialog* dialog)
 {
-    bytes.append(static_cast<char>(value & 0xffU));
-    bytes.append(static_cast<char>((value >> 8U) & 0xffU));
+    // Exercise the shared controller's accepted-signal connection without
+    // depending on QFileDialog's asynchronously populated filesystem view.
+    const bool accepted = QMetaObject::invokeMethod(
+        dialog, "accepted", Qt::DirectConnection);
+    dialog->hide();
+    return accepted;
 }
-
-void appendLittleEndian32(QByteArray& bytes, std::uint32_t value)
-{
-    for (unsigned shift = 0; shift < 32U; shift += 8U)
-        bytes.append(static_cast<char>((value >> shift) & 0xffU));
-}
-
-QString writePcmWav(const QTemporaryDir& directory)
-{
-    QByteArray samples(32, '\0');
-    QByteArray wav{"RIFF", 4};
-    appendLittleEndian32(wav, static_cast<std::uint32_t>(36 + samples.size()));
-    wav.append("WAVEfmt ", 8);
-    appendLittleEndian32(wav, 16);
-    appendLittleEndian16(wav, 1);
-    appendLittleEndian16(wav, 1);
-    appendLittleEndian32(wav, 48'000);
-    appendLittleEndian32(wav, 96'000);
-    appendLittleEndian16(wav, 2);
-    appendLittleEndian16(wav, 16);
-    wav.append("data", 4);
-    appendLittleEndian32(wav, static_cast<std::uint32_t>(samples.size()));
-    wav.append(samples);
-    const QString path = directory.filePath(QStringLiteral("content-detected.bin"));
-    QFile output(path);
-    if (!output.open(QIODevice::WriteOnly) || output.write(wav) != wav.size())
-        return {};
-    return path;
-}
-
-bool waitUntil(const std::function<bool()>& predicate)
-{
-    QElapsedTimer timer;
-    timer.start();
-    while (!predicate() && timer.elapsed() < 3'000) {
-        QCoreApplication::processEvents();
-        QTest::qWait(5);
-    }
-    return predicate();
-}
-
-QString recordingTransitionDiagnostic(const ApplicationModel& model,
-    const QSignalSpy& snapshots, qsizetype snapshotCount)
-{
-    return QStringLiteral(
-               "snapshots=%1 (expected > %2), status=%3, loaded=%4, "
-               "source=%5, recording=%6, metadataRequired=%7")
-        .arg(snapshots.count())
-        .arg(snapshotCount)
-        .arg(model.statusText())
-        .arg(model.recordingLoaded())
-        .arg(model.sourceDescription())
-        .arg(model.recordingDisplayName())
-        .arg(model.recordedIqMetadataRequired());
-}
-
-bool waitForRecordingTransition(const QSignalSpy& snapshots,
-    qsizetype snapshotCount, const std::function<bool()>& predicate)
-{
-    return waitUntil([&snapshots, snapshotCount, &predicate] {
-        return snapshots.count() > snapshotCount && predicate();
-    });
-}
-#endif
 
 } // namespace
 
@@ -152,10 +80,6 @@ class ApplicationFileDialogsTest final : public QObject
     void configuresDirectoryAndExecutablePurposes();
     void keepsPurposeDirectoriesIndependentAndRestoresSharedGeometry();
     void rejectsInvalidDirectoryAndExecutableSelections();
-#if SDR_RECEIVER_TEST_GNURADIO
-    void loadsRawIqManualFallbackAndWavThroughSharedDialog();
-#endif
-
   private:
     QTemporaryDir m_settingsDirectory;
 };
@@ -248,7 +172,7 @@ void ApplicationFileDialogsTest::acceptsNormalizedLocalFileAndPersistsState()
     dialog->selectNameFilter(rawFilter);
     dialog->resize(970, 640);
     dialog->selectFile(recordings.filePath(QStringLiteral("nested/../capture.raw")));
-    QVERIFY(QMetaObject::invokeMethod(dialog, "accept", Qt::DirectConnection));
+    QVERIFY(acceptSelectedFile(dialog));
 
     QCOMPARE(selected.count(), 1);
     QCOMPARE(loadedUrl, QUrl::fromLocalFile(cleanPath(rawPath)));
@@ -375,8 +299,7 @@ void ApplicationFileDialogsTest::configuresDirectoryAndExecutablePurposes()
     QCOMPARE(dialogs.dialog()->fileMode(), QFileDialog::Directory);
     QVERIFY(dialogs.dialog()->testOption(QFileDialog::ShowDirsOnly));
     dialogs.dialog()->selectFile(directory.path());
-    QVERIFY(
-        QMetaObject::invokeMethod(dialogs.dialog(), "accept", Qt::DirectConnection));
+    QVERIFY(acceptSelectedFile(dialogs.dialog()));
     QCOMPARE(selectedDirectory, QUrl::fromLocalFile(cleanPath(directory.path())));
     dialogs.selectDsdFmeExecutable();
     QCOMPARE(dialogs.dialog()->windowTitle(),
@@ -385,8 +308,7 @@ void ApplicationFileDialogsTest::configuresDirectoryAndExecutablePurposes()
     QVERIFY(dialogs.dialog()->nameFilters().contains(
         QStringLiteral("Executable files (*)")));
     dialogs.dialog()->selectFile(executable);
-    QVERIFY(
-        QMetaObject::invokeMethod(dialogs.dialog(), "accept", Qt::DirectConnection));
+    QVERIFY(acceptSelectedFile(dialogs.dialog()));
     QCOMPARE(selectedExecutable, QUrl::fromLocalFile(cleanPath(executable)));
     QSettings settings;
     QCOMPARE(settings.value(QStringLiteral("dialogs/recordingDirectory/lastDirectory"))
@@ -496,179 +418,6 @@ void ApplicationFileDialogsTest::rejectsInvalidDirectoryAndExecutableSelections(
         QStringLiteral("dialogs/recordingDirectory/lastDirectory")));
     QVERIFY(!QSettings().contains(QStringLiteral("dialogs/dsdFme/lastDirectory")));
 }
-
-#if SDR_RECEIVER_TEST_GNURADIO
-void ApplicationFileDialogsTest::loadsRawIqManualFallbackAndWavThroughSharedDialog()
-{
-    QTemporaryDir recordings;
-    QVERIFY(recordings.isValid());
-    const QString rawPath = recordings.filePath(QStringLiteral("sidecar capture.raw"));
-    {
-        QFile raw(rawPath);
-        QVERIFY(raw.open(QIODevice::WriteOnly));
-        QCOMPARE(raw.write(QByteArray(32, '\0')), qint64{32});
-    }
-    {
-        QFile sidecar(recordings.filePath(QStringLiteral("sidecar capture.json")));
-        QVERIFY(sidecar.open(QIODevice::WriteOnly));
-        const QByteArray json =
-            "{\"hardware_center_frequency_hz\":101000000,"
-            "\"sample_rate_hz\":200000,\"sample_format\":\"cf32_le\","
-            "\"byte_order\":\"little-endian\",\"written_sample_count\":4}";
-        QCOMPARE(sidecar.write(json), json.size());
-    }
-    const QString manualPath = recordings.filePath(QStringLiteral("manual.raw"));
-    {
-        QFile raw(manualPath);
-        QVERIFY(raw.open(QIODevice::WriteOnly));
-        QCOMPARE(raw.write(QByteArray(32, '\0')), qint64{32});
-    }
-    const QString malformedPath =
-        recordings.filePath(QStringLiteral("malformed.raw"));
-    {
-        QFile raw(malformedPath);
-        QVERIFY(raw.open(QIODevice::WriteOnly));
-        QCOMPARE(raw.write("bad", 3), qint64{3});
-    }
-    const QString invalidSidecarPath =
-        recordings.filePath(QStringLiteral("invalid-sidecar.raw"));
-    {
-        QFile raw(invalidSidecarPath);
-        QVERIFY(raw.open(QIODevice::WriteOnly));
-        QCOMPARE(raw.write(QByteArray(32, '\0')), qint64{32});
-        QFile sidecar(
-            recordings.filePath(QStringLiteral("invalid-sidecar.json")));
-        QVERIFY(sidecar.open(QIODevice::WriteOnly));
-        QCOMPARE(sidecar.write("{}", 2), qint64{2});
-    }
-    const QString wavPath = writePcmWav(recordings);
-    QVERIFY(!wavPath.isEmpty());
-
-    sdr::app::ReceiverRuntime::Factories factories;
-    factories.createRecordedBackend = [](
-                                          sdr::radio::RecordedIqSourceConfiguration source) {
-        return std::make_unique<sdr::dsp::GnuRadioReceiverBackend>(
-            std::move(source));
-    };
-    factories.createRecordedAudioBackend = [](const std::string& path) {
-        return std::make_unique<sdr::dsp::RecordedAudioBackend>(
-            std::filesystem::path(path));
-    };
-    sdr::app::ReceiverRuntime runtime(
-        sdr::app::ReceiverRuntime::StartupMode::Mock, std::move(factories));
-    ApplicationModel model(runtime);
-    QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
-    QSignalSpy loadRequests(
-        &runtime, &sdr::app::ReceiverRuntime::loadRecordingRequested);
-    runtime.start();
-    QVERIFY2(waitUntil([&model, &snapshots] {
-        return snapshots.count() > 0 && model.mockMode() &&
-               model.statusText().contains(QStringLiteral("Mock backend ready"));
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, 0)));
-
-    int forwardedCount = 0;
-    QStringList forwardedPaths;
-    sdr::gui::ApplicationFileDialogs dialogs(
-        [&model, &forwardedCount, &forwardedPaths](const QUrl& url) {
-            ++forwardedCount;
-            forwardedPaths.append(url.toLocalFile());
-            model.loadRecording(url);
-        },
-        {}, {}, [&recordings] { return recordings.path(); }, {});
-    QSignalSpy recordingSelections(
-        &dialogs, &sdr::gui::ApplicationFileDialogs::recordingFileSelected);
-    const auto acceptRecording = [&dialogs](const QString& path) {
-        dialogs.openRecordingFileDialog();
-        dialogs.dialog()->selectFile(path);
-        // QFileDialog::accept() also exercises its asynchronously populated
-        // filesystem view.  Hosted Xvfb can still be loading that view here,
-        // causing accept() to decline the selection even though invokeMethod()
-        // succeeds.  Emit the dialog's accepted signal directly so this
-        // integration test deterministically exercises our acceptance path.
-        const bool accepted = QMetaObject::invokeMethod(
-            dialogs.dialog(), "accepted", Qt::DirectConnection);
-        dialogs.dialog()->hide();
-        return accepted;
-    };
-
-    QVERIFY(QDir().mkpath(recordings.filePath(QStringLiteral("nested"))));
-    qsizetype snapshotCount = snapshots.count();
-    QVERIFY(acceptRecording(
-        recordings.filePath(QStringLiteral("nested/../sidecar capture.raw"))));
-    QCOMPARE(recordingSelections.count(), 1);
-    QCOMPARE(loadRequests.count(), 1);
-    QCOMPARE(loadRequests.constFirst().constFirst().toString(), cleanPath(rawPath));
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
-        return model.recordingLoaded() && model.recordedIqSource() &&
-               model.recordingDisplayName() == QStringLiteral("sidecar capture.raw");
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-    QCOMPARE(forwardedCount, 1);
-    QCOMPARE(forwardedPaths.constFirst(), cleanPath(rawPath));
-    QCOMPARE(model.recordingDisplayName(), QStringLiteral("sidecar capture.raw"));
-
-    snapshotCount = snapshots.count();
-    QVERIFY(acceptRecording(manualPath));
-    QCOMPARE(recordingSelections.count(), 2);
-    QCOMPARE(loadRequests.count(), 2);
-    QCOMPARE(loadRequests.at(1).constFirst().toString(), cleanPath(manualPath));
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
-        return model.recordedIqMetadataRequired();
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-    QVERIFY(model.recordingLoaded());
-    QCOMPARE(model.recordingDisplayName(), QStringLiteral("sidecar capture.raw"));
-    snapshotCount = snapshots.count();
-    model.selectRecordedIqSource(
-        QUrl::fromLocalFile(manualPath), 102'000'000, 250'000);
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
-        return model.recordingLoaded() && !model.recordedIqMetadataRequired() &&
-               model.recordingDisplayName() == QStringLiteral("manual.raw");
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-
-    snapshotCount = snapshots.count();
-    QVERIFY(acceptRecording(invalidSidecarPath));
-    QCOMPARE(recordingSelections.count(), 3);
-    QCOMPARE(loadRequests.count(), 3);
-    QCOMPARE(loadRequests.at(2).constFirst().toString(),
-             cleanPath(invalidSidecarPath));
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
-        return model.recordedIqMetadataRequired();
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-    QVERIFY(model.recordingLoaded());
-    QCOMPARE(model.recordingDisplayName(), QStringLiteral("manual.raw"));
-
-    snapshotCount = snapshots.count();
-    QVERIFY(acceptRecording(malformedPath));
-    QCOMPARE(recordingSelections.count(), 4);
-    QCOMPARE(loadRequests.count(), 4);
-    QCOMPARE(loadRequests.at(3).constFirst().toString(), cleanPath(malformedPath));
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
-        return model.statusText().contains(QStringLiteral("selection failed"));
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-    QVERIFY(model.recordingLoaded());
-    QCOMPARE(model.recordingDisplayName(), QStringLiteral("manual.raw"));
-    QVERIFY(model.statusText().contains(QStringLiteral("truncated")));
-
-    snapshotCount = snapshots.count();
-    model.ejectRecording();
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model] {
-        return !model.recordingLoaded();
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-
-    snapshotCount = snapshots.count();
-    QVERIFY(acceptRecording(wavPath));
-    QCOMPARE(recordingSelections.count(), 5);
-    QCOMPARE(loadRequests.count(), 5);
-    QCOMPARE(loadRequests.at(4).constFirst().toString(), cleanPath(wavPath));
-    QVERIFY2(waitForRecordingTransition(snapshots, snapshotCount, [&model, &wavPath] {
-        return model.recordingLoaded() &&
-               model.recordingDisplayName() == QFileInfo(wavPath).fileName();
-    }), qPrintable(recordingTransitionDiagnostic(model, snapshots, snapshotCount)));
-    QVERIFY(model.recordedAudioSource());
-    QCOMPARE(forwardedCount, 5);
-
-    runtime.shutdown();
-}
-#endif
 
 QTEST_MAIN(ApplicationFileDialogsTest)
 

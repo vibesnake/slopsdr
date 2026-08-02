@@ -207,7 +207,21 @@ ctest --preset desktop-tests
 ```
 
 The headless GUI script uses `build/desktop-tests` by default and accepts an
-explicit build directory override when needed.
+explicit build directory override and additional CTest arguments when needed.
+The suite has four labels: `unit` for isolated components, `runtime` for
+threaded application/runtime behavior, `gui-smoke` for the lightweight Qt
+Widgets/Quick checks, and `extended` for timing-sensitive playback and display
+integration coverage. Run a tier locally with:
+
+```sh
+ctest --test-dir build/desktop-tests --output-on-failure -L 'unit|runtime'
+./tools/test-gui-headless.sh build/desktop-tests -L gui-smoke
+./tools/test-gui-headless.sh build/desktop-tests -L extended
+```
+
+Run `./tools/test-gui-headless.sh build/desktop-tests` without a label for the
+complete clean suite. The sanitizer preset supports the same label commands
+with `build/desktop-tests-sanitized`.
 
 ## GUI quick controls
 

@@ -4,6 +4,8 @@ on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: '17 3 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -14,13 +16,104 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  clean-build:
-    name: Clean build
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_code: ${{ steps.classify.outputs.run_code }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: classify
+        name: Detect code and documentation changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" || "$EVENT_NAME" == "schedule" ]]; then
+            echo "run_code=true" >> "$GITHUB_OUTPUT"
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Manual or scheduled run: validating every tier."
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE"
+            git diff --name-only "$base" "$HEAD_SHA" > changed-files.txt
+          elif [[ "$BEFORE" == 0000000000000000000000000000000000000000 ]]; then
+            git diff-tree --no-commit-id --name-only -r "$HEAD_SHA" > changed-files.txt
+          else
+            git diff --name-only "$BEFORE" "$HEAD_SHA" > changed-files.txt
+          fi
+
+          docs_only=true
+          while IFS= read -r path; do
+            case "$path" in
+              README.md|docs/*) ;;
+              *) docs_only=false ;;
+            esac
+          done < changed-files.txt
+
+          if [[ "$docs_only" == true ]]; then
+            echo "run_code=false" >> "$GITHUB_OUTPUT"
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "Documentation/image-only change: C++ tiers will report skipped."
+          else
+            echo "run_code=true" >> "$GITHUB_OUTPUT"
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            echo "Code or workflow change: running deterministic C++ tiers."
+          fi
+
+  documentation:
+    name: Documentation and whitespace checks
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check whitespace
+        shell: bash
+        run: |
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            git diff --check HEAD^ HEAD
+          else
+            git show --check --format= HEAD
+          fi
+
+      - name: Check local Markdown links
+        run: sh ./tools/check-doc-links.sh
+
+      - name: Report change tier
+        run: |
+          if [[ "${{ needs.changes.outputs.docs_only }}" == "true" ]]; then
+            echo "Documentation/image-only change: checks passed; C++ builds are skipped."
+          else
+            echo "Code change: documentation checks also passed."
+          fi
+
+  deterministic:
+    name: Deterministic build, unit/runtime, and GUI smoke
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report documentation-only skip
+        if: needs.changes.outputs.run_code != 'true'
+        run: 'echo "Skipped C++ build and tests: documentation/image-only change."'
+
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.run_code == 'true'
 
       - name: Install build and test dependencies
+        if: needs.changes.outputs.run_code == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
@@ -34,24 +127,35 @@ jobs:
             dbus-x11 xvfb
 
       - name: Configure
+        if: needs.changes.outputs.run_code == 'true'
         shell: bash
         run: |
           set -o pipefail
           cmake --preset ci-desktop-tests 2>&1 | tee configure.log
 
       - name: Build
+        if: needs.changes.outputs.run_code == 'true'
         shell: bash
         run: |
           set -o pipefail
           cmake --build --preset ci-desktop-tests --parallel 2 2>&1 | tee build.log
 
-      - name: Test
+      - name: Run deterministic unit and runtime tests
+        if: needs.changes.outputs.run_code == 'true'
         shell: bash
         run: |
           set -o pipefail
-          ./tools/test-gui-headless.sh build/ci-desktop-tests 2>&1 | tee test.log
+          ctest --test-dir build/ci-desktop-tests --output-on-failure -L 'unit|runtime' 2>&1 | tee unit-runtime.log
+
+      - name: Run lightweight Xvfb GUI smoke tests
+        if: needs.changes.outputs.run_code == 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          ./tools/test-gui-headless.sh build/ci-desktop-tests -L gui-smoke 2>&1 | tee gui-smoke.log
 
       - name: Verify tracked worktree
+        if: needs.changes.outputs.run_code == 'true'
         run: |
           git diff --check
           git diff --cached --check
@@ -59,25 +163,33 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=no)"
 
       - name: Upload failure logs
-        if: failure()
+        if: failure() && needs.changes.outputs.run_code == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: clean-build-logs
+          name: deterministic-logs
           if-no-files-found: ignore
           path: |
             configure.log
             build.log
-            test.log
+            unit-runtime.log
+            gui-smoke.log
             build/ci-desktop-tests/CMakeFiles/CMakeOutput.log
             build/ci-desktop-tests/Testing/Temporary/LastTest.log
 
   asan-ubsan:
-    name: ASan/UBSan
+    name: ASan/UBSan deterministic tiers
+    needs: changes
     runs-on: ubuntu-latest
     steps:
+      - name: Report documentation-only skip
+        if: needs.changes.outputs.run_code != 'true'
+        run: 'echo "Skipped ASan/UBSan build: documentation/image-only change."'
+
       - uses: actions/checkout@v4
+        if: needs.changes.outputs.run_code == 'true'
 
       - name: Install build and test dependencies
+        if: needs.changes.outputs.run_code == 'true'
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
@@ -91,24 +203,41 @@ jobs:
             dbus-x11 xvfb
 
       - name: Configure
+        if: needs.changes.outputs.run_code == 'true'
         shell: bash
         run: |
           set -o pipefail
           cmake --preset desktop-tests-sanitized 2>&1 | tee configure.log
 
       - name: Build
+        if: needs.changes.outputs.run_code == 'true'
         shell: bash
         run: |
           set -o pipefail
           cmake --build --preset desktop-tests-sanitized --parallel 2 2>&1 | tee build.log
 
-      - name: Test
+      - name: Run deterministic unit and runtime tests
+        if: needs.changes.outputs.run_code == 'true'
         shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           set -o pipefail
-          ./tools/test-gui-headless.sh build/desktop-tests-sanitized 2>&1 | tee test.log
+          ctest --test-dir build/desktop-tests-sanitized --output-on-failure -L 'unit|runtime' 2>&1 | tee unit-runtime.log
+
+      - name: Run lightweight Xvfb GUI smoke tests
+        if: needs.changes.outputs.run_code == 'true'
+        shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          set -o pipefail
+          ./tools/test-gui-headless.sh build/desktop-tests-sanitized -L gui-smoke 2>&1 | tee gui-smoke.log
 
       - name: Verify tracked worktree
+        if: needs.changes.outputs.run_code == 'true'
         run: |
           git diff --check
           git diff --cached --check
@@ -116,7 +245,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=no)"
 
       - name: Upload failure logs
-        if: failure()
+        if: failure() && needs.changes.outputs.run_code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: asan-ubsan-logs
@@ -124,6 +253,77 @@ jobs:
           path: |
             configure.log
             build.log
-            test.log
+            unit-runtime.log
+            gui-smoke.log
             build/desktop-tests-sanitized/CMakeFiles/CMakeOutput.log
             build/desktop-tests-sanitized/Testing/Temporary/LastTest.log
+
+  extended:
+    name: Extended full suite (${{ matrix.tier }})
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tier: clean
+            preset: ci-desktop-tests
+            build_dir: build/ci-desktop-tests
+          - tier: sanitized
+            preset: desktop-tests-sanitized
+            build_dir: build/desktop-tests-sanitized
+    steps:
+      - name: Report push/PR skip
+        if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule'
+        run: echo "Extended timing-sensitive suite runs only on manual dispatch and the weekly schedule."
+
+      - uses: actions/checkout@v4
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+
+      - name: Install build and test dependencies
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential cmake ninja-build \
+            qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
+            qml6-module-qtqml-workerscript qml6-module-qtquick \
+            qml6-module-qtquick-controls qml6-module-qtquick-dialogs \
+            qml6-module-qtquick-layouts qml6-module-qtquick-templates \
+            qml6-module-qtquick-window \
+            gnuradio-dev libsoapysdr-dev soapysdr-tools \
+            dbus-x11 xvfb
+
+      - name: Configure, build, and run the complete suite
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        shell: bash
+        run: |
+          set -o pipefail
+          if [[ '${{ matrix.tier }}' == 'sanitized' ]]; then
+            export ASAN_OPTIONS=detect_leaks=0:halt_on_error=1
+            export UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+          fi
+          cmake --preset '${{ matrix.preset }}' 2>&1 | tee configure.log
+          cmake --build '${{ matrix.build_dir }}' --parallel 2 2>&1 | tee build.log
+          ./tools/test-gui-headless.sh '${{ matrix.build_dir }}' 2>&1 | tee test.log
+
+      - name: Verify tracked worktree
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: |
+          git diff --check
+          git diff --cached --check
+          git diff --exit-code
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Upload failure logs
+        if: failure() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-${{ matrix.tier }}-logs
+          if-no-files-found: ignore
+          path: |
+            configure.log
+            build.log
+            test.log
+            ${{ matrix.build_dir }}/CMakeFiles/CMakeOutput.log
+            ${{ matrix.build_dir }}/Testing/Temporary/LastTest.log

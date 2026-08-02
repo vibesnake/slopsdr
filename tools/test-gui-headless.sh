@@ -17,6 +17,10 @@ else
     BUILD_DIR="$REPO_ROOT/build/desktop-tests"
 fi
 
+if [ "$#" -ge 1 ]; then
+    shift
+fi
+
 if [ ! -d "$BUILD_DIR" ]; then
     printf 'Build directory not found: %s\n' "$BUILD_DIR" >&2
     exit 1
@@ -30,4 +34,5 @@ exec dbus-run-session -- \
         QT_X11_NO_MITSHM=1 \
         ctest \
             --test-dir "$BUILD_DIR" \
-            --output-on-failure
+            --output-on-failure \
+            "$@"
