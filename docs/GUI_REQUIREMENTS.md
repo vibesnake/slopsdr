@@ -332,7 +332,8 @@ validation text; it does not add a sidebar pane.
 The footer's recording transport is source-neutral and stays in a stable
 two-row layout. Its top row contains Load/Eject, restart, play/pause,
 stop/rewind, filename/playback state, and recording/audio controls; WAV uses a
-full-width lower-row decoded-frame seek bar. Loading is allowed only while
+full-width lower-row decoded-frame seek bar. Raw-IQ backend seeking is not
+wired to that bar yet. Loading is allowed only while
 reception is stopped. The shared non-native Qt Widgets dialog selects existing
 recordings, writable recording folders, and executable DSD-FME files with
 separate per-purpose last locations/filters and shared dialog presentation

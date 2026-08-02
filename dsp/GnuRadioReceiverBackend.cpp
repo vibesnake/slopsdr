@@ -2088,6 +2088,7 @@ radio::RecordingTransportState GnuRadioReceiverBackend::recordingTransport() con
     radio::RecordingTransportState state{
         .state = radio::RecordingPlaybackState::Stopped,
         .sampleRate = m_impl->recordedSource->sampleRate,
+        .canSeek = true,
         .displayName = std::filesystem::path(m_impl->recordedSource->path).filename().string(),
         .message = {},
     };
@@ -2119,7 +2120,60 @@ radio::OperationResult GnuRadioReceiverBackend::restartPlayback()
                 "Recording playback is unavailable"};
     }
     if (m_impl->model.state().running) static_cast<void>(stopReception());
+    const auto seeked = seekPlayback(0);
+    if (!seeked.succeeded()) return seeked;
     return startReception();
+}
+
+radio::OperationResult GnuRadioReceiverBackend::seekPlayback(std::uint64_t sample)
+{
+    if (!m_impl->recordedSource) {
+        return {radio::ReceiverError::BackendFailure, false, false,
+                "Recording seeking is unavailable"};
+    }
+    auto* source = m_impl->flowgraph->recordedSource();
+    if (!source) {
+        return {radio::ReceiverError::BackendFailure, false, false,
+                "Recorded IQ source is unavailable"};
+    }
+    const auto target = std::min(sample, source->sampleCount());
+    const bool wasRunning = m_impl->model.state().running;
+    const bool wasPaused = source->paused();
+    if (wasRunning) {
+        const auto stopped = stopReception();
+        if (!stopped.succeeded()) return stopped;
+    }
+    try {
+        if (m_impl->flowgraph->requiresRebuildBeforeStart()) {
+            m_impl->flowgraph = m_impl->makeFlowgraph(m_impl->model.state());
+        }
+        source = m_impl->flowgraph->recordedSource();
+        if (!source) {
+            return {radio::ReceiverError::BackendFailure, false, false,
+                    "Recorded IQ source is unavailable"};
+        }
+        const auto seeked = source->seekSamples(target);
+        if (!seeked.succeeded) {
+            return {radio::ReceiverError::BackendFailure, false, false, seeked.message};
+        }
+    } catch (const std::exception& error) {
+        return backendFailure(error);
+    } catch (...) {
+        return unknownBackendFailure();
+    }
+    m_impl->audioSamples->clear();
+    m_impl->decoderInputSamples->clear();
+    m_impl->iqSamples->clear();
+    m_impl->spectrumFrames->clear();
+    if (wasRunning && target < source->sampleCount()) {
+        if (wasPaused) source->setPaused(true);
+        const auto restarted = startReception();
+        if (!restarted.succeeded()) return restarted;
+    }
+    return {radio::ReceiverError::None, true, true,
+            target == source->sampleCount()
+                ? "Recorded IQ playback reached end of file"
+                : "Recorded IQ playback seeked"};
 }
 
 const radio::ReceiverState& GnuRadioReceiverBackend::state() const noexcept

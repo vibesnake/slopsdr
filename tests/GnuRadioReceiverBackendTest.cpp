@@ -433,10 +433,12 @@ private slots:
     void rejectsNestedAndDuplicateRecordedIqSidecarKeys();
     void rejectsOversizedRecordedIqSidecarAndPreservesManualFallback();
     void readsRecordedIqBlocksAndShortFinalBlock();
+    void seeksRecordedIqSamplesAndResetsPacing();
     void reportsRecordedIqTruncationAndStop();
     void pollsRecordedIqPositionWhileReading();
     void rejectsInvalidRecordedIqFrequencyMetadata();
     void loadsRecordedIqBackendFromAdjacentSidecar();
+    void advertisesRecordedIqSeekingThroughTransport();
     void tracksCenterListeningOffset();
     void rebuildsRunningFlowgraphForSampleRateChange();
     void repeatsCaptureBandwidthChangesWithoutStaleFrames();
@@ -828,6 +830,71 @@ void GnuRadioReceiverBackendTest::readsRecordedIqBlocksAndShortFinalBlock()
     QVERIFY(source.stop().succeeded);
 }
 
+void GnuRadioReceiverBackendTest::seeksRecordedIqSamplesAndResetsPacing()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "seek.raw";
+    const std::array<std::complex<float>, 5> expected{{
+        {1.0F, 0.0F}, {2.0F, 0.0F}, {3.0F, 0.0F}, {4.0F, 0.0F}, {5.0F, 0.0F},
+    }};
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        for (const auto sample : expected) writeCf32(raw, sample);
+    }
+
+    sdr::dsp::RecordedIqSource source({
+        .path = rawPath.string(), .centerFrequency = 100'000'000, .sampleRate = 1});
+    QVERIFY(source.seekSamples(2).succeeded);
+    QCOMPARE(source.positionSamples(), std::uint64_t{2});
+    QVERIFY(source.start().succeeded);
+    std::array<std::complex<float>, 1> sample{};
+    QCOMPARE(source.read(sample, std::chrono::milliseconds(1)).sampleCount, std::size_t{1});
+    QCOMPARE(sample[0], expected[2]);
+    QCOMPARE(source.positionSamples(), std::uint64_t{3});
+
+    // The preceding read schedules the next sample one second later. Seeking
+    // must discard that old pacing deadline and make the selected sample ready.
+    QVERIFY(source.seekSamples(4).succeeded);
+    QElapsedTimer timer;
+    timer.start();
+    QCOMPARE(source.read(sample, std::chrono::milliseconds(1)).sampleCount, std::size_t{1});
+    QVERIFY(timer.elapsed() < 200);
+    QCOMPARE(sample[0], expected[4]);
+    QCOMPARE(source.positionSamples(), std::uint64_t{5});
+    QVERIFY(source.read(sample, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::EndOfFile);
+    QVERIFY(source.ended());
+
+    QVERIFY(source.seekSamples(99).succeeded);
+    QCOMPARE(source.positionSamples(), source.sampleCount());
+    QVERIFY(source.ended());
+    QVERIFY(source.seekSamples(1).succeeded);
+    QVERIFY(!source.ended());
+    QCOMPARE(source.read(sample, std::chrono::milliseconds(1)).sampleCount, std::size_t{1});
+    QCOMPARE(sample[0], expected[1]);
+
+    source.setPaused(true);
+    QVERIFY(source.seekSamples(3).succeeded);
+    QVERIFY(source.paused());
+    QVERIFY(source.read(sample, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::Timeout);
+    source.setPaused(false);
+    QCOMPARE(source.read(sample, std::chrono::milliseconds(1)).sampleCount, std::size_t{1});
+    QCOMPARE(sample[0], expected[3]);
+
+    QVERIFY(source.stop().succeeded);
+    QVERIFY(source.seekSamples(4).succeeded);
+    QVERIFY(source.start().succeeded);
+    QCOMPARE(source.read(sample, std::chrono::milliseconds(1)).sampleCount, std::size_t{1});
+    QCOMPARE(sample[0], expected[4]);
+    QVERIFY(source.stop().succeeded);
+    QVERIFY(source.start().succeeded);
+    QCOMPARE(source.read(sample, std::chrono::milliseconds(1)).sampleCount, std::size_t{1});
+    QCOMPARE(sample[0], expected[0]);
+    QVERIFY(source.stop().succeeded);
+}
+
 void GnuRadioReceiverBackendTest::reportsRecordedIqTruncationAndStop()
 {
     QTemporaryDir directory;
@@ -939,6 +1006,41 @@ void GnuRadioReceiverBackendTest::loadsRecordedIqBackendFromAdjacentSidecar()
     QVERIFY(transport.state == sdr::radio::RecordingPlaybackState::Stopped);
     QCOMPARE(transport.displayName, std::string{"dialog-selected.raw"});
     QCOMPARE(transport.sampleRate, std::uint64_t{200'000});
+}
+
+void GnuRadioReceiverBackendTest::advertisesRecordedIqSeekingThroughTransport()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "seekable.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        for (unsigned sample = 0; sample < 5; ++sample) {
+            writeCf32(raw, {static_cast<float>(sample), 0.0F});
+        }
+    }
+
+    GnuRadioReceiverBackend receiver({
+        .path = rawPath.string(), .centerFrequency = 100'000'000, .sampleRate = 200'000});
+    QVERIFY(receiver.recordingTransport().canSeek);
+    QVERIFY(receiver.seekPlayback(2).succeeded());
+    QCOMPARE(receiver.recordingTransport().positionSamples, std::uint64_t{2});
+    QVERIFY(receiver.recordingTransport().state == sdr::radio::RecordingPlaybackState::Stopped);
+
+    QVERIFY(receiver.seekPlayback(99).succeeded());
+    QCOMPARE(receiver.recordingTransport().positionSamples, std::uint64_t{5});
+    QVERIFY(receiver.recordingTransport().state == sdr::radio::RecordingPlaybackState::Ended);
+
+    QVERIFY(receiver.seekPlayback(1).succeeded());
+    QCOMPARE(receiver.recordingTransport().positionSamples, std::uint64_t{1});
+    QVERIFY(receiver.recordingTransport().state == sdr::radio::RecordingPlaybackState::Stopped);
+
+    QVERIFY(receiver.startReception().succeeded());
+    QVERIFY(receiver.setPlaybackPaused(true).succeeded());
+    QVERIFY(receiver.seekPlayback(3).succeeded());
+    QCOMPARE(receiver.recordingTransport().positionSamples, std::uint64_t{3});
+    QVERIFY(receiver.recordingTransport().state == sdr::radio::RecordingPlaybackState::Paused);
+    QVERIFY(receiver.stopReception().succeeded());
 }
 
 void GnuRadioReceiverBackendTest::tracksCenterListeningOffset()

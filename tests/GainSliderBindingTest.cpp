@@ -321,6 +321,7 @@ void GainSliderBindingTest::recordingFooterUsesGroupedTwoRowDarkLayout()
     QVERIFY(recording > information);
     QVERIFY(seek > recording);
     QVERIFY(footer.contains("objectName: \"recordingSeekSlider\""));
+    QVERIFY(footer.contains("root.applicationModel.recordedAudioSource"));
     QVERIFY(footer.contains("height: 7"));
     QVERIFY(footer.contains("Layout.minimumWidth: 160"));
     QVERIFY(!footer.contains("recordingFormatLabel"));

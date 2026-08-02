@@ -67,8 +67,10 @@ and source switching use the same visualization-reset boundary; it drains
 pre-reset FFT rows and rejects pending GUI frames before a new position can
 publish. Pause/resume does not reset history, and EOF retains the final rows.
 Playback resumes only when it was already playing; paused and stopped states
-remain so. Recorded IQ retains the same source-neutral transport state but
-does not currently advertise seeking.
+remain so. Recorded IQ also uses clamped complex-sample positions and resets
+its source and DSP buffering before resuming the prior playing or paused state.
+It advertises this capability through the backend transport contract, while
+the footer seek bar remains WAV-only for now.
 
 ## Recording path
 

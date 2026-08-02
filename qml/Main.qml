@@ -4785,6 +4785,7 @@ ApplicationWindow {
                     to: Math.max(1, root.applicationModel.recordingDurationFrames)
                     enabled: root.applicationModel.recordingLoaded &&
                              root.applicationModel.recordingCanSeek &&
+                             root.applicationModel.recordedAudioSource &&
                              root.applicationModel.recordingDurationFrames > 0
                     property double previewFrame: root.applicationModel.recordingPositionFrames
                     value: pressed ? previewFrame : root.applicationModel.recordingPositionFrames

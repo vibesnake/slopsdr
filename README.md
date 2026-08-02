@@ -191,7 +191,8 @@ tuning, gain, PPM, demodulation, squelch, scanning, IQ recording, and RF
 bookmarks are unavailable for WAV playback; Start reception switches back to
 the selected SDR. Loop, playlists, compressed codecs, and scanner playback are
 not available. Raw-IQ playback shares load, eject, play/pause, restart, stop,
-and EOF handling but is not currently seekable. Pause and resume retain the
+and EOF handling. Its backend accepts clamped complex-sample seeks, but the
+footer seek bar remains WAV-only for now. Pause and resume retain the
 displayed waterfall history; seek,
 restart, stop, replay after EOF, ejection, and switching back to SDR clear it
 before frames from the new source position are presented.

@@ -74,6 +74,8 @@ public:
     [[nodiscard]] radio::WidebandIqCaptureMetadata captureMetadata() const noexcept override;
     [[nodiscard]] radio::WidebandIqSourceOperationResult start() override;
     [[nodiscard]] radio::WidebandIqSourceOperationResult stop() override;
+    [[nodiscard]] radio::WidebandIqSourceOperationResult seekSamples(
+        std::uint64_t sample);
     [[nodiscard]] radio::WidebandIqReadResult read(
         std::span<std::complex<float>> samples,
         std::chrono::milliseconds timeout) override;
@@ -99,6 +101,7 @@ private:
     std::atomic_bool m_paused = false;
     std::atomic_bool m_resumeNeedsDeadline = false;
     std::atomic_bool m_ended = false;
+    bool m_restartAtBeginning = false;
 };
 
 }  // namespace sdr::dsp

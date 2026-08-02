@@ -37,6 +37,19 @@ constexpr std::uintmax_t maximumRecordedIqSidecarBytes = 64 * 1024;
     return std::bit_cast<float>(bits);
 }
 
+[[nodiscard]] std::optional<std::streamoff> recordedIqByteOffset(
+    std::uint64_t sample) noexcept
+{
+    if (sample > std::numeric_limits<std::uint64_t>::max() / cf32BytesPerSample) {
+        return std::nullopt;
+    }
+    const auto offset = sample * cf32BytesPerSample;
+    if (offset > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max())) {
+        return std::nullopt;
+    }
+    return static_cast<std::streamoff>(offset);
+}
+
 radio::WidebandIqSourceOperationResult operation(
     const devices::DeviceOperationResult& result)
 {
@@ -655,13 +668,22 @@ radio::WidebandIqSourceOperationResult RecordedIqSource::start()
     {
         std::scoped_lock lock(m_fileMutex);
         if (m_running) return {true, false, "Recorded IQ playback is already active"};
+        if (m_restartAtBeginning) m_samplesRead = 0;
+        const auto offset = recordedIqByteOffset(m_samplesRead.load());
+        if (!offset) {
+            return {false, false, "Recorded IQ seek position cannot be represented as a file offset"};
+        }
         m_file.open(m_configuration.path, std::ios::binary);
         if (!m_file) return {false, false, "Recorded IQ file cannot be opened for playback"};
-        m_samplesRead = 0;
+        m_file.seekg(*offset);
+        if (!m_file) {
+            m_file.close();
+            return {false, false, "Recorded IQ file cannot seek to the selected playback position"};
+        }
         m_nextDeadline = std::chrono::steady_clock::now();
-        m_paused = false;
         m_resumeNeedsDeadline = false;
         m_ended = false;
+        m_restartAtBeginning = false;
         m_running = true;
     }
     m_waitCondition.notify_all();
@@ -677,9 +699,38 @@ radio::WidebandIqSourceOperationResult RecordedIqSource::stop()
         m_paused = false;
         m_resumeNeedsDeadline = false;
         m_file.close();
+        m_restartAtBeginning = true;
     }
     m_waitCondition.notify_all();
     return {true, true, "Recorded IQ playback stopped"};
+}
+
+radio::WidebandIqSourceOperationResult RecordedIqSource::seekSamples(
+    std::uint64_t sample)
+{
+    const auto target = std::min(sample, m_sampleCount);
+    const auto offset = recordedIqByteOffset(target);
+    if (!offset) {
+        return {false, false, "Recorded IQ seek position cannot be represented as a file offset"};
+    }
+    {
+        std::scoped_lock lock(m_fileMutex);
+        if (m_file.is_open()) {
+            m_file.clear();
+            m_file.seekg(*offset);
+            if (!m_file) {
+                return {false, false, "Recorded IQ seek could not reposition the raw file"};
+            }
+        }
+        std::fill(m_readBuffer.begin(), m_readBuffer.end(), 0);
+        m_samplesRead = target;
+        m_nextDeadline = std::chrono::steady_clock::now();
+        m_ended = target == m_sampleCount;
+        m_restartAtBeginning = false;
+    }
+    m_resumeNeedsDeadline = true;
+    m_waitCondition.notify_all();
+    return {true, true, "Recorded IQ playback position updated"};
 }
 
 radio::WidebandIqReadResult RecordedIqSource::read(
