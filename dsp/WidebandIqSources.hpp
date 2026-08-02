@@ -9,6 +9,7 @@
 #include <fstream>
 #include <atomic>
 #include <memory>
+#include <vector>
 
 namespace sdr::devices {
 class DeviceController;
@@ -86,6 +87,7 @@ private:
     radio::WidebandIqCaptureMetadata m_metadata;
     std::uint64_t m_sampleCount = 0;
     std::atomic<std::uint64_t> m_samplesRead = 0;
+    std::vector<unsigned char> m_readBuffer;
     std::ifstream m_file;
     std::chrono::steady_clock::time_point m_nextDeadline;
     std::atomic_bool m_running = false;

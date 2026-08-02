@@ -18,10 +18,12 @@
 #include <fstream>
 #include <cmath>
 #include <complex>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -30,6 +32,16 @@ using sdr::dsp::GnuRadioReceiverBackend;
 namespace {
 
 using namespace sdr::devices;
+
+void writeCf32(std::ostream& output, std::complex<float> sample)
+{
+    for (const float value : {sample.real(), sample.imag()}) {
+        const auto bits = std::bit_cast<std::uint32_t>(value);
+        for (unsigned shift = 0; shift < 32; shift += 8) {
+            output.put(static_cast<char>((bits >> shift) & 0xffU));
+        }
+    }
+}
 
 struct HardwareTrace {
     enum class ModulatedSignal {
@@ -417,6 +429,8 @@ private slots:
     void destroysSafelyAfterPartialInitialization();
     void exposesSourceCapabilitiesAndAdapters();
     void readsRecordedIqSidecarAndManualMetadata();
+    void readsRecordedIqBlocksAndShortFinalBlock();
+    void reportsRecordedIqTruncationAndStop();
     void pollsRecordedIqPositionWhileReading();
     void rejectsInvalidRecordedIqFrequencyMetadata();
     void loadsRecordedIqBackendFromAdjacentSidecar();
@@ -651,6 +665,69 @@ void GnuRadioReceiverBackendTest::readsRecordedIqSidecarAndManualMetadata()
     QVERIFY_EXCEPTION_THROWN(
         sdr::dsp::RecordedIqSource({.path = rawPath.string(), .format = "ci16_le"}),
         std::invalid_argument);
+}
+
+void GnuRadioReceiverBackendTest::readsRecordedIqBlocksAndShortFinalBlock()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    const std::array<std::complex<float>, 5> expected{{
+        {1.0F, -0.5F}, {-2.25F, 3.5F}, {0.125F, -0.75F}, {4.0F, 8.0F}, {-1.0F, 0.0F},
+    }};
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        for (const auto sample : expected) writeCf32(raw, sample);
+    }
+
+    sdr::dsp::RecordedIqSource source({
+        .path = rawPath.string(), .centerFrequency = 100'000'000, .sampleRate = 200'000});
+    QVERIFY(source.start().succeeded);
+    std::array<std::complex<float>, 3> firstBlock{};
+    const auto first = source.read(firstBlock, std::chrono::milliseconds(1));
+    QVERIFY(first.status == sdr::radio::WidebandIqReadStatus::Samples);
+    QCOMPARE(first.sampleCount, firstBlock.size());
+    for (std::size_t index = 0; index < firstBlock.size(); ++index) {
+        QCOMPARE(firstBlock[index], expected[index]);
+    }
+    QCOMPARE(source.positionSamples(), std::uint64_t{3});
+
+    std::array<std::complex<float>, 16> finalBlock{};
+    const auto final = source.read(finalBlock, std::chrono::milliseconds(1));
+    QVERIFY(final.status == sdr::radio::WidebandIqReadStatus::Samples);
+    QCOMPARE(final.sampleCount, std::size_t{2});
+    QCOMPARE(finalBlock[0], expected[3]);
+    QCOMPARE(finalBlock[1], expected[4]);
+    QCOMPARE(source.positionSamples(), source.sampleCount());
+    QVERIFY(source.read(finalBlock, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::EndOfFile);
+    QVERIFY(source.stop().succeeded);
+}
+
+void GnuRadioReceiverBackendTest::reportsRecordedIqTruncationAndStop()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        writeCf32(raw, {1.0F, -0.5F});
+        writeCf32(raw, {0.25F, 0.75F});
+    }
+
+    sdr::dsp::RecordedIqSource source({
+        .path = rawPath.string(), .centerFrequency = 100'000'000, .sampleRate = 200'000});
+    std::filesystem::resize_file(rawPath, sizeof(float) * 2 + 1);
+    QVERIFY(source.start().succeeded);
+    std::array<std::complex<float>, 2> samples{};
+    const auto truncated = source.read(samples, std::chrono::milliseconds(1));
+    QVERIFY(truncated.status == sdr::radio::WidebandIqReadStatus::Failed);
+    QCOMPARE(truncated.sampleCount, std::size_t{1});
+    QCOMPARE(samples[0], std::complex<float>(1.0F, -0.5F));
+    QCOMPARE(source.positionSamples(), std::uint64_t{0});
+    QVERIFY(source.stop().succeeded);
+    QVERIFY(source.read(samples, std::chrono::milliseconds(1)).status ==
+            sdr::radio::WidebandIqReadStatus::Stopped);
 }
 
 void GnuRadioReceiverBackendTest::pollsRecordedIqPositionWhileReading()

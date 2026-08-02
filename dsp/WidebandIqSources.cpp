@@ -7,7 +7,6 @@
 
 #include <cmath>
 #include <bit>
-#include <array>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -22,6 +21,17 @@ namespace {
 constexpr double syntheticToneOffsetHz = 100'000.0;
 constexpr double syntheticToneAmplitude = 0.5;
 constexpr double twoPi = 6.28318530717958647692;
+constexpr std::size_t recordedIqReadBlockSamples = 4'096;
+constexpr std::size_t cf32BytesPerSample = sizeof(float) * 2;
+
+[[nodiscard]] float decodeLittleEndianFloat(const unsigned char* bytes) noexcept
+{
+    const auto bits = static_cast<std::uint32_t>(bytes[0]) |
+        (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+        (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+        (static_cast<std::uint32_t>(bytes[3]) << 24U);
+    return std::bit_cast<float>(bits);
+}
 
 radio::WidebandIqSourceOperationResult operation(
     const devices::DeviceOperationResult& result)
@@ -238,6 +248,7 @@ radio::WidebandIqReadResult SyntheticIqSource::read(
 
 RecordedIqSource::RecordedIqSource(radio::RecordedIqSourceConfiguration configuration)
     : m_configuration(resolveConfiguration(std::move(configuration)))
+    , m_readBuffer(recordedIqReadBlockSamples * cf32BytesPerSample)
 {
     validateRecordedConfiguration(m_configuration, m_metadata, m_sampleCount);
 }
@@ -301,21 +312,26 @@ radio::WidebandIqReadResult RecordedIqSource::read(
     }
     const auto now = std::chrono::steady_clock::now();
     if (m_nextDeadline > now) std::this_thread::sleep_until(m_nextDeadline);
-    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(samples.size(), m_sampleCount - samplesRead));
-    std::array<unsigned char, 8> bytes{};
-    for (std::size_t index = 0; index < count; ++index) {
-        m_file.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
-        if (m_file.gcount() != static_cast<std::streamsize>(bytes.size())) {
-            return {radio::WidebandIqReadStatus::Failed, index, "Recorded IQ file ended mid-sample"};
-        }
-        const auto decode = [&bytes](std::size_t offset) {
-            const std::uint32_t bits = static_cast<std::uint32_t>(bytes[offset]) |
-                (static_cast<std::uint32_t>(bytes[offset + 1]) << 8U) |
-                (static_cast<std::uint32_t>(bytes[offset + 2]) << 16U) |
-                (static_cast<std::uint32_t>(bytes[offset + 3]) << 24U);
-            return std::bit_cast<float>(bits);
+    const auto count = static_cast<std::size_t>(std::min({
+        static_cast<std::uint64_t>(samples.size()),
+        m_sampleCount - samplesRead,
+        static_cast<std::uint64_t>(recordedIqReadBlockSamples),
+    }));
+    const std::size_t byteCount = count * cf32BytesPerSample;
+    m_file.read(reinterpret_cast<char*>(m_readBuffer.data()),
+                static_cast<std::streamsize>(byteCount));
+    const auto bytesRead = static_cast<std::size_t>(m_file.gcount());
+    const std::size_t completeSamples = bytesRead / cf32BytesPerSample;
+    for (std::size_t index = 0; index < completeSamples; ++index) {
+        const auto* bytes = m_readBuffer.data() + index * cf32BytesPerSample;
+        samples[index] = {
+            decodeLittleEndianFloat(bytes),
+            decodeLittleEndianFloat(bytes + sizeof(float)),
         };
-        samples[index] = {decode(0), decode(4)};
+    }
+    if (bytesRead != byteCount) {
+        return {radio::WidebandIqReadStatus::Failed, completeSamples,
+                "Recorded IQ file ended mid-sample"};
     }
     m_samplesRead.fetch_add(count);
     m_nextDeadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
