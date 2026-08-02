@@ -391,7 +391,7 @@ private:
     std::shared_ptr<RuntimeTrace> m_trace;
 };
 
-class TrackingBackend final : public radio::ReceiverBackend
+class TrackingBackend : public radio::ReceiverBackend
 {
 public:
     explicit TrackingBackend(std::shared_ptr<RuntimeTrace> trace)
@@ -764,6 +764,73 @@ private:
     std::uint8_t m_nextCalibrationCounterByte = 0;
 };
 
+class SeekableRecordedIqBackend final : public TrackingBackend
+{
+public:
+    explicit SeekableRecordedIqBackend(std::shared_ptr<RuntimeTrace> trace)
+        : TrackingBackend(std::move(trace))
+    {
+    }
+
+    [[nodiscard]] radio::ReceiverSourceCapabilities sourceCapabilities() const noexcept override
+    {
+        return {.kind = radio::ReceiverSourceKind::RecordedIq,
+                .sampleRateChangeSupported = false};
+    }
+
+    [[nodiscard]] radio::RecordingTransportState recordingTransport() const noexcept override
+    {
+        return {
+            .state = m_ended ? radio::RecordingPlaybackState::Ended
+                    : m_paused ? radio::RecordingPlaybackState::Paused
+                    : state().running ? radio::RecordingPlaybackState::Playing
+                                      : radio::RecordingPlaybackState::Stopped,
+            .positionSamples = m_position,
+            .totalSamples = sampleCount,
+            .sampleRate = sampleRate,
+            .canSeek = true,
+            .displayName = "seekable.raw",
+            .message = {},
+        };
+    }
+
+    [[nodiscard]] radio::OperationResult setPlaybackPaused(bool paused) override
+    {
+        if (!state().running) {
+            return {radio::ReceiverError::BackendFailure, false, false,
+                    "Recorded playback is not running"};
+        }
+        m_paused = paused;
+        return {radio::ReceiverError::None, true, true,
+                paused ? "Recorded IQ playback paused" : "Recorded IQ playback resumed"};
+    }
+
+    [[nodiscard]] radio::OperationResult restartPlayback() override
+    {
+        if (state().running) static_cast<void>(TrackingBackend::stopReception());
+        m_position = 0;
+        m_paused = false;
+        m_ended = false;
+        return TrackingBackend::startReception();
+    }
+
+    [[nodiscard]] radio::OperationResult seekPlayback(std::uint64_t sample) override
+    {
+        m_position = std::min(sample, sampleCount);
+        m_ended = m_position == sampleCount;
+        return {radio::ReceiverError::None, true, true,
+                m_ended ? "Recorded IQ playback reached end of file"
+                        : "Recorded IQ playback seeked"};
+    }
+
+private:
+    static constexpr std::uint64_t sampleCount = 400'000;
+    static constexpr std::uint64_t sampleRate = 200'000;
+    std::uint64_t m_position = 0;
+    bool m_paused = false;
+    bool m_ended = false;
+};
+
 sdr::app::ReceiverRuntime::Factories factoriesFor(
     const std::shared_ptr<RuntimeTrace>& trace)
 {
@@ -925,6 +992,7 @@ private slots:
     void convertsRecordingFileUrlAndPreservesLoadedSourceOnFailure();
 #if SDR_RECEIVER_TEST_GNURADIO
     void deliversRecordedWavThroughRuntimeServicesAndAudioGeometry();
+    void seeksRecordedIqThroughSharedTransportAndResetsVisualization();
 #endif
 
 private:
@@ -3256,6 +3324,86 @@ void ReceiverRuntimeTest::deliversRecordedWavThroughRuntimeServicesAndAudioGeome
         return model.receiverRunning() &&
                model.spectrumFftSize() == 65'536 &&
                model.effectiveSpectrumFftSize() == 65'536;
+    }));
+    runtime.shutdown();
+}
+
+void ReceiverRuntimeTest::seeksRecordedIqThroughSharedTransportAndResetsVisualization()
+{
+    QTemporaryDir recordings;
+    QVERIFY(recordings.isValid());
+    constexpr std::uint64_t sampleRate = 200'000;
+    constexpr std::uint64_t sampleCount = sampleRate * 2U;
+    const QString rawPath = recordings.filePath(QStringLiteral("seekable.raw"));
+
+    auto trace = std::make_shared<RuntimeTrace>();
+    auto factories = factoriesFor(trace);
+    factories.createRecordedBackend = [trace] (radio::RecordedIqSourceConfiguration) {
+        return std::make_unique<SeekableRecordedIqBackend>(trace);
+    };
+    sdr::app::ReceiverRuntime runtime(
+        sdr::app::ReceiverRuntime::StartupMode::Hardware,
+        std::move(factories));
+    ApplicationModel model(runtime);
+    QSignalSpy snapshots(&runtime, &sdr::app::ReceiverRuntime::snapshotChanged);
+    QSignalSpy waterfallResets(&model, &ApplicationModel::waterfallReset);
+
+    runtime.start();
+    QVERIFY(waitUntil([&model] { return model.selectedDeviceIndex() == 0; }));
+    model.selectRecordedIqSource(
+        QUrl::fromLocalFile(rawPath), 100'000'000, sampleRate);
+    QVERIFY2(waitUntil([&model] {
+        return model.recordedIqSource() && model.recordingCanSeek() &&
+               model.recordingDurationFrames() == sampleCount;
+    }), qPrintable(model.statusText()));
+
+    const qsizetype resetsBeforeStoppedSeek = waterfallResets.count();
+    model.seekRecordingPlayback(50'000);
+    QVERIFY(waitUntil([&model] {
+        return !model.receiverRunning() && model.recordingPositionFrames() == 50'000;
+    }));
+    QVERIFY(waitUntil([&waterfallResets, resetsBeforeStoppedSeek] {
+        return waterfallResets.count() > resetsBeforeStoppedSeek;
+    }));
+
+    model.toggleRecordingPlayback();
+    QVERIFY(waitUntil([&model] {
+        return model.receiverRunning() && model.recordingPlaying();
+    }));
+    model.toggleRecordingPlayback();
+    QVERIFY(waitUntil([&model] { return model.recordingPaused(); }));
+    const qsizetype resetsBeforePausedSeek = waterfallResets.count();
+    model.seekRecordingPlayback(120'000);
+    QVERIFY(waitUntil([&model] {
+        return model.recordingPaused() && model.recordingPositionFrames() == 120'000;
+    }));
+    QVERIFY(waitUntil([&waterfallResets, resetsBeforePausedSeek] {
+        return waterfallResets.count() > resetsBeforePausedSeek;
+    }));
+
+    model.toggleRecordingPlayback();
+    QVERIFY(waitUntil([&model] { return model.recordingPlaying(); }));
+    const qsizetype resetsBeforePlayingSeek = waterfallResets.count();
+    model.seekRecordingPlayback(200'000);
+    QVERIFY(waitUntil([&model] {
+        return model.recordingPlaying() && model.recordingPositionFrames() >= 200'000;
+    }));
+    QVERIFY(waitUntil([&waterfallResets, resetsBeforePlayingSeek] {
+        return waterfallResets.count() > resetsBeforePlayingSeek;
+    }));
+
+    model.stopRecordingPlayback();
+    QVERIFY(waitUntil([&model] { return !model.receiverRunning(); }));
+    model.seekRecordingPlayback(sampleCount + 1U);
+    QVERIFY(waitUntil([&snapshots, sampleCount] {
+        return !snapshots.empty() &&
+               latestSnapshot(snapshots).recordingTransport.state ==
+                   radio::RecordingPlaybackState::Ended &&
+               latestSnapshot(snapshots).recordingTransport.positionSamples == sampleCount;
+    }));
+    model.seekRecordingPlayback(1'000);
+    QVERIFY(waitUntil([&model] {
+        return !model.receiverRunning() && model.recordingPositionFrames() == 1'000;
     }));
     runtime.shutdown();
 }

@@ -504,10 +504,9 @@ center and rate cannot change, but listening-frequency tuning remains available
 inside the recorded passband.
 
 The persistent footer keeps load/eject, restart, play/pause, stop/rewind, and
-recording controls in its top row. WAV sources add a full-width lower-row seek
-bar: drag to preview and release to seek by decoded source frame. Raw-IQ
-backends support clamped complex-sample seeks through the transport contract,
-but the footer seek bar remains WAV-only for now. **Stop**
+recording controls in its top row. Seekable sources use the full-width lower-row
+seek bar: drag to preview and release to seek by decoded WAV frame or raw-IQ
+complex sample. **Stop**
 rewinds without ejecting; **Restart** plays from zero; pressing Play after EOF
 also restarts from zero. Pause/resume retains the current waterfall history.
 Seek, stop, restart, EOF replay, eject, and switching to the selected SDR
@@ -516,7 +515,7 @@ arrive. EOF itself leaves the final history visible.
 
 WAV playback disables RF tuning, gain, PPM, demodulation, squelch, scans,
 RF-bookmark tuning, and IQ recording. Raw-IQ playback remains a single file:
-there is no footer seek control, loop, playlist, compressed-codec playback, or scanner
+there is no loop, playlist, compressed-codec playback, or scanner
 playback. To return to live hardware, eject the recording or press **Start**
 with a selected SDR; the recording source is released and live reception opens
 only then.

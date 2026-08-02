@@ -69,8 +69,7 @@ publish. Pause/resume does not reset history, and EOF retains the final rows.
 Playback resumes only when it was already playing; paused and stopped states
 remain so. Recorded IQ also uses clamped complex-sample positions and resets
 its source and DSP buffering before resuming the prior playing or paused state.
-It advertises this capability through the backend transport contract, while
-the footer seek bar remains WAV-only for now.
+Its footer seek bar uses the same source-neutral transport capability as WAV.
 
 ## Recording path
 

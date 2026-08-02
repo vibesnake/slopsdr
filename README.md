@@ -182,17 +182,17 @@ receiver pipeline and is paced at the recorded rate. Capture center and sample
 rate are fixed, while listening-frequency tuning remains available inside the
 recorded passband.
 
-The footer transport stays visible in a stable top row. For WAV recordings its
-full-width lower-row seek bar reports source-frame-derived elapsed and total
-time; drag to preview and release to commit an exact decoded-frame seek. The
-bar remains visible but disabled for unloaded and non-seekable sources. Restart
+The footer transport stays visible in a stable top row. Its full-width lower-row
+seek bar reports source-position-derived elapsed and total time; drag to preview
+and release to commit an exact decoded-frame or complex-sample seek. The bar
+remains visible but disabled for unloaded and non-seekable sources. Restart
 seeks to zero and plays; Stop rewinds to zero without ejecting the file. RF
 tuning, gain, PPM, demodulation, squelch, scanning, IQ recording, and RF
 bookmarks are unavailable for WAV playback; Start reception switches back to
 the selected SDR. Loop, playlists, compressed codecs, and scanner playback are
 not available. Raw-IQ playback shares load, eject, play/pause, restart, stop,
-and EOF handling. Its backend accepts clamped complex-sample seeks, but the
-footer seek bar remains WAV-only for now. Pause and resume retain the
+and EOF handling. Its seek bar uses the same clamped complex-sample transport
+positions as WAV uses decoded-frame positions. Pause and resume retain the
 displayed waterfall history; seek,
 restart, stop, replay after EOF, ejection, and switching back to SDR clear it
 before frames from the new source position are presented.
