@@ -85,7 +85,7 @@ private:
     radio::RecordedIqSourceConfiguration m_configuration;
     radio::WidebandIqCaptureMetadata m_metadata;
     std::uint64_t m_sampleCount = 0;
-    std::uint64_t m_samplesRead = 0;
+    std::atomic<std::uint64_t> m_samplesRead = 0;
     std::ifstream m_file;
     std::chrono::steady_clock::time_point m_nextDeadline;
     std::atomic_bool m_running = false;

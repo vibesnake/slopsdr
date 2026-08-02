@@ -12,10 +12,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <filesystem>
 #include <fstream>
-#include <atomic>
 #include <cmath>
 #include <complex>
 #include <memory>
@@ -417,6 +417,8 @@ private slots:
     void destroysSafelyAfterPartialInitialization();
     void exposesSourceCapabilitiesAndAdapters();
     void readsRecordedIqSidecarAndManualMetadata();
+    void pollsRecordedIqPositionWhileReading();
+    void rejectsInvalidRecordedIqFrequencyMetadata();
     void loadsRecordedIqBackendFromAdjacentSidecar();
     void tracksCenterListeningOffset();
     void rebuildsRunningFlowgraphForSampleRateChange();
@@ -648,6 +650,65 @@ void GnuRadioReceiverBackendTest::readsRecordedIqSidecarAndManualMetadata()
     QCOMPARE(manual.captureMetadata().centerFrequency, std::uint64_t{102'000'000});
     QVERIFY_EXCEPTION_THROWN(
         sdr::dsp::RecordedIqSource({.path = rawPath.string(), .format = "ci16_le"}),
+        std::invalid_argument);
+}
+
+void GnuRadioReceiverBackendTest::pollsRecordedIqPositionWhileReading()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        const std::array<float, 2> values{};
+        for (int sample = 0; sample < 20'000; ++sample) {
+            raw.write(reinterpret_cast<const char*>(values.data()),
+                      static_cast<std::streamsize>(sizeof(values)));
+        }
+    }
+
+    sdr::dsp::RecordedIqSource source({
+        .path = rawPath.string(), .centerFrequency = 100'000'000, .sampleRate = 200'000});
+    QVERIFY(source.start().succeeded);
+    std::atomic_bool readerDone = false;
+    std::thread reader([&] {
+        std::array<std::complex<float>, 16> samples{};
+        while (source.read(samples, std::chrono::milliseconds(1)).status ==
+               sdr::radio::WidebandIqReadStatus::Samples) {
+        }
+        readerDone = true;
+    });
+
+    while (!readerDone.load()) {
+        QVERIFY(source.positionSamples() <= source.sampleCount());
+        std::this_thread::yield();
+    }
+    reader.join();
+    QCOMPARE(source.positionSamples(), source.sampleCount());
+    QVERIFY(source.stop().succeeded);
+}
+
+void GnuRadioReceiverBackendTest::rejectsInvalidRecordedIqFrequencyMetadata()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        const std::array<float, 2> values{};
+        raw.write(reinterpret_cast<const char*>(values.data()),
+                  static_cast<std::streamsize>(sizeof(values)));
+    }
+
+    QVERIFY_EXCEPTION_THROWN(
+        sdr::dsp::GnuRadioReceiverBackend({
+            .path = rawPath.string(), .centerFrequency = 1, .sampleRate = 200'000}),
+        std::invalid_argument);
+    QVERIFY_EXCEPTION_THROWN(
+        sdr::dsp::GnuRadioReceiverBackend({
+            .path = rawPath.string(),
+            .centerFrequency = std::numeric_limits<std::uint64_t>::max(),
+            .sampleRate = 200'000}),
         std::invalid_argument);
 }
 

@@ -294,13 +294,14 @@ radio::WidebandIqReadResult RecordedIqSource::read(
         m_nextDeadline = std::chrono::steady_clock::now();
     }
     if (samples.empty()) return {radio::WidebandIqReadStatus::Failed, 0, "Recorded IQ source received an empty buffer"};
-    if (m_samplesRead == m_sampleCount) {
+    const auto samplesRead = m_samplesRead.load();
+    if (samplesRead == m_sampleCount) {
         m_ended = true;
         return {radio::WidebandIqReadStatus::EndOfFile, 0, "Recorded IQ playback reached end of file"};
     }
     const auto now = std::chrono::steady_clock::now();
     if (m_nextDeadline > now) std::this_thread::sleep_until(m_nextDeadline);
-    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(samples.size(), m_sampleCount - m_samplesRead));
+    const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(samples.size(), m_sampleCount - samplesRead));
     std::array<unsigned char, 8> bytes{};
     for (std::size_t index = 0; index < count; ++index) {
         m_file.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
@@ -316,14 +317,14 @@ radio::WidebandIqReadResult RecordedIqSource::read(
         };
         samples[index] = {decode(0), decode(4)};
     }
-    m_samplesRead += count;
+    m_samplesRead.fetch_add(count);
     m_nextDeadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
         std::chrono::duration<double>(static_cast<double>(count) /
             static_cast<double>(m_metadata.effectiveSampleRate)));
     return {radio::WidebandIqReadStatus::Samples, count, {}};
 }
 
-std::uint64_t RecordedIqSource::positionSamples() const noexcept { return m_samplesRead; }
+std::uint64_t RecordedIqSource::positionSamples() const noexcept { return m_samplesRead.load(); }
 bool RecordedIqSource::paused() const noexcept { return m_paused; }
 bool RecordedIqSource::ended() const noexcept { return m_ended; }
 void RecordedIqSource::setPaused(bool paused) noexcept

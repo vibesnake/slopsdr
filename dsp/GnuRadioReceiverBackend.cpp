@@ -1114,7 +1114,17 @@ public:
     [[nodiscard]] static radio::ReceiverLimits receiverLimitsForRecordedSource(
         const radio::RecordedIqSourceConfiguration& source)
     {
+        if (source.centerFrequency == 0 || source.sampleRate == 0) {
+            throw std::invalid_argument(
+                "Recorded IQ center frequency and sample rate must be positive");
+        }
         const std::uint64_t halfRate = source.sampleRate / 2;
+        if (source.centerFrequency < halfRate ||
+            source.centerFrequency >
+                std::numeric_limits<std::uint64_t>::max() - halfRate) {
+            throw std::invalid_argument(
+                "Recorded IQ capture range is outside representable frequencies");
+        }
         return {.frequency = {source.centerFrequency - halfRate,
                               source.centerFrequency + halfRate},
                 .sampleRate = {source.sampleRate, source.sampleRate}};
