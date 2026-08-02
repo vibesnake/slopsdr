@@ -349,6 +349,7 @@ qt_add_qml_module(
     DEPENDENCIES QtQuick
     QML_FILES
         qml/Main.qml
+        qml/ReceiverControlsPane.qml
         qml/ThemedCheckBox.qml
     SOURCES
         gui/SpectrumAmplitudeScale.cpp

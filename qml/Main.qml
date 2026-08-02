@@ -209,6 +209,13 @@ ApplicationWindow {
         onActivated: Qt.quit()
     }
 
+    Shortcut {
+        objectName: "receiverControlsPaneShortcut"
+        sequence: "Ctrl+Shift+R"
+        context: Qt.WindowShortcut
+        onActivated: root.applicationModel.toggleReceiverControlsPane()
+    }
+
     component FrequencyPane: Rectangle {
         id: pane
 
@@ -1791,6 +1798,7 @@ ApplicationWindow {
     }
 
     RowLayout {
+        id: mainLayout
         anchors.fill: parent
         anchors.margins: root.denseLayout ? 6 : 10
         spacing: root.denseLayout ? 6 : 10
@@ -3777,18 +3785,24 @@ ApplicationWindow {
             }
         }
 
-        Rectangle {
+        ReceiverControlsPane {
+            id: receiverControlsPane
             Layout.fillHeight: true
-            Layout.preferredWidth: root.denseLayout ? 360 : 440
-            Layout.minimumWidth: root.denseLayout ? 330 : 400
-            radius: 8
-            color: root.panelColor
-            border.color: root.panelBorderColor
-
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: root.denseLayout ? 7 : 12
-                spacing: root.denseLayout ? 2 : 6
+            Layout.preferredWidth: requestedLayoutWidth
+            Layout.minimumWidth: requestedLayoutWidth
+            Layout.maximumWidth: requestedLayoutWidth
+            applicationModel: root.applicationModel
+            workspaceAvailableWidth: root.width
+                                     - mainLayout.anchors.margins * 2
+                                     - (sidebarPanel.visible
+                                        ? sidebarPanel.width + mainLayout.spacing
+                                        : 0)
+            panelColor: root.panelColor
+            panelBorderColor: root.panelBorderColor
+            primaryTextColor: root.primaryTextColor
+            secondaryTextColor: root.secondaryTextColor
+            accentColor: root.centerColor
+            denseLayout: root.denseLayout
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -4236,7 +4250,8 @@ ApplicationWindow {
 
                 GridLayout {
                     Layout.fillWidth: true
-                    columns: root.denseLayout ? 1 : 3
+                    columns: receiverControlsPane.controlsAvailableWidth < 380
+                             ? 1 : 3
                     columnSpacing: 8
                     rowSpacing: 8
 
@@ -4293,7 +4308,9 @@ ApplicationWindow {
                             Slider {
                                 id: gainSlider
                                 Layout.fillWidth: true
-                                Layout.minimumWidth: root.denseLayout ? 100 : 120
+                                Layout.minimumWidth:
+                                    receiverControlsPane.controlsAvailableWidth < 380
+                                    ? 100 : 120
                                 from: root.applicationModel.minimumGain
                                 to: root.applicationModel.maximumGain
                                 stepSize: root.applicationModel.gainStep
@@ -4414,7 +4431,6 @@ ApplicationWindow {
                     }
                 }
 
-            }
         }
     }
 

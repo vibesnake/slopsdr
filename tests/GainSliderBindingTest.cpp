@@ -5,13 +5,64 @@
 #include <QQmlEngine>
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
 #include <QImage>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QQmlContext>
 #include <QtTest>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
+
+class ReceiverControlsPaneModel final : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool receiverControlsPaneOpen READ receiverControlsPaneOpen NOTIFY receiverControlsPaneOpenChanged)
+    Q_PROPERTY(double receiverControlsPaneWidth READ receiverControlsPaneWidth NOTIFY receiverControlsPaneWidthChanged)
+
+public:
+    [[nodiscard]] bool receiverControlsPaneOpen() const noexcept
+    {
+        return m_open;
+    }
+
+    [[nodiscard]] double receiverControlsPaneWidth() const noexcept
+    {
+        return m_width;
+    }
+
+    Q_INVOKABLE void setReceiverControlsPaneOpen(bool open)
+    {
+        if (m_open == open) return;
+        m_open = open;
+        emit receiverControlsPaneOpenChanged();
+    }
+
+    Q_INVOKABLE void toggleReceiverControlsPane()
+    {
+        setReceiverControlsPaneOpen(!m_open);
+    }
+
+    Q_INVOKABLE void setReceiverControlsPaneWidth(double width)
+    {
+        const double bounded = std::clamp(width, 330.0, 520.0);
+        if (qFuzzyCompare(m_width + 1.0, bounded + 1.0)) return;
+        m_width = bounded;
+        emit receiverControlsPaneWidthChanged();
+    }
+
+    Q_INVOKABLE void commitReceiverControlsPaneWidth() {}
+
+signals:
+    void receiverControlsPaneOpenChanged();
+    void receiverControlsPaneWidthChanged();
+
+private:
+    bool m_open = true;
+    double m_width = 440.0;
+};
 
 class GainSliderBindingTest final : public QObject
 {
@@ -31,7 +82,113 @@ private slots:
     void themedCheckBoxKeepsTextClearOfItsIndicator();
     void affectedDarkControlsUseSharedTheming();
     void recordingLoaderUsesWidgetDialogBridge();
+    void receiverControlsPaneTogglesResizesAndRespondsWithoutDuplicates();
 };
+
+void GainSliderBindingTest::receiverControlsPaneTogglesResizesAndRespondsWithoutDuplicates()
+{
+    const QString panePath = QFINDTESTDATA("../qml/ReceiverControlsPane.qml");
+    QVERIFY2(!panePath.isEmpty(), "ReceiverControlsPane.qml test data was not found");
+
+    ReceiverControlsPaneModel model;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty(
+        QStringLiteral("receiverControlsPaneModel"), &model);
+    QSignalSpy warningSpy(&engine, &QQmlEngine::warnings);
+    QQmlComponent component(&engine);
+    const QUrl harnessUrl = QUrl::fromLocalFile(
+        QFileInfo(panePath).absolutePath() + QStringLiteral("/PaneHarness.qml"));
+    component.setData(
+        R"(
+            import QtQuick
+            import QtQuick.Layouts
+            import "."
+
+            ReceiverControlsPane {
+                applicationModel: receiverControlsPaneModel
+                workspaceAvailableWidth: 1000
+                panelColor: "#172033"
+                panelBorderColor: "#2b3a55"
+                primaryTextColor: "#f1f5fb"
+                secondaryTextColor: "#9caac0"
+                accentColor: "#61dafb"
+                width: requestedLayoutWidth
+                height: 480
+
+                Rectangle {
+                    objectName: "receiverControlSentinel"
+                    Layout.fillWidth: true
+                    implicitHeight: 900
+                    color: "transparent"
+                }
+            }
+        )",
+        harnessUrl);
+    QVERIFY2(component.isReady(), qPrintable(component.errorString()));
+    const std::unique_ptr<QObject> pane(component.create());
+    QVERIFY2(pane, qPrintable(component.errorString()));
+    QCoreApplication::processEvents();
+
+    QObject* panel = pane->findChild<QObject*>("receiverControlsPanel");
+    QObject* toggle = pane->findChild<QObject*>("receiverControlsToggleButton");
+    QObject* scroll = pane->findChild<QObject*>("receiverControlsScroll");
+    QObject* content = pane->findChild<QObject*>("receiverControlsContent");
+    const auto sentinels =
+        pane->findChildren<QObject*>("receiverControlSentinel");
+    QVERIFY(panel);
+    QVERIFY(toggle);
+    QVERIFY(scroll);
+    QVERIFY(content);
+    QCOMPARE(sentinels.size(), 1);
+    QVERIFY(pane->property("expanded").toBool());
+    QVERIFY(panel->property("visible").toBool());
+    QCOMPARE(panel->property("width").toDouble(), 440.0);
+
+    QVERIFY(QMetaObject::invokeMethod(toggle, "clicked"));
+    QCoreApplication::processEvents();
+    QVERIFY(!model.receiverControlsPaneOpen());
+    QVERIFY(!pane->property("expanded").toBool());
+    QVERIFY(!panel->property("visible").toBool());
+
+    model.toggleReceiverControlsPane();
+    model.setReceiverControlsPaneWidth(480.0);
+    QCoreApplication::processEvents();
+    QVERIFY(pane->property("expanded").toBool());
+    QCOMPARE(panel->property("width").toDouble(), 480.0);
+
+    pane->setProperty("workspaceAvailableWidth", 700.0);
+    QCoreApplication::processEvents();
+    QVERIFY(model.receiverControlsPaneOpen());
+    QVERIFY(pane->property("responsiveCollapsed").toBool());
+    QVERIFY(!pane->property("expanded").toBool());
+    QCOMPARE(pane->property("requestedLayoutWidth").toDouble(),
+             pane->property("toggleWidth").toDouble());
+
+    pane->setProperty("workspaceAvailableWidth", 1'000.0);
+    QCoreApplication::processEvents();
+    QVERIFY(pane->property("expanded").toBool());
+    QVERIFY(panel->property("visible").toBool());
+    QVERIFY(scroll->property("clip").toBool());
+    QVERIFY(scroll->property("contentHeight").toDouble()
+            > scroll->property("height").toDouble());
+    QVERIFY(warningSpy.isEmpty());
+
+    const QString mainPath = QFINDTESTDATA("../qml/Main.qml");
+    QVERIFY2(!mainPath.isEmpty(), "Main.qml test data was not found");
+    QFile input(mainPath);
+    QVERIFY(input.open(QIODevice::ReadOnly));
+    const QByteArray source = input.readAll();
+    QCOMPARE(source.count("ReceiverControlsPane {"), 1);
+    QCOMPARE(source.count("text: qsTr(\"Receiver controls\")"), 1);
+    QVERIFY(source.contains("objectName: \"receiverControlsPaneShortcut\""));
+    QVERIFY(source.contains("sequence: \"Ctrl+Shift+R\""));
+    QVERIFY(source.contains(
+        "columns: receiverControlsPane.controlsAvailableWidth < 380"));
+    QVERIFY(source.indexOf("ReceiverControlsPane {")
+            > source.indexOf("id: displayWorkspace"));
+    QVERIFY(source.indexOf("ReceiverControlsPane {")
+            > source.indexOf("id: sidebarPanel"));
+}
 
 void GainSliderBindingTest::themedCheckBoxKeepsTextClearOfItsIndicator()
 {

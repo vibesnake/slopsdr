@@ -53,6 +53,7 @@ private slots:
     void hasSafeDefaults();
     void persistsAndClampsSpectrumWaterfallSplitRatio();
     void persistsAndClampsSidebarState();
+    void persistsAndClampsReceiverControlsPane();
     void usesPassbandDefaultsForFirstScanConfiguration();
     void persistsScanConfigurationAcrossApplicationModels();
     void persistsExactWideScanFrequencies();
@@ -394,6 +395,58 @@ void ApplicationModelTest::persistsAndClampsSidebarState()
     settings.remove(scanWidthKey);
     settings.remove(settingsWidthKey);
     settings.remove(consoleWidthKey);
+    settings.sync();
+}
+
+void ApplicationModelTest::persistsAndClampsReceiverControlsPane()
+{
+    const QString openKey =
+        QStringLiteral("display/receiverControlsPaneOpen");
+    const QString widthKey =
+        QStringLiteral("display/receiverControlsPaneWidth");
+    QSettings settings;
+    settings.remove(openKey);
+    settings.remove(widthKey);
+    settings.sync();
+
+    {
+        ApplicationModel model;
+        QVERIFY(model.receiverControlsPaneOpen());
+        QCOMPARE(model.receiverControlsPaneWidth(), 440.0);
+
+        QSignalSpy openChanges(
+            &model, &ApplicationModel::receiverControlsPaneOpenChanged);
+        model.toggleReceiverControlsPane();
+        QVERIFY(!model.receiverControlsPaneOpen());
+        QCOMPARE(openChanges.count(), 1);
+
+        model.setReceiverControlsPaneWidth(120.0);
+        QCOMPARE(model.receiverControlsPaneWidth(), 330.0);
+        model.setReceiverControlsPaneWidth(700.0);
+        QCOMPARE(model.receiverControlsPaneWidth(), 520.0);
+        model.setReceiverControlsPaneWidth(472.0);
+        model.commitReceiverControlsPaneWidth();
+    }
+
+    {
+        ApplicationModel restored;
+        QVERIFY(!restored.receiverControlsPaneOpen());
+        QCOMPARE(restored.receiverControlsPaneWidth(), 472.0);
+    }
+
+    settings.setValue(openKey, QStringLiteral("invalid"));
+    settings.setValue(widthKey, QStringLiteral("obsolete"));
+    settings.sync();
+    {
+        ApplicationModel invalid;
+        QVERIFY(invalid.receiverControlsPaneOpen());
+        QCOMPARE(invalid.receiverControlsPaneWidth(), 440.0);
+        QCOMPARE(settings.value(openKey).toBool(), true);
+        QCOMPARE(settings.value(widthKey).toDouble(), 440.0);
+    }
+
+    settings.remove(openKey);
+    settings.remove(widthKey);
     settings.sync();
 }
 

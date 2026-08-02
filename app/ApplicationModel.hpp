@@ -111,6 +111,8 @@ class ApplicationModel final : public QObject
     Q_PROPERTY(bool bookmarkScanCanStop READ bookmarkScanCanStop NOTIFY bookmarkScannerChanged)
     Q_PROPERTY(double settingsPanelWidth READ settingsPanelWidth NOTIFY settingsPanelWidthChanged)
     Q_PROPERTY(double consolePanelWidth READ consolePanelWidth NOTIFY consolePanelWidthChanged)
+    Q_PROPERTY(bool receiverControlsPaneOpen READ receiverControlsPaneOpen NOTIFY receiverControlsPaneOpenChanged)
+    Q_PROPERTY(double receiverControlsPaneWidth READ receiverControlsPaneWidth NOTIFY receiverControlsPaneWidthChanged)
     Q_PROPERTY(QString dsdFmeBinaryPath READ dsdFmeBinaryPath NOTIFY dsdFmeBinaryPathChanged)
     Q_PROPERTY(QString dsdFmeBinaryStatus READ dsdFmeBinaryStatus NOTIFY dsdFmeBinaryStatusChanged)
     Q_PROPERTY(bool dsdFmeBinaryValid READ dsdFmeBinaryValid NOTIFY dsdFmeBinaryStatusChanged)
@@ -285,6 +287,8 @@ public:
     [[nodiscard]] bool bookmarkScanCanStop() const noexcept;
     [[nodiscard]] double settingsPanelWidth() const noexcept;
     [[nodiscard]] double consolePanelWidth() const noexcept;
+    [[nodiscard]] bool receiverControlsPaneOpen() const noexcept;
+    [[nodiscard]] double receiverControlsPaneWidth() const noexcept;
     [[nodiscard]] QString dsdFmeBinaryPath() const;
     [[nodiscard]] QString dsdFmeBinaryStatus() const;
     [[nodiscard]] bool dsdFmeBinaryValid() const noexcept;
@@ -461,6 +465,10 @@ public slots:
     void commitSettingsPanelWidth();
     void setConsolePanelWidth(double width);
     void commitConsolePanelWidth();
+    void setReceiverControlsPaneOpen(bool open);
+    void toggleReceiverControlsPane();
+    void setReceiverControlsPaneWidth(double width);
+    void commitReceiverControlsPaneWidth();
     void setDsdFmeBinaryPath(const QString& path);
     void reportFileDialogError(const QString& message);
     void revalidateDsdFmeBinaryPath();
@@ -539,6 +547,8 @@ signals:
     void scanPresetStatusChanged();
     void settingsPanelWidthChanged();
     void consolePanelWidthChanged();
+    void receiverControlsPaneOpenChanged();
+    void receiverControlsPaneWidthChanged();
     void dsdFmeBinaryPathChanged();
     void dsdFmeBinaryStatusChanged();
     void recordingsFolderChanged();
@@ -684,6 +694,7 @@ private:
     void persistScanPanelWidth();
     void persistSettingsPanelWidth();
     void persistConsolePanelWidth();
+    void persistReceiverControlsPaneWidth();
     void restorePersistedScanSettings();
     void restorePersistedScanPresets();
     [[nodiscard]] bool persistScanPresets();
@@ -829,6 +840,8 @@ private:
     std::optional<quint64> m_lastNotifiedScanCurrentFrequency;
     double m_settingsPanelWidth = 320.0;
     double m_consolePanelWidth = 420.0;
+    bool m_receiverControlsPaneOpen = true;
+    double m_receiverControlsPaneWidth = 440.0;
     QString m_dsdFmeBinaryPath;
     QString m_recordingsFolder;
     QString m_recordingsFolderStatus;
@@ -849,6 +862,7 @@ private:
     QTimer m_scanActivityTimer;
     QTimer m_settingsPanelWidthPersistenceTimer;
     QTimer m_consolePanelWidthPersistenceTimer;
+    QTimer m_receiverControlsPaneWidthPersistenceTimer;
     QTimer m_wheelTuningTimer;
     QTimer m_viewportWheelTimer;
     QTimer m_filterWidthWheelTimer;

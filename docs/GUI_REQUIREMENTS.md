@@ -159,10 +159,10 @@ If an exact right-click/Delete zeroing result would be outside those limits, it
 is rejected with a clear response so more-significant digits remain unchanged
 and the requested suffix is never silently made nonzero.
 
-## Always-visible receiver controls
+## Receiver controls inspector
 
 During normal receiver operation, without opening a settings dialog, the GUI
-must keep all of these visible:
+must keep all of these available in the right-side Receiver Controls inspector:
 
 * Start reception
 * Stop reception
@@ -201,6 +201,13 @@ The primary capture list contains 0.250, 1.000, 1.200, 2.000, 2.250, and
 devices. Filter-width controls similarly use mode-specific presets plus an
 explicit **Custom…** dialog; each mode remembers its last valid width. The
 receiver panel must reflow controls rather than crop them at desktop widths.
+The inspector is collapsible from a persistent right-edge toggle and the
+`Ctrl+Shift+R` window shortcut. It resizes from its left edge within bounded
+desktop widths and persists both its requested open state and width. It takes
+space beside Spectrum and Waterfall instead of covering them. When the
+remaining display workspace is too narrow, it temporarily collapses while
+retaining the requested open state, then restores itself when sufficient width
+returns. Short window heights scroll the controls rather than clipping them.
 
 The FFT-resolution control selects 1,024, 2,048, 4,096, 8,192, 16,384,
 32,768, 65,536, 131,072, or 262,144 bins for both spectrum and waterfall. It
@@ -393,7 +400,9 @@ Checkable **Bookmarks**, **Scan**, **Settings**, and **Console** buttons immedia
 the right of Listening Frequency select one persisted, horizontally resizable
 panel on the left of the radio display. The four panels are mutually exclusive
 and any may be closed. Each retains its own saved width; opening one reduces
-display width rather than overlaying the spectrum or waterfall. The Settings
+display width rather than overlaying the spectrum or waterfall. These panes do
+not contain Receiver Controls, which occupy their independent collapsible
+right-side inspector. The Settings
 panel contains the optional DSD-FME executable-path field, shared non-native
 Qt widget file chooser, clear action, and local file-validation message. It
 also contains an **SDR calibration** section showing the effective signed PPM

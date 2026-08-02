@@ -25,16 +25,31 @@ slopSDR stores scalar settings at
 `${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/slopSDR.conf` and bookmarks at
 `${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/bookmarks.json`.
 
+## Receiver Controls inspector
+
+Receiver Controls are in the resizable inspector on the right of Spectrum and
+Waterfall. Use the narrow right-edge arrow or `Ctrl+Shift+R` to collapse or
+expand it. Drag the inspector's left edge to resize it; its open state and
+width are restored on the next launch.
+
+The inspector takes layout space beside the displays, so Spectrum and
+Waterfall remain visible rather than being covered. If the window or the
+remaining workspace becomes too narrow, slopSDR temporarily collapses the
+inspector to protect the displays and essential top/footer controls. It
+reopens automatically after enough width is restored when its saved state is
+open. A vertical scrollbar keeps every receiver control reachable at short
+window heights.
+
 For read-only GNU Radio, SoapySDR, kernel, and circular-buffer diagnostics, run
 the hardware build with `--diagnose-gnuradio`. See `docs/TROUBLESHOOTING.md` for
 interpreting `gr::vmcircbuf` messages and collecting a GDB backtrace.
 
 ## Refresh devices
 
-Select **Refresh** in the receiver controls. Discovery runs on the receiver
-worker thread and updates the device list when it completes. A refresh does not
-open a device; it preserves the selected stopped device when present and selects
-the first remaining device if the selection disappeared.
+Select **Refresh** in the Receiver Controls inspector. Discovery runs on the
+receiver worker thread and updates the device list when it completes. A refresh
+does not open a device; it preserves the selected stopped device when present
+and selects the first remaining device if the selection disappeared.
 
 An empty result is shown as a safe no-device state. Discovery or driver errors
 are reported in the status bar without closing the application.

@@ -54,6 +54,10 @@ constexpr auto bookmarksPanelWidthSetting = "display/bookmarksPanelWidth";
 constexpr auto scanPanelWidthSetting = "display/scanPanelWidth";
 constexpr auto settingsPanelWidthSetting = "display/settingsPanelWidth";
 constexpr auto consolePanelWidthSetting = "display/consolePanelWidth";
+constexpr auto receiverControlsPaneOpenSetting =
+    "display/receiverControlsPaneOpen";
+constexpr auto receiverControlsPaneWidthSetting =
+    "display/receiverControlsPaneWidth";
 constexpr auto scanLowerFrequencySetting = "scanner/lowerFrequencyHz";
 constexpr auto scanUpperFrequencySetting = "scanner/upperFrequencyHz";
 constexpr auto scanStepSizeSetting = "scanner/stepSizeHz";
@@ -90,8 +94,11 @@ constexpr double defaultBookmarksPanelWidth = 280.0;
 constexpr double defaultScanPanelWidth = 320.0;
 constexpr double defaultSettingsPanelWidth = 320.0;
 constexpr double defaultConsolePanelWidth = 420.0;
+constexpr double defaultReceiverControlsPaneWidth = 440.0;
 constexpr double minimumBookmarksPanelWidth = 220.0;
 constexpr double maximumBookmarksPanelWidth = 520.0;
+constexpr double minimumReceiverControlsPaneWidth = 330.0;
+constexpr double maximumReceiverControlsPaneWidth = 520.0;
 constexpr int bookmarksPanelPersistenceDelayMilliseconds = 150;
 
 double normalizedSpectrumWaterfallSplitRatio(double ratio) noexcept
@@ -139,6 +146,17 @@ double normalizedConsolePanelWidth(double width) noexcept
     }
     return std::clamp(
         width, minimumBookmarksPanelWidth, maximumBookmarksPanelWidth);
+}
+
+double normalizedReceiverControlsPaneWidth(double width) noexcept
+{
+    if (!std::isfinite(width)) {
+        return defaultReceiverControlsPaneWidth;
+    }
+    return std::clamp(
+        width,
+        minimumReceiverControlsPaneWidth,
+        maximumReceiverControlsPaneWidth);
 }
 
 QString normalizedSidebarMode(const QString& mode)
@@ -817,6 +835,39 @@ void ApplicationModel::restorePersistedDisplaySettings()
         this,
         &ApplicationModel::persistConsolePanelWidth);
 
+    const auto storedReceiverControlsPaneOpen = sdr::app::strictSettingsBoolean(
+        settings.value(receiverControlsPaneOpenSetting));
+    m_receiverControlsPaneOpen = storedReceiverControlsPaneOpen.value_or(true);
+    if (!storedReceiverControlsPaneOpen.has_value()) {
+        settings.setValue(
+            receiverControlsPaneOpenSetting, m_receiverControlsPaneOpen);
+    }
+
+    valid = false;
+    const double storedReceiverControlsPaneWidth = settings.value(
+        receiverControlsPaneWidthSetting,
+        defaultReceiverControlsPaneWidth).toDouble(&valid);
+    m_receiverControlsPaneWidth =
+        valid
+            ? normalizedReceiverControlsPaneWidth(
+                  storedReceiverControlsPaneWidth)
+            : defaultReceiverControlsPaneWidth;
+    if (!valid || !qFuzzyCompare(
+                      storedReceiverControlsPaneWidth + 1.0,
+                      m_receiverControlsPaneWidth + 1.0)) {
+        settings.setValue(
+            receiverControlsPaneWidthSetting,
+            m_receiverControlsPaneWidth);
+    }
+    m_receiverControlsPaneWidthPersistenceTimer.setInterval(
+        bookmarksPanelPersistenceDelayMilliseconds);
+    m_receiverControlsPaneWidthPersistenceTimer.setSingleShot(true);
+    connect(
+        &m_receiverControlsPaneWidthPersistenceTimer,
+        &QTimer::timeout,
+        this,
+        &ApplicationModel::persistReceiverControlsPaneWidth);
+
     m_dsdFmeBinaryPath = normalizedDsdFmeBinaryPath(
         settings.value(dsdFmeBinaryPathSetting).toString());
     if (settings.value(dsdFmeBinaryPathSetting).toString() !=
@@ -1087,6 +1138,12 @@ void ApplicationModel::persistSettingsPanelWidth()
 void ApplicationModel::persistConsolePanelWidth()
 {
     QSettings().setValue(consolePanelWidthSetting, m_consolePanelWidth);
+}
+
+void ApplicationModel::persistReceiverControlsPaneWidth()
+{
+    QSettings().setValue(
+        receiverControlsPaneWidthSetting, m_receiverControlsPaneWidth);
 }
 
 quint64 ApplicationModel::centerFrequency() const noexcept
@@ -1583,6 +1640,16 @@ double ApplicationModel::settingsPanelWidth() const noexcept
 double ApplicationModel::consolePanelWidth() const noexcept
 {
     return m_consolePanelWidth;
+}
+
+bool ApplicationModel::receiverControlsPaneOpen() const noexcept
+{
+    return m_receiverControlsPaneOpen;
+}
+
+double ApplicationModel::receiverControlsPaneWidth() const noexcept
+{
+    return m_receiverControlsPaneWidth;
 }
 
 QString ApplicationModel::dsdFmeBinaryPath() const
@@ -3372,6 +3439,39 @@ void ApplicationModel::commitConsolePanelWidth()
 {
     m_consolePanelWidthPersistenceTimer.stop();
     persistConsolePanelWidth();
+}
+
+void ApplicationModel::setReceiverControlsPaneOpen(bool open)
+{
+    if (m_receiverControlsPaneOpen == open) {
+        return;
+    }
+    m_receiverControlsPaneOpen = open;
+    QSettings().setValue(receiverControlsPaneOpenSetting, open);
+    emit receiverControlsPaneOpenChanged();
+}
+
+void ApplicationModel::toggleReceiverControlsPane()
+{
+    setReceiverControlsPaneOpen(!m_receiverControlsPaneOpen);
+}
+
+void ApplicationModel::setReceiverControlsPaneWidth(double width)
+{
+    const double boundedWidth = normalizedReceiverControlsPaneWidth(width);
+    if (qFuzzyCompare(
+            m_receiverControlsPaneWidth + 1.0, boundedWidth + 1.0)) {
+        return;
+    }
+    m_receiverControlsPaneWidth = boundedWidth;
+    m_receiverControlsPaneWidthPersistenceTimer.start();
+    emit receiverControlsPaneWidthChanged();
+}
+
+void ApplicationModel::commitReceiverControlsPaneWidth()
+{
+    m_receiverControlsPaneWidthPersistenceTimer.stop();
+    persistReceiverControlsPaneWidth();
 }
 
 void ApplicationModel::setDsdFmeBinaryPath(const QString& path)

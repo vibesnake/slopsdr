@@ -21,9 +21,11 @@ on the displayed dBFS axis, only to the live spectrum trace; its minimum is an
 exact bypass and it never changes waterfall data.
 
 The Bookmarks pane supports updating bookmarks, saved squelch, and scanning
-bookmarks in their saved order. Receiver Controls keep a stable layout with
-reduced flicker, while configurable Waterfall aggregation and persistent
-receiver and scanner settings retain the choices that matter between sessions.
+bookmarks in their saved order. Receiver Controls live in a collapsible,
+resizable right-side inspector, leaving Spectrum and Waterfall visible while
+it is open. Its toggle state and width persist, and `Ctrl+Shift+R` toggles it
+from the keyboard. Configurable Waterfall aggregation and persistent receiver
+and scanner settings retain the choices that matter between sessions.
 Use the always-visible **Record audio** control to save final received audio as
 48 kHz 16-bit stereo WAV before speaker volume and mute; recordings continue
 across scanner and manual retunes. Choose the persistent recordings folder in
@@ -264,8 +266,9 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/slopSDR/bookmarks.json
 ```
 
 `slopSDR.conf` contains QSettings-managed application settings under the
-`slopSDR` organization and application name, including the DSD-FME executable
-path, recordings folder, and recording quiet-skip settings. `bookmarks.json` contains bookmark groups and bookmark data. Use the GUI
+`slopSDR` organization and application name, including pane layout, the
+DSD-FME executable path, recordings folder, and recording quiet-skip settings.
+`bookmarks.json` contains bookmark groups and bookmark data. Use the GUI
 to change these settings rather than editing either file while slopSDR is
 running. Renaming or removing either file resets or isolates that part of the
 configuration; retain a copy first if you need to preserve it.
