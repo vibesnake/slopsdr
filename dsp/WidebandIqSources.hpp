@@ -6,9 +6,11 @@
 #include "WidebandIqSource.hpp"
 
 #include <chrono>
+#include <condition_variable>
 #include <fstream>
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace sdr::devices {
@@ -89,6 +91,9 @@ private:
     std::atomic<std::uint64_t> m_samplesRead = 0;
     std::vector<unsigned char> m_readBuffer;
     std::ifstream m_file;
+    std::mutex m_fileMutex;
+    std::mutex m_waitMutex;
+    std::condition_variable m_waitCondition;
     std::chrono::steady_clock::time_point m_nextDeadline;
     std::atomic_bool m_running = false;
     std::atomic_bool m_paused = false;

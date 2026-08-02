@@ -168,6 +168,23 @@ cmake --build build/desktop-tests-sanitized -j2
 ./tools/test-gui-headless.sh build/desktop-tests-sanitized
 ```
 
+## Focused recorded-IQ ThreadSanitizer coverage
+
+The `recorded-iq-tsan` preset builds only a first-party source-level test. It
+does not build or run the Qt GUI, GNU Radio flowgraph, SoapySDR, or the wider
+desktop test suite. The test runs one paced recorded-IQ reader concurrently
+with transport-style position polling, then exercises stop, restart, and
+source shutdown.
+
+```sh
+cmake --preset recorded-iq-tsan
+cmake --build --preset recorded-iq-tsan -j2
+ctest --preset recorded-iq-tsan
+```
+
+No ThreadSanitizer suppressions are configured. Treat every ThreadSanitizer
+report in this target as a project race until a third-party origin is verified.
+
 CI does not require SDR or audio hardware. It supplements, rather than
 replaces, the local release-oriented validation described above and physical
 hardware checks when they are relevant.

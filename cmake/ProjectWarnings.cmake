@@ -13,6 +13,16 @@ option(
     OFF
 )
 
+option(
+    SDR_RECEIVER_ENABLE_THREAD_SANITIZER
+    "Enable ThreadSanitizer for focused slopSDR targets"
+    OFF
+)
+
+if(SDR_RECEIVER_ENABLE_SANITIZERS AND SDR_RECEIVER_ENABLE_THREAD_SANITIZER)
+    message(FATAL_ERROR "Address/Undefined sanitizers cannot be combined with ThreadSanitizer")
+endif()
+
 function(sdr_enable_warnings target)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR
        CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -57,6 +67,19 @@ function(sdr_enable_warnings target)
                 "${target}"
                 PRIVATE
                     -fsanitize=address,undefined
+                -fno-omit-frame-pointer
+            )
+        elseif(SDR_RECEIVER_ENABLE_THREAD_SANITIZER)
+            target_compile_options(
+                "${target}"
+                PRIVATE
+                    -fsanitize=thread
+                    -fno-omit-frame-pointer
+            )
+            target_link_options(
+                "${target}"
+                PRIVATE
+                    -fsanitize=thread
                     -fno-omit-frame-pointer
             )
         endif()

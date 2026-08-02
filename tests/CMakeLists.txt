@@ -232,6 +232,30 @@ sdr_enable_warnings(recorded_audio_source_tests)
 add_test(NAME recorded_audio_source_tests COMMAND recorded_audio_source_tests)
 set_tests_properties(recorded_audio_source_tests PROPERTIES LABELS "unit")
 
+if(SDR_RECEIVER_ENABLE_THREAD_SANITIZER)
+    add_executable(
+        recorded_iq_tsan_tests
+        RecordedIqThreadSanitizerTest.cpp
+        ../dsp/WidebandIqSources.cpp
+    )
+    target_include_directories(recorded_iq_tsan_tests PRIVATE ../dsp)
+    target_link_libraries(
+        recorded_iq_tsan_tests
+        PRIVATE
+            sdr_device_domain
+            sdr_radio_domain
+    )
+    sdr_enable_warnings(recorded_iq_tsan_tests)
+    add_test(NAME recorded_iq_tsan_tests COMMAND recorded_iq_tsan_tests)
+    set_tests_properties(
+        recorded_iq_tsan_tests
+        PROPERTIES
+            ENVIRONMENT "TSAN_OPTIONS=halt_on_error=1"
+            LABELS "tsan"
+            TIMEOUT 20
+    )
+endif()
+
 add_executable(spectrum_data_path_tests SpectrumDataPathTest.cpp)
 target_link_libraries(
     spectrum_data_path_tests

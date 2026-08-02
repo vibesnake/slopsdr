@@ -93,6 +93,18 @@
         "BUILD_TESTING": "ON",
         "SDR_RECEIVER_ENABLE_SANITIZERS": "ON"
       }
+    },
+    {
+      "name": "recorded-iq-tsan",
+      "displayName": "Recorded IQ ThreadSanitizer Tests",
+      "description": "Focused ThreadSanitizer coverage for the first-party recorded-IQ source.",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/recorded-iq-tsan",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SDR_RECEIVER_ENABLE_THREAD_SANITIZER": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -129,6 +141,13 @@
     {
       "name": "desktop-tests-sanitized",
       "configurePreset": "desktop-tests-sanitized"
+    },
+    {
+      "name": "recorded-iq-tsan",
+      "configurePreset": "recorded-iq-tsan",
+      "targets": [
+        "recorded_iq_tsan_tests"
+      ]
     }
   ],
   "testPresets": [
@@ -172,6 +191,18 @@
       "configurePreset": "desktop-tests-sanitized",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "recorded-iq-tsan",
+      "configurePreset": "recorded-iq-tsan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "^recorded_iq_tsan_tests$"
+        }
       }
     }
   ]
