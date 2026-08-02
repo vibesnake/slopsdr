@@ -429,6 +429,9 @@ private slots:
     void destroysSafelyAfterPartialInitialization();
     void exposesSourceCapabilitiesAndAdapters();
     void readsRecordedIqSidecarAndManualMetadata();
+    void rejectsMalformedAndWrongTypedRecordedIqSidecars();
+    void rejectsNestedAndDuplicateRecordedIqSidecarKeys();
+    void rejectsOversizedRecordedIqSidecarAndPreservesManualFallback();
     void readsRecordedIqBlocksAndShortFinalBlock();
     void reportsRecordedIqTruncationAndStop();
     void pollsRecordedIqPositionWhileReading();
@@ -665,6 +668,127 @@ void GnuRadioReceiverBackendTest::readsRecordedIqSidecarAndManualMetadata()
     QVERIFY_EXCEPTION_THROWN(
         sdr::dsp::RecordedIqSource({.path = rawPath.string(), .format = "ci16_le"}),
         std::invalid_argument);
+}
+
+void GnuRadioReceiverBackendTest::rejectsMalformedAndWrongTypedRecordedIqSidecars()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        writeCf32(raw, {1.0F, -0.5F});
+    }
+    auto sidecarPath = rawPath;
+    sidecarPath.replace_extension(".json");
+    const auto expectManualFallback = [&](const std::string& contents,
+                                          const std::string& diagnostic) {
+        {
+            std::ofstream sidecar(sidecarPath, std::ios::binary | std::ios::trunc);
+            sidecar.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        }
+        try {
+            static_cast<void>(sdr::dsp::RecordedIqSource({.path = rawPath.string()}));
+            QFAIL("invalid sidecar unexpectedly selected capture metadata");
+        } catch (const std::invalid_argument& error) {
+            const std::string message(error.what());
+            QVERIFY(message.find("metadata is missing") != std::string::npos);
+            QVERIFY(message.find(diagnostic) != std::string::npos);
+        }
+    };
+
+    expectManualFallback(
+        "{\"hardware_center_frequency_hz\":101000000",
+        "JSON is malformed");
+    expectManualFallback(
+        "{\"hardware_center_frequency_hz\":\"101000000\","
+        "\"sample_rate_hz\":200000,\"sample_format\":\"cf32_le\","
+        "\"byte_order\":\"little-endian\"}",
+        "hardware_center_frequency_hz' must be an unsigned integer");
+    expectManualFallback(
+        "{\"hardware_center_frequency_hz\":101000000,"
+        "\"sample_rate_hz\":18446744073709551616,"
+        "\"sample_format\":\"cf32_le\",\"byte_order\":\"little-endian\"}",
+        "sample_rate_hz' is outside the unsigned 64-bit range");
+    expectManualFallback(
+        "{\"hardware_center_frequency_hz\":101000000,\"sample_rate_hz\":200000,"
+        "\"sample_format\":\"ci16_le\",\"byte_order\":\"little-endian\"}",
+        "sample_format' must be 'cf32_le'");
+    expectManualFallback(
+        "{\"hardware_center_frequency_hz\":101000000,\"sample_rate_hz\":200000,"
+        "\"sample_format\":\"cf32_le\",\"byte_order\":\"big-endian\"}",
+        "byte_order' must be 'little-endian'");
+}
+
+void GnuRadioReceiverBackendTest::rejectsNestedAndDuplicateRecordedIqSidecarKeys()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        writeCf32(raw, {1.0F, -0.5F});
+    }
+    auto sidecarPath = rawPath;
+    sidecarPath.replace_extension(".json");
+    const auto expectManualFallback = [&](const std::string& contents,
+                                          const std::string& diagnostic) {
+        {
+            std::ofstream sidecar(sidecarPath, std::ios::binary | std::ios::trunc);
+            sidecar.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        }
+        try {
+            static_cast<void>(sdr::dsp::RecordedIqSource({.path = rawPath.string()}));
+            QFAIL("ambiguous sidecar unexpectedly selected capture metadata");
+        } catch (const std::invalid_argument& error) {
+            const std::string message(error.what());
+            QVERIFY(message.find("metadata is missing") != std::string::npos);
+            QVERIFY(message.find(diagnostic) != std::string::npos);
+        }
+    };
+
+    expectManualFallback(
+        "{\"capture\":{\"hardware_center_frequency_hz\":101000000,"
+        "\"sample_rate_hz\":200000,\"sample_format\":\"cf32_le\","
+        "\"byte_order\":\"little-endian\"}}",
+        "missing 'hardware_center_frequency_hz'");
+    expectManualFallback(
+        "{\"hardware_center_frequency_hz\":101000000,"
+        "\"hardware_center_frequency_hz\":102000000,"
+        "\"sample_rate_hz\":200000,\"sample_format\":\"cf32_le\","
+        "\"byte_order\":\"little-endian\"}",
+        "duplicate object key 'hardware_center_frequency_hz'");
+}
+
+void GnuRadioReceiverBackendTest::rejectsOversizedRecordedIqSidecarAndPreservesManualFallback()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const auto rawPath = std::filesystem::path(directory.path().toStdString()) / "capture.raw";
+    {
+        std::ofstream raw(rawPath, std::ios::binary);
+        writeCf32(raw, {1.0F, -0.5F});
+    }
+    auto sidecarPath = rawPath;
+    sidecarPath.replace_extension(".json");
+    {
+        std::ofstream sidecar(sidecarPath, std::ios::binary);
+        const std::string oversized(64 * 1024 + 1, ' ');
+        sidecar.write(oversized.data(), static_cast<std::streamsize>(oversized.size()));
+    }
+
+    try {
+        static_cast<void>(sdr::dsp::RecordedIqSource({.path = rawPath.string()}));
+        QFAIL("oversized sidecar unexpectedly selected capture metadata");
+    } catch (const std::invalid_argument& error) {
+        const std::string message(error.what());
+        QVERIFY(message.find("metadata is missing") != std::string::npos);
+        QVERIFY(message.find("64 KiB size limit") != std::string::npos);
+    }
+    sdr::dsp::RecordedIqSource manual({
+        .path = rawPath.string(), .centerFrequency = 102'000'000, .sampleRate = 250'000});
+    QCOMPARE(manual.captureMetadata().centerFrequency, std::uint64_t{102'000'000});
+    QCOMPARE(manual.captureMetadata().effectiveSampleRate, std::uint64_t{250'000});
 }
 
 void GnuRadioReceiverBackendTest::readsRecordedIqBlocksAndShortFinalBlock()

@@ -5,14 +5,17 @@
 
 #include "DeviceController.hpp"
 
-#include <cmath>
 #include <bit>
+#include <charconv>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <regex>
 #include <stdexcept>
+#include <string_view>
+#include <system_error>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 namespace sdr::dsp {
@@ -23,6 +26,7 @@ constexpr double syntheticToneAmplitude = 0.5;
 constexpr double twoPi = 6.28318530717958647692;
 constexpr std::size_t recordedIqReadBlockSamples = 4'096;
 constexpr std::size_t cf32BytesPerSample = sizeof(float) * 2;
+constexpr std::uintmax_t maximumRecordedIqSidecarBytes = 64 * 1024;
 
 [[nodiscard]] float decodeLittleEndianFloat(const unsigned char* bytes) noexcept
 {
@@ -64,22 +68,401 @@ radio::WidebandIqReadStatus readStatus(devices::DeviceReadStatus status) noexcep
 
 namespace {
 
-[[nodiscard]] std::optional<std::uint64_t> jsonUnsigned(
-    const std::string& json, const char* key)
+enum class JsonType { Null, Boolean, Number, String, Array, Object };
+
+struct JsonValue {
+    JsonValue() = default;
+    JsonValue(JsonType valueType, std::string valueText = {})
+        : type(valueType)
+        , text(std::move(valueText))
+    {
+    }
+
+    JsonType type = JsonType::Null;
+    std::string text;
+    std::vector<JsonValue> array;
+    std::vector<std::pair<std::string, JsonValue>> object;
+};
+
+class JsonParser final
 {
-    const std::regex expression(std::string{"\""} + key + "\\\"\\s*:\\s*([0-9]+)");
-    std::smatch match;
-    if (!std::regex_search(json, match, expression)) return std::nullopt;
-    try { return std::stoull(match[1].str()); } catch (...) { return std::nullopt; }
+public:
+    explicit JsonParser(const std::string& input)
+        : m_input(input)
+    {
+    }
+
+    [[nodiscard]] JsonValue parseDocument()
+    {
+        auto value = parseValue(0);
+        skipWhitespace();
+        if (m_position != m_input.size()) fail("unexpected trailing content");
+        return value;
+    }
+
+private:
+    static constexpr std::size_t maximumDepth = 16;
+
+    [[noreturn]] void fail(const std::string& reason) const
+    {
+        throw std::invalid_argument("Recorded IQ sidecar JSON is malformed: " + reason);
+    }
+
+    void skipWhitespace()
+    {
+        while (m_position < m_input.size()) {
+            const char value = m_input[m_position];
+            if (value != ' ' && value != '\t' && value != '\r' && value != '\n') break;
+            ++m_position;
+        }
+    }
+
+    [[nodiscard]] char take()
+    {
+        if (m_position == m_input.size()) fail("unexpected end of input");
+        return m_input[m_position++];
+    }
+
+    void expect(char expected)
+    {
+        if (take() != expected) fail(std::string("expected '") + expected + "'");
+    }
+
+    [[nodiscard]] JsonValue parseValue(std::size_t depth)
+    {
+        if (depth > maximumDepth) fail("nesting exceeds the 16-level limit");
+        skipWhitespace();
+        if (m_position == m_input.size()) fail("unexpected end of input");
+        switch (m_input[m_position]) {
+        case '{': return parseObject(depth + 1);
+        case '[': return parseArray(depth + 1);
+        case '"': return {JsonType::String, parseString()};
+        case 't': return parseLiteral("true", JsonType::Boolean);
+        case 'f': return parseLiteral("false", JsonType::Boolean);
+        case 'n': return parseLiteral("null", JsonType::Null);
+        default:
+            if (m_input[m_position] == '-' ||
+                (m_input[m_position] >= '0' && m_input[m_position] <= '9')) {
+                return {JsonType::Number, parseNumber()};
+            }
+            fail("expected a JSON value");
+        }
+    }
+
+    [[nodiscard]] JsonValue parseObject(std::size_t depth)
+    {
+        expect('{');
+        JsonValue result;
+        result.type = JsonType::Object;
+        std::unordered_set<std::string> keys;
+        skipWhitespace();
+        if (m_position < m_input.size() && m_input[m_position] == '}') {
+            ++m_position;
+            return result;
+        }
+        while (true) {
+            skipWhitespace();
+            if (m_position == m_input.size() || m_input[m_position] != '"') {
+                fail("object keys must be strings");
+            }
+            const std::string key = parseString();
+            if (!keys.insert(key).second) {
+                fail("duplicate object key '" + key + "'");
+            }
+            skipWhitespace();
+            expect(':');
+            result.object.emplace_back(key, parseValue(depth));
+            skipWhitespace();
+            const char delimiter = take();
+            if (delimiter == '}') return result;
+            if (delimiter != ',') fail("expected ',' or '}' after an object value");
+        }
+    }
+
+    [[nodiscard]] JsonValue parseArray(std::size_t depth)
+    {
+        expect('[');
+        JsonValue result;
+        result.type = JsonType::Array;
+        skipWhitespace();
+        if (m_position < m_input.size() && m_input[m_position] == ']') {
+            ++m_position;
+            return result;
+        }
+        while (true) {
+            result.array.push_back(parseValue(depth));
+            skipWhitespace();
+            const char delimiter = take();
+            if (delimiter == ']') return result;
+            if (delimiter != ',') fail("expected ',' or ']' after an array value");
+        }
+    }
+
+    [[nodiscard]] JsonValue parseLiteral(const char* literal, JsonType type)
+    {
+        const std::string_view value(literal);
+        if (m_input.compare(m_position, value.size(), value) != 0) {
+            fail("invalid literal");
+        }
+        m_position += value.size();
+        return {type};
+    }
+
+    [[nodiscard]] std::string parseNumber()
+    {
+        const std::size_t start = m_position;
+        if (m_input[m_position] == '-') ++m_position;
+        if (m_position == m_input.size()) fail("incomplete number");
+        if (m_input[m_position] == '0') {
+            ++m_position;
+            if (m_position < m_input.size() && m_input[m_position] >= '0' &&
+                m_input[m_position] <= '9') {
+                fail("numbers cannot have leading zeroes");
+            }
+        } else {
+            if (m_input[m_position] < '1' || m_input[m_position] > '9') {
+                fail("invalid number");
+            }
+            do {
+                ++m_position;
+            } while (m_position < m_input.size() && m_input[m_position] >= '0' &&
+                     m_input[m_position] <= '9');
+        }
+        if (m_position < m_input.size() && m_input[m_position] == '.') {
+            ++m_position;
+            const std::size_t fractionStart = m_position;
+            while (m_position < m_input.size() && m_input[m_position] >= '0' &&
+                   m_input[m_position] <= '9') {
+                ++m_position;
+            }
+            if (m_position == fractionStart) fail("fraction is missing digits");
+        }
+        if (m_position < m_input.size() &&
+            (m_input[m_position] == 'e' || m_input[m_position] == 'E')) {
+            ++m_position;
+            if (m_position < m_input.size() &&
+                (m_input[m_position] == '+' || m_input[m_position] == '-')) {
+                ++m_position;
+            }
+            const std::size_t exponentStart = m_position;
+            while (m_position < m_input.size() && m_input[m_position] >= '0' &&
+                   m_input[m_position] <= '9') {
+                ++m_position;
+            }
+            if (m_position == exponentStart) fail("exponent is missing digits");
+        }
+        return m_input.substr(start, m_position - start);
+    }
+
+    [[nodiscard]] static unsigned hexDigit(char value)
+    {
+        if (value >= '0' && value <= '9') return static_cast<unsigned>(value - '0');
+        if (value >= 'a' && value <= 'f') return static_cast<unsigned>(value - 'a' + 10);
+        if (value >= 'A' && value <= 'F') return static_cast<unsigned>(value - 'A' + 10);
+        throw std::invalid_argument("Recorded IQ sidecar JSON is malformed: invalid unicode escape");
+    }
+
+    [[nodiscard]] std::uint32_t parseUnicodeUnit()
+    {
+        if (m_input.size() - m_position < 4) fail("incomplete unicode escape");
+        std::uint32_t result = 0;
+        for (int index = 0; index < 4; ++index) {
+            result = (result << 4U) | hexDigit(m_input[m_position++]);
+        }
+        return result;
+    }
+
+    static void appendUtf8(std::string& output, std::uint32_t codepoint)
+    {
+        if (codepoint <= 0x7fU) {
+            output.push_back(static_cast<char>(codepoint));
+        } else if (codepoint <= 0x7ffU) {
+            output.push_back(static_cast<char>(0xc0U | (codepoint >> 6U)));
+            output.push_back(static_cast<char>(0x80U | (codepoint & 0x3fU)));
+        } else if (codepoint <= 0xffffU) {
+            output.push_back(static_cast<char>(0xe0U | (codepoint >> 12U)));
+            output.push_back(static_cast<char>(0x80U | ((codepoint >> 6U) & 0x3fU)));
+            output.push_back(static_cast<char>(0x80U | (codepoint & 0x3fU)));
+        } else {
+            output.push_back(static_cast<char>(0xf0U | (codepoint >> 18U)));
+            output.push_back(static_cast<char>(0x80U | ((codepoint >> 12U) & 0x3fU)));
+            output.push_back(static_cast<char>(0x80U | ((codepoint >> 6U) & 0x3fU)));
+            output.push_back(static_cast<char>(0x80U | (codepoint & 0x3fU)));
+        }
+    }
+
+    [[nodiscard]] std::string parseString()
+    {
+        expect('"');
+        std::string result;
+        while (m_position < m_input.size()) {
+            const char value = take();
+            if (value == '"') return result;
+            if (static_cast<unsigned char>(value) < 0x20U) {
+                fail("strings cannot contain control characters");
+            }
+            if (value != '\\') {
+                result.push_back(value);
+                continue;
+            }
+            switch (take()) {
+            case '"': result.push_back('"'); break;
+            case '\\': result.push_back('\\'); break;
+            case '/': result.push_back('/'); break;
+            case 'b': result.push_back('\b'); break;
+            case 'f': result.push_back('\f'); break;
+            case 'n': result.push_back('\n'); break;
+            case 'r': result.push_back('\r'); break;
+            case 't': result.push_back('\t'); break;
+            case 'u': {
+                std::uint32_t codepoint = parseUnicodeUnit();
+                if (codepoint >= 0xd800U && codepoint <= 0xdbffU) {
+                    if (m_input.size() - m_position < 6 || take() != '\\' || take() != 'u') {
+                        fail("high surrogate is missing its low surrogate");
+                    }
+                    const std::uint32_t lowSurrogate = parseUnicodeUnit();
+                    if (lowSurrogate < 0xdc00U || lowSurrogate > 0xdfffU) {
+                        fail("high surrogate is followed by an invalid low surrogate");
+                    }
+                    codepoint = 0x10000U + ((codepoint - 0xd800U) << 10U) +
+                        (lowSurrogate - 0xdc00U);
+                } else if (codepoint >= 0xdc00U && codepoint <= 0xdfffU) {
+                    fail("low surrogate is not preceded by a high surrogate");
+                }
+                appendUtf8(result, codepoint);
+                break;
+            }
+            default: fail("invalid string escape");
+            }
+        }
+        fail("unterminated string");
+    }
+
+    const std::string& m_input;
+    std::size_t m_position = 0;
+};
+
+[[nodiscard]] const JsonValue* findObjectField(
+    const JsonValue& object, const char* key) noexcept
+{
+    for (const auto& [name, value] : object.object) {
+        if (name == key) return &value;
+    }
+    return nullptr;
 }
 
-[[nodiscard]] std::optional<std::string> jsonString(
-    const std::string& json, const char* key)
+[[nodiscard]] std::optional<std::uint64_t> strictUnsigned(
+    const JsonValue* value, const char* key, std::string& error)
 {
-    const std::regex expression(std::string{"\""} + key + "\\\"\\s*:\\s*\"([^\"]*)\"");
-    std::smatch match;
-    if (!std::regex_search(json, match, expression)) return std::nullopt;
-    return match[1].str();
+    if (!value) {
+        error = std::string("Recorded IQ sidecar is missing '") + key + "'";
+        return std::nullopt;
+    }
+    if (value->type != JsonType::Number || value->text.empty()) {
+        error = std::string("Recorded IQ sidecar field '") + key + "' must be an unsigned integer";
+        return std::nullopt;
+    }
+    for (const char digit : value->text) {
+        if (digit < '0' || digit > '9') {
+            error = std::string("Recorded IQ sidecar field '") + key + "' must be an unsigned integer";
+            return std::nullopt;
+        }
+    }
+    std::uint64_t result = 0;
+    const auto [end, parseError] = std::from_chars(
+        value->text.data(), value->text.data() + value->text.size(), result);
+    if (parseError != std::errc{} || end != value->text.data() + value->text.size()) {
+        error = std::string("Recorded IQ sidecar field '") + key + "' is outside the unsigned 64-bit range";
+        return std::nullopt;
+    }
+    return result;
+}
+
+[[nodiscard]] bool strictString(
+    const JsonValue* value, const char* key, const char* expected, std::string& error)
+{
+    if (!value) {
+        error = std::string("Recorded IQ sidecar is missing '") + key + "'";
+        return false;
+    }
+    if (value->type != JsonType::String) {
+        error = std::string("Recorded IQ sidecar field '") + key + "' must be a string";
+        return false;
+    }
+    if (value->text != expected) {
+        error = std::string("Recorded IQ sidecar field '") + key + "' must be '" + expected + "'";
+        return false;
+    }
+    return true;
+}
+
+struct RecordedIqSidecarMetadata {
+    std::uint64_t centerFrequency = 0;
+    std::uint64_t sampleRate = 0;
+};
+
+[[nodiscard]] std::optional<RecordedIqSidecarMetadata> readRecordedIqSidecar(
+    const std::filesystem::path& sidecar, std::uint64_t sampleCount, std::string& error)
+{
+    std::error_code fileError;
+    const auto size = std::filesystem::file_size(sidecar, fileError);
+    if (fileError) {
+        error = "Recorded IQ sidecar cannot be read: " + fileError.message();
+        return std::nullopt;
+    }
+    if (size > maximumRecordedIqSidecarBytes) {
+        error = "Recorded IQ sidecar exceeds the 64 KiB size limit";
+        return std::nullopt;
+    }
+    std::ifstream input(sidecar, std::ios::binary);
+    if (!input) {
+        error = "Recorded IQ sidecar cannot be opened";
+        return std::nullopt;
+    }
+    std::string json(static_cast<std::size_t>(size), '\0');
+    input.read(json.data(), static_cast<std::streamsize>(json.size()));
+    if (input.gcount() != static_cast<std::streamsize>(json.size())) {
+        error = "Recorded IQ sidecar could not be read completely";
+        return std::nullopt;
+    }
+
+    try {
+        const JsonValue document = JsonParser(json).parseDocument();
+        if (document.type != JsonType::Object) {
+            error = "Recorded IQ sidecar root must be a JSON object";
+            return std::nullopt;
+        }
+        const auto center = strictUnsigned(
+            findObjectField(document, "hardware_center_frequency_hz"),
+            "hardware_center_frequency_hz", error);
+        if (!center) return std::nullopt;
+        const auto rate = strictUnsigned(
+            findObjectField(document, "sample_rate_hz"), "sample_rate_hz", error);
+        if (!rate) return std::nullopt;
+        if (*center == 0 || *rate == 0) {
+            error = "Recorded IQ sidecar center frequency and sample rate must be positive";
+            return std::nullopt;
+        }
+        if (!strictString(findObjectField(document, "sample_format"), "sample_format",
+                          "cf32_le", error) ||
+            !strictString(findObjectField(document, "byte_order"), "byte_order",
+                          "little-endian", error)) {
+            return std::nullopt;
+        }
+        if (const auto* written = findObjectField(document, "written_sample_count")) {
+            const auto writtenCount = strictUnsigned(
+                written, "written_sample_count", error);
+            if (!writtenCount) return std::nullopt;
+            if (*writtenCount != sampleCount) {
+                error = "Recorded IQ sidecar written_sample_count does not match the raw file";
+                return std::nullopt;
+            }
+        }
+        return RecordedIqSidecarMetadata{*center, *rate};
+    } catch (const std::invalid_argument& parseError) {
+        error = parseError.what();
+        return std::nullopt;
+    }
 }
 
 void validateRecordedConfiguration(radio::RecordedIqSourceConfiguration& configuration,
@@ -98,27 +481,24 @@ void validateRecordedConfiguration(radio::RecordedIqSourceConfiguration& configu
     }
     fs::path sidecar = rawPath;
     sidecar.replace_extension(".json");
-    if (fs::exists(sidecar, error) && !error) {
-        std::ifstream input(sidecar, std::ios::binary);
-        const std::string json((std::istreambuf_iterator<char>(input)), {});
-        const auto center = jsonUnsigned(json, "hardware_center_frequency_hz");
-        const auto rate = jsonUnsigned(json, "sample_rate_hz");
-        const auto format = jsonString(json, "sample_format");
-        const auto byteOrder = jsonString(json, "byte_order");
-        const auto written = jsonUnsigned(json, "written_sample_count");
-        if (center && *center > 0 && rate && *rate > 0 && format && *format == "cf32_le" &&
-            byteOrder && *byteOrder == "little-endian" &&
-            (!written || *written == bytes / 8)) {
-            configuration.centerFrequency = *center;
-            configuration.sampleRate = *rate;
-            configuration.format = *format;
+    std::string sidecarError;
+    if (fs::exists(sidecar, error)) {
+        if (const auto sidecarMetadata =
+                readRecordedIqSidecar(sidecar, bytes / 8, sidecarError)) {
+            configuration.centerFrequency = sidecarMetadata->centerFrequency;
+            configuration.sampleRate = sidecarMetadata->sampleRate;
+            configuration.format = "cf32_le";
         }
+    } else if (error) {
+        sidecarError = "Recorded IQ sidecar cannot be inspected: " + error.message();
     }
     if (configuration.format != "cf32_le") {
         throw std::invalid_argument("Recorded IQ format is unsupported; only cf32_le is supported");
     }
     if (configuration.centerFrequency == 0 || configuration.sampleRate == 0) {
-        throw std::invalid_argument("Recorded IQ metadata is missing; enter a center frequency and sample rate");
+        std::string message = "Recorded IQ metadata is missing";
+        if (!sidecarError.empty()) message += "; " + sidecarError;
+        throw std::invalid_argument(message + "; enter a center frequency and sample rate");
     }
     metadata = {configuration.centerFrequency, configuration.sampleRate};
     sampleCount = bytes / 8;
